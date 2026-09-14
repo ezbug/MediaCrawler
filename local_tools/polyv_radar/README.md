@@ -21,4 +21,12 @@ uv run python -m local_tools.polyv_radar report \
   --run-id <run-id>
 ```
 
-规则层只生成复核队列和回复草稿，不自动发表评论或联系用户。四个平台任务串行运行；平台登录失效会记录为失败并继续处理其他平台。
+如果任务被手动中断或单个关键词超过 `pilot.toml` 中的 `task_timeout_seconds`，先恢复已经写入的 JSONL，再执行分析：
+
+```bash
+uv run python -m local_tools.polyv_radar ingest \
+  --config local_tools/polyv_radar/pilot.toml \
+  --run-id <run-id>
+```
+
+规则层只生成复核队列和回复草稿，不自动发表评论或联系用户。四个平台任务串行运行；平台登录失效、超时或非零退出会记录为部分失败，并保留已抓到的数据。
