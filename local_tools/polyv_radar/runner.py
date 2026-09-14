@@ -243,14 +243,11 @@ def ingest_existing_run(config: RadarConfig, run_id: str) -> CollectionResult:
                 config.max_comments,
             )
             status["contents"] += contents
-            status["comments"] += comments
-        if status["contents"] > 0:
-            status["status"] = "success"
-        elif status["tasks"]:
-            failures[platform] = "未抓取到内容或需要登录"
+        if status["tasks"]:
+            failures[platform] = "任务被中断或未完成，已恢复已落盘数据"
         platform_status[platform] = status
     now = datetime.now(timezone.utc).isoformat()
-    store.save_run(run_id, "success" if not failures else "partial", platform_status, now, now)
+    store.save_run(run_id, "partial", platform_status, now, now)
     store.close()
     return CollectionResult(run_id, store_path, platform_status, failures)
 
