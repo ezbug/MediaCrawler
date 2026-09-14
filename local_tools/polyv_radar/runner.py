@@ -244,11 +244,13 @@ def ingest_existing_run(config: RadarConfig, run_id: str) -> CollectionResult:
             )
             status["contents"] += contents
             status["comments"] += comments
-        if status["tasks"]:
-            failures[platform] = "任务被中断或未完成，已恢复已落盘数据"
+        if status["contents"] > 0:
+            status["status"] = "success"
+        elif status["tasks"]:
+            failures[platform] = "未抓取到内容或需要登录"
         platform_status[platform] = status
     now = datetime.now(timezone.utc).isoformat()
-    store.save_run(run_id, "partial", platform_status, now, now)
+    store.save_run(run_id, "success" if not failures else "partial", platform_status, now, now)
     store.close()
     return CollectionResult(run_id, store_path, platform_status, failures)
 
@@ -306,9 +308,9 @@ def report_store(config: RadarConfig, run_id: str) -> Path:
     row = store.connection.execute("SELECT platform_status FROM runs WHERE run_id = ?", (run_id,)).fetchone()
     platform_status = json.loads(row[0]) if row else {}
     failures = {
-        key: "抓取失败或需要登录"
+        key: "未抓取到有效内容或需要登录"
         for key, value in platform_status.items()
-        if value.get("status") != "success" and value.get("tasks", 0)
+        if value.get("contents", 0) == 0 and value.get("tasks", 0)
     }
     top_contents: list[LeadEvidence] = []
     by_content: dict[tuple[str, str], LeadEvidence] = {}
@@ -317,10 +319,12 @@ def report_store(config: RadarConfig, run_id: str) -> Path:
         if key not in by_content or lead.score > by_content[key].score:
             by_content[key] = lead
     top_contents = sorted(
-        (item for item in by_content.values() if item.score >= 6),
+        (item for item in by_content.values() if item.score >= 4),
         key=lambda item: (-item.score, item.platform, item.content_id),
     )
     report_path = config.data_root / "reports" / f"{run_id}.md"
-    write_report(report_path, render_report(run_id, [lead for lead in leads if lead.score >= 6], top_contents, platform_status, failures))
+    qualified_leads = [lead for lead in leads if lead.score >= 4]
+    write_report(report_path, render_report(run_id, qualified_leads, top_contents, platform_status, failures))
     store.close()
     return report_path
+
