@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { loadUntilStable, profileIdFromUrl } from './ego_helpers.mjs';
 
 const args = process.argv.slice(2);
 const keyword = process.env.KEYWORD || args[0] || "员工培训";
@@ -68,11 +69,13 @@ for (let i = 0; i < targetItems.length; i++) {
     await page.goto(item.url);
     await page.waitForLoadState({ timeout: 15000 }).catch(() => {});
     await new Promise(r => setTimeout(r, 3000));
+    await loadUntilStable(page, '.CommentItemV2, .CommentItem, [class*="CommentItem"]', maxComments);
 
     const pageData = await page.evaluate(() => {
       const titleEl = document.querySelector('h1, .QuestionHeader-title');
       const richTextEl = document.querySelector('.RichContent-inner, .RichText, .Post-RichText');
-      const authorEl = document.querySelector('.AuthorInfo-name, a[href*="/people/"]');
+      const authorLink = document.querySelector('a[href*="/people/"]');
+      const authorEl = authorLink || document.querySelector('.AuthorInfo-name');
       const tags = Array.from(document.querySelectorAll('.QuestionHeader-topics .Tag, a[href*="/topic/"]')).map(a => a.innerText.trim());
 
       // Try reading comments if already open
@@ -80,12 +83,15 @@ for (let i = 0; i < targetItems.length; i++) {
       const parsedComments = [];
       for (let idx = 0; idx < commentNodes.length; idx++) {
         const el = commentNodes[idx];
-        const author = el.querySelector('.UserLink-link, [class*="author"]')?.innerText?.trim() || "知乎用户";
+        const authorLink = el.querySelector('a[href*="/people/"]');
+        const author = authorLink?.innerText?.trim() || el.querySelector('.UserLink-link, [class*="author"]')?.innerText?.trim() || "知乎用户";
         const text = el.querySelector('.CommentItemV2-content, [class*="content"]')?.innerText?.trim() || "";
         if (text) {
           parsedComments.push({
             comment_id: `zh_cm_${idx}_${Date.now()}`,
             author,
+            author_url: authorLink?.href || "",
+            parent_comment_id: el.getAttribute('data-parent-id') || "",
             text,
             likes: 0
           });
@@ -96,6 +102,7 @@ for (let i = 0; i < targetItems.length; i++) {
         title: titleEl ? titleEl.innerText.trim() : "",
         text: richTextEl ? richTextEl.innerText.trim() : "",
         author: authorEl ? authorEl.innerText.trim() : "",
+        author_url: authorLink?.href || "",
         tags,
         comments: parsedComments
       };
@@ -111,6 +118,8 @@ for (let i = 0; i < targetItems.length; i++) {
       text: (pageData.text || item.text || item.title).slice(0, 1500),
       url: item.url,
       author: pageData.author || item.author || "知乎答主",
+      author_url: pageData.author_url || "",
+      author_id: profileIdFromUrl(pageData.author_url, "zhihu"),
       tags: pageData.tags,
       source_keyword: keyword,
       create_time: new Date().toISOString()
@@ -123,6 +132,9 @@ for (let i = 0; i < targetItems.length; i++) {
       content_id: contentId,
       text: c.text,
       author: c.author,
+      author_url: c.author_url || "",
+      author_id: profileIdFromUrl(c.author_url, "zhihu"),
+      parent_comment_id: c.parent_comment_id || "",
       likes: c.likes,
       source_keyword: keyword,
       create_time: new Date().toISOString()

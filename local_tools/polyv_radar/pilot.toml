@@ -9,6 +9,9 @@ comments = true
 sub_comments = true
 task_timeout_seconds = 180
 
+[filters]
+excluded_author_names = ["保利威", "POLYV"]
+
 [keywords]
 "企业直播" = "企业直播平台推荐"
 "私域直播" = "私域直播系统搭建"

@@ -16,6 +16,7 @@ def render_report(
     top_contents: Iterable[LeadEvidence],
     platform_status: dict,
     failures: dict[str, str],
+    funnel_stats: dict | None = None,
 ) -> str:
     leads = sorted(leads, key=lambda item: (-item.score, item.platform, item.content_id))
     top_contents = list(top_contents)
@@ -28,8 +29,41 @@ def render_report(
     for platform, reason in failures.items():
         lines.append(f"- {_cell(platform)}：{_cell(reason)}")
 
-    high_value = [lead for lead in leads if lead.score >= 6]
-    review_candidates = [lead for lead in leads if 4 <= lead.score < 6]
+    if funnel_stats:
+        lines.extend(
+            [
+                "",
+                "## 线索漏斗",
+                "",
+                "| 阶段 | 数量 |",
+                "| --- | ---: |",
+                f"| 初筛内容 | {funnel_stats.get('contents', 0)} |",
+                f"| 初筛评论 | {funnel_stats.get('comments', 0)} |",
+                f"| 规则候选 | {funnel_stats.get('prefilter', 0)} |",
+                f"| 已调查主页 | {funnel_stats.get('profiles', 0)} |",
+                f"| 公开来源 | {funnel_stats.get('external_evidence', 0)} |",
+                f"| 模型高价值 | {funnel_stats.get('high_value', 0)} |",
+                f"| 待人工复核 | {funnel_stats.get('review', 0)} |",
+            ]
+        )
+        query_stats = funnel_stats.get("query_stats", [])
+        if query_stats:
+            lines.extend(
+                [
+                    "",
+                    "### 查询命中统计",
+                    "",
+                    "| 查询 | 内容 | 评论 | 候选 |",
+                    "| --- | ---: | ---: | ---: |",
+                ]
+            )
+            for item in query_stats:
+                lines.append(
+                    f"| {_cell(item['keyword'])} | {item['contents']} | {item['comments']} | {item['leads']} |"
+                )
+
+    high_value = [lead for lead in leads if lead.score >= 6 and lead.stage != "model_rejected" and lead.stage != "model_fallback"]
+    review_candidates = [lead for lead in leads if 4 <= lead.score < 6 or lead.stage == "model_fallback"]
 
     def append_lead_table(title: str, rows: list[LeadEvidence]) -> None:
         lines.extend(
@@ -37,16 +71,17 @@ def render_report(
                 "",
                 title,
                 "",
-                "| 平台 | 用户 | 原话 | 需求类型 | POLYV方向 | 意向 | 原文 | 证据 |",
-                "| --- | --- | --- | --- | --- | ---: | --- | --- |",
+                "| 平台 | 用户 | 主页 | 业务事件 | 原话 | 需求类型 | POLYV方向 | 意向 | 身份 | 原文 | 证据 |",
+                "| --- | --- | --- | --- | --- | --- | --- | ---: | --- | --- | --- |",
             ]
         )
         for lead in rows[:20]:
-            evidence = "; ".join(lead.reasons)
+            evidence = "; ".join(lead.reasons + lead.evidence_urls)
             lines.append(
-                f"| {_cell(lead.platform)} | {_cell(lead.user)} | {_cell(lead.quote)} | "
+                f"| {_cell(lead.platform)} | {_cell(lead.user)} | "
+                f"[主页]({_cell(lead.profile_url)}) | {_cell(lead.event_type)} | {_cell(lead.quote)} | "
                 f"{_cell(lead.category)} | {_cell(lead.solution)} | {lead.score} | "
-                f"[原文]({_cell(lead.url)}) | {_cell(evidence)} |"
+                f"{_cell(lead.identity_confidence)} | [原文]({_cell(lead.url)}) | {_cell(evidence)} |"
             )
 
     append_lead_table("## 高价值潜客 TOP20（评分 ≥6）", high_value)

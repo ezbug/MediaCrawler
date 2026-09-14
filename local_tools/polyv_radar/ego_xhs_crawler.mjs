@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { loadUntilStable, profileIdFromUrl } from './ego_helpers.mjs';
 
 // Support env vars or CLI arguments
 const args = process.argv.slice(2);
@@ -65,11 +66,13 @@ for (let i = 0; i < targetNotes.length; i++) {
     await page.goto(n.url);
     await page.waitForLoadState({ timeout: 15000 }).catch(() => {});
     await new Promise(r => setTimeout(r, 3500));
+    await loadUntilStable(page, '.parent-comment, .comment-item', maxComments);
 
     const pageData = await page.evaluate(() => {
       const titleEl = document.querySelector('#detail-title, .title, [class*="note-title"]');
       const descEl = document.querySelector('#detail-desc, [class*="desc"], [class*="note-text"]');
-      const authorEl = document.querySelector('.author-container, .name, [class*="author"]');
+      const authorLink = document.querySelector('.author-container a, a[href*="/user/profile/"]');
+      const authorEl = authorLink || document.querySelector('.author-container, .name, [class*="author"]');
       const tags = Array.from(document.querySelectorAll('a[href*="/tag/"], a[href*="/search/"]'))
         .map(a => a.innerText.trim())
         .filter(t => t.startsWith('#'));
@@ -81,7 +84,8 @@ for (let i = 0; i < targetNotes.length; i++) {
         const el = commentNodes[idx];
         const lines = el.innerText.split('\n').map(s => s.trim()).filter(Boolean);
         if (lines.length < 2) continue;
-        const author = lines[0];
+        const authorLink = el.querySelector('a[href*="/user/profile/"]');
+        const author = authorLink?.innerText?.trim() || lines[0];
         let text = lines[1];
         if (text === '作者' && lines.length > 2) text = lines[2];
 
@@ -101,6 +105,8 @@ for (let i = 0; i < targetNotes.length; i++) {
         parsedComments.push({
           comment_id: `xhs_cm_${idx}_${Date.now()}`,
           author,
+          author_url: authorLink?.href || "",
+          parent_comment_id: el.getAttribute('data-parent-id') || "",
           text,
           likes
         });
@@ -110,6 +116,7 @@ for (let i = 0; i < targetNotes.length; i++) {
         title: titleEl ? titleEl.innerText.trim() : "",
         desc: descEl ? descEl.innerText.trim() : "",
         author: authorEl ? authorEl.innerText.split('\n')[0].trim() : "小红书用户",
+        author_url: authorLink?.href || "",
         tags,
         comments: parsedComments
       };
@@ -122,6 +129,8 @@ for (let i = 0; i < targetNotes.length; i++) {
       text: (pageData.desc || pageData.title || n.title),
       url: `https://www.xiaohongshu.com/explore/${n.id}`,
       author: pageData.author || "小红书创作者",
+      author_url: pageData.author_url || "",
+      author_id: profileIdFromUrl(pageData.author_url, "xhs"),
       tags: pageData.tags,
       source_keyword: keyword,
       create_time: new Date().toISOString()
@@ -134,6 +143,9 @@ for (let i = 0; i < targetNotes.length; i++) {
       content_id: n.id,
       text: c.text,
       author: c.author,
+      author_url: c.author_url || "",
+      author_id: profileIdFromUrl(c.author_url, "xhs"),
+      parent_comment_id: c.parent_comment_id || "",
       likes: c.likes,
       source_keyword: keyword,
       create_time: new Date().toISOString()

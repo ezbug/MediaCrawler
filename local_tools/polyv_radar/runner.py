@@ -330,6 +330,34 @@ def report_store(config: RadarConfig, run_id: str, output_suffix: str = "") -> P
         for key, value in platform_status.items()
         if value.get("contents", 0) == 0 and value.get("tasks", 0)
     }
+    counts = {
+        "contents": len(store.iter_contents(run_id)),
+        "comments": len(store.iter_comments(run_id)),
+        "prefilter": len(leads),
+        "profiles": int(store.connection.execute("SELECT COUNT(*) FROM profiles WHERE run_id = ?", (run_id,)).fetchone()[0]),
+        "external_evidence": int(store.connection.execute("SELECT COUNT(*) FROM external_evidence WHERE run_id = ?", (run_id,)).fetchone()[0]),
+    }
+    query_counts: dict[str, dict[str, int]] = {}
+    for content in store.iter_contents(run_id):
+        for keyword in content.source_keywords:
+            query_counts.setdefault(keyword, {"keyword": keyword, "contents": 0, "comments": 0, "leads": 0})["contents"] += 1
+    for comment in store.iter_comments(run_id):
+        item = query_counts.setdefault(comment.source_keyword, {"keyword": comment.source_keyword, "contents": 0, "comments": 0, "leads": 0})
+        item["comments"] += 1
+    content_by_key = {(lead.platform, lead.content_id) for lead in leads}
+    for content in store.iter_contents(run_id):
+        if (content.platform, content.content_id) not in content_by_key:
+            continue
+        for keyword in content.source_keywords:
+            query_counts.setdefault(keyword, {"keyword": keyword, "contents": 0, "comments": 0, "leads": 0})["leads"] += 1
+    counts["query_stats"] = sorted(query_counts.values(), key=lambda item: (-item["leads"], -item["comments"], item["keyword"]))
+    assessment_rows = store.connection.execute("SELECT payload FROM lead_assessments WHERE run_id = ?", (run_id,)).fetchall()
+    for row in assessment_rows:
+        payload = json.loads(row[0])
+        if payload.get("decision") == "high_value" and payload.get("score", 0) >= 6:
+            counts["high_value"] = counts.get("high_value", 0) + 1
+        if payload.get("decision") == "review" and payload.get("score", 0) >= 4:
+            counts["review"] = counts.get("review", 0) + 1
     top_contents: list[LeadEvidence] = []
     by_content: dict[tuple[str, str], LeadEvidence] = {}
     for lead in leads:
@@ -337,12 +365,12 @@ def report_store(config: RadarConfig, run_id: str, output_suffix: str = "") -> P
         if key not in by_content or lead.score > by_content[key].score:
             by_content[key] = lead
     top_contents = sorted(
-        (item for item in by_content.values() if item.score >= 6),
+        (item for item in by_content.values() if item.score >= 6 and item.stage not in {"model_fallback", "model_rejected"}),
         key=lambda item: (-item.score, item.platform, item.content_id),
     )
     suffix = f"-{output_suffix.strip('-')}" if output_suffix.strip('-') else ""
     report_path = config.data_root / "reports" / f"{run_id}{suffix}.md"
     qualified_leads = [lead for lead in leads if lead.score >= 4]
-    write_report(report_path, render_report(run_id, qualified_leads, top_contents, platform_status, failures))
+    write_report(report_path, render_report(run_id, qualified_leads, top_contents, platform_status, failures, counts))
     store.close()
     return report_path

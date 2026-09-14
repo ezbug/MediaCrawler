@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { loadUntilStable, profileIdFromUrl } from './ego_helpers.mjs';
 
 const args = process.argv.slice(2);
 const keyword = process.env.KEYWORD || args[0] || "员工培训";
@@ -65,14 +66,15 @@ for (let i = 0; i < targetVideos.length; i++) {
     await page.waitForLoadState({ timeout: 15000 }).catch(() => {});
     await new Promise(r => setTimeout(r, 2500));
 
-    // Scroll down to load comments
     await page.evaluate(() => window.scrollBy(0, 1200));
     await new Promise(r => setTimeout(r, 3500));
+    await loadUntilStable(page, 'bili-comments bili-comment-thread-renderer', maxComments);
 
     const pageData = await page.evaluate(() => {
       const titleEl = document.querySelector('h1, .video-title, [class*="video-title"]');
       const descEl = document.querySelector('.basic-desc-info, .desc-info-text, [class*="desc"]');
-      const upEl = document.querySelector('.up-name, a[href*="space.bilibili.com"], .up-info__name');
+      const upLink = document.querySelector('a[href*="space.bilibili.com"]');
+      const upEl = upLink || document.querySelector('.up-name, .up-info__name');
       const tags = Array.from(document.querySelectorAll('.tag-link, a[href*="/tag/"]')).map(a => a.innerText.trim());
 
       const c = document.querySelector('bili-comments');
@@ -92,6 +94,7 @@ for (let i = 0; i < targetVideos.length; i++) {
         parsedComments.push({
           comment_id: `bili_cm_${idx}_${Date.now()}`,
           author: user.trim(),
+          author_url: userInfo?.shadowRoot?.querySelector('a[href*="space.bilibili.com"]')?.href || "",
           text: text.trim(),
           likes: 0
         });
@@ -101,6 +104,7 @@ for (let i = 0; i < targetVideos.length; i++) {
         title: titleEl ? titleEl.innerText.trim() : "",
         desc: descEl ? descEl.innerText.trim() : "",
         author: upEl ? upEl.innerText.trim() : "B站创作者",
+        author_url: upLink?.href || "",
         tags,
         comments: parsedComments
       };
@@ -113,6 +117,8 @@ for (let i = 0; i < targetVideos.length; i++) {
       text: pageData.desc || pageData.title || v.title,
       url: v.url,
       author: pageData.author || "B站创作者",
+      author_url: pageData.author_url || "",
+      author_id: profileIdFromUrl(pageData.author_url, "bili"),
       tags: pageData.tags,
       source_keyword: keyword,
       create_time: new Date().toISOString()
@@ -125,6 +131,8 @@ for (let i = 0; i < targetVideos.length; i++) {
       content_id: v.bvid,
       text: c.text,
       author: c.author,
+      author_url: c.author_url || "",
+      author_id: profileIdFromUrl(c.author_url, "bili"),
       likes: c.likes,
       source_keyword: keyword,
       create_time: new Date().toISOString()

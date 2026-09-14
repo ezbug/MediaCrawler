@@ -18,6 +18,7 @@ class RadarConfig:
     comments: bool = True
     sub_comments: bool = True
     task_timeout_seconds: int = 180
+    excluded_author_names: tuple[str, ...] = ()
 
     @property
     def category_by_keyword(self) -> dict[str, str]:
@@ -55,4 +56,5 @@ def load_config(path: Path) -> RadarConfig:
         comments=bool(run.get("comments", True)),
         sub_comments=bool(run.get("sub_comments", True)),
         task_timeout_seconds=int(run.get("task_timeout_seconds", 180)),
+        excluded_author_names=tuple(str(item) for item in raw.get("filters", {}).get("excluded_author_names", [])),
     )

@@ -7,6 +7,7 @@ import argparse
 import json
 import subprocess
 import sys
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -23,6 +24,14 @@ PLATFORM_SCRIPTS = {
     "bili": "ego_bili_crawler.mjs",
     "zhihu": "ego_zhihu_crawler.mjs",
 }
+
+
+def build_ego_launcher(script_path: Path, keyword: str, max_contents: int, max_comments: int, out_dir: Path) -> str:
+    return (
+        f"process.argv = [\"node\", {json.dumps(script_path.as_posix(), ensure_ascii=False)}, {json.dumps(keyword, ensure_ascii=False)}, "
+        f"{json.dumps(str(max_contents))}, {json.dumps(str(max_comments))}, {json.dumps(out_dir.as_posix(), ensure_ascii=False)}];\n"
+        f"await import({json.dumps(script_path.as_posix(), ensure_ascii=False)});\n"
+    )
 
 
 def run_ego_crawlers(run_id: str, platforms: list[str], config, repo_root: Path, data_root: Path) -> dict[str, bool]:
@@ -50,10 +59,7 @@ def run_ego_crawlers(run_id: str, platforms: list[str], config, repo_root: Path,
             print(f"[+] Launching ego lite crawler: {plat.upper()} | 关键词: {keyword}")
             print(f"==========================================")
 
-            runner_script = f"""
-process.argv = ["node", "{script_path.as_posix()}", "{keyword}", "5", "10", "{out_dir.as_posix()}"];
-await import('{script_path.as_posix()}');
-"""
+            runner_script = build_ego_launcher(script_path, keyword, config.max_contents, config.max_comments, out_dir)
             try:
                 res = subprocess.run(
                     ["ego-browser", "nodejs"],
@@ -85,11 +91,20 @@ def main() -> int:
     parser.add_argument("--platforms", nargs="+", default=["dy", "xhs", "bili", "zhihu"], choices=["dy", "xhs", "bili", "zhihu"])
     parser.add_argument("--run-id", default=None, help="Use existing run_id instead of crawling")
     parser.add_argument("--skip-crawl", action="store_true", help="Skip crawling and only run ingest/analyze/report")
+    parser.add_argument("--max-contents", type=int, default=None)
+    parser.add_argument("--max-comments", type=int, default=None)
     args = parser.parse_args()
 
     repo_root = Path(__file__).resolve().parents[2]
     config_path = (repo_root / args.config) if not Path(args.config).is_absolute() else Path(args.config)
     config = load_config(config_path)
+    overrides = {}
+    if args.max_contents is not None:
+        overrides["max_contents"] = args.max_contents
+    if args.max_comments is not None:
+        overrides["max_comments"] = args.max_comments
+    if overrides:
+        config = replace(config, **overrides)
 
     run_id = args.run_id or datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
 

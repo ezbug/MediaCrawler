@@ -12,8 +12,9 @@ from local_tools.polyv_radar.enrichment import (
     classify_identity_confidence,
     extract_company_role,
 )
+from local_tools.polyv_radar.ego_crawl_all import build_ego_launcher
 from local_tools.polyv_radar.models import LeadEvidence
-from local_tools.polyv_radar.review import parse_review_payload, review_schema
+from local_tools.polyv_radar.review import enforce_review_gates, parse_review_payload, review_schema
 from local_tools.polyv_radar.scoring import score_purchase_evidence
 from local_tools.polyv_radar.storage import RadarStore
 
@@ -118,6 +119,18 @@ def test_candidate_enrichment_is_capped_and_deduplicated() -> None:
     assert len({item.author_id for item in selected}) == 50
 
 
+def test_prefilter_excludes_configured_first_party_author() -> None:
+    content = _content("全国经销商大会 企业培训平台")
+    comment = _comment("我们公司下个月要做经销商培训，求平台报价")
+    assert content is not None and comment is not None
+    comment.author = "保利威的小何"
+
+    from local_tools.polyv_radar.pipeline import build_prefilter_leads
+
+    leads = build_prefilter_leads([content], [comment], excluded_author_names=("保利威",))
+    assert leads == []
+
+
 def test_existing_database_migration_preserves_rows(tmp_path: Path) -> None:
     path = tmp_path / "legacy.sqlite3"
     connection = sqlite3.connect(path)
@@ -178,6 +191,34 @@ def test_codex_review_payload_requires_evidence_references() -> None:
     assert parse_review_payload(invalid, {"https://example.com/post"}) is None
 
 
+def test_review_gate_demotes_high_score_without_business_evidence() -> None:
+    payload = {
+        "score": 8,
+        "dimensions": {
+            "business_scene": 2,
+            "project_timing": 2,
+            "platform_intent": 2,
+            "delivery_inquiry": 2,
+            "identity": 0,
+        },
+        "event_type": "企业直播",
+        "identity_confidence": "low",
+        "evidence": [],
+        "decision": "high_value",
+        "reason": "模型原始判断",
+    }
+
+    gated = enforce_review_gates(payload, {"profile": {"identity_confidence": "low"}})
+
+    assert gated["decision"] == "high_value"
+    assert gated["score"] == 8
+
+    payload["dimensions"]["business_scene"] = 0
+    payload["score"] = 6
+    gated = enforce_review_gates(payload, {"profile": {"identity_confidence": "low"}})
+    assert gated["decision"] == "review"
+
+
 def test_config_contains_event_query_volume() -> None:
     config = load_config(Path("local_tools/polyv_radar/pilot.toml"))
     total = sum(len(config.get_keywords_for_platform(platform)) for platform in config.platforms)
@@ -185,3 +226,11 @@ def test_config_contains_event_query_volume() -> None:
     assert total >= 30
     assert config.max_contents == 15
     assert config.max_comments == 30
+
+
+def test_ego_launcher_uses_configured_collection_limits(tmp_path: Path) -> None:
+    launcher = build_ego_launcher(Path("crawler.mjs"), "经销商大会", 15, 30, tmp_path)
+
+    assert '"经销商大会"' in launcher
+    assert '"15"' in launcher
+    assert '"30"' in launcher

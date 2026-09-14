@@ -77,6 +77,7 @@ class LeadEvidence:
     dimensions: dict[str, int] = field(default_factory=dict)
     evidence_urls: list[str] = field(default_factory=list)
     stage: str = "legacy"
+    decision: str = ""
     rejection_reason: str = ""
     author_id: str = ""
 

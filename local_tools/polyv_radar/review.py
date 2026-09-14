@@ -71,6 +71,26 @@ def parse_review_payload(payload: dict[str, Any], allowed_urls: set[str]) -> dic
     return payload
 
 
+def enforce_review_gates(payload: dict[str, Any], candidate: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(payload)
+    dimensions = dict(payload["dimensions"])
+    profile_confidence = str(candidate.get("profile", {}).get("identity_confidence", "low"))
+    if profile_confidence == "low":
+        dimensions["identity"] = 0
+    elif profile_confidence == "medium":
+        dimensions["identity"] = min(dimensions["identity"], 1)
+    normalized["dimensions"] = dimensions
+    normalized["score"] = sum(dimensions.values())
+    if normalized["decision"] == "high_value" and (
+        dimensions["business_scene"] == 0
+        or (dimensions["project_timing"] == 0 and dimensions["platform_intent"] == 0)
+        or normalized["score"] < 6
+    ):
+        normalized["decision"] = "review"
+        normalized["reason"] = "未同时满足企业场景与近期项目或平台选型证据，转人工复核"
+    return normalized
+
+
 def _extract_json(text: str) -> dict[str, Any] | None:
     text = (text or "").strip()
     try:
@@ -137,5 +157,6 @@ def run_codex_review(
         return None, "model_failed"
     payload = _extract_json(completed.stdout)
     parsed = parse_review_payload(payload or {}, allowed_urls)
-    return (parsed, "model_verified") if parsed else (None, "model_invalid")
-
+    if not parsed:
+        return None, "model_invalid"
+    return enforce_review_gates(parsed, candidate), "model_verified"

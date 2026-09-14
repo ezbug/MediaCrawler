@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { loadUntilStable, profileIdFromUrl } from './ego_helpers.mjs';
 
 const args = process.argv.slice(2);
 const keyword = process.env.KEYWORD || args[0] || "企业直播平台推荐";
@@ -68,10 +69,12 @@ for (let i = 0; i < targetVideos.length; i++) {
     await page.goto(v.url);
     await page.waitForLoadState({ timeout: 15000 }).catch(() => {});
     await new Promise(r => setTimeout(r, 3500));
+    await loadUntilStable(page, '[data-e2e="comment-item"]', maxComments);
 
     const pageData = await page.evaluate(() => {
       const descEl = document.querySelector('h1, [data-e2e="video-desc"], div[class*="desc"], div[class*="title"]');
-      const authorEl = document.querySelector('[data-e2e="user-info"] a, a[href*="/user/"] span, [class*="author"]');
+      const authorLink = document.querySelector('[data-e2e="user-info"] a[href*="/user/"], a[href*="/user/"]');
+      const authorEl = authorLink || document.querySelector('[data-e2e="user-info"] span, [class*="author"]');
       const tags = Array.from(document.querySelectorAll('a[href*="/tag/"], a[href*="/search/"]'))
         .map(a => a.innerText.trim())
         .filter(t => t.startsWith('#'));
@@ -82,7 +85,8 @@ for (let i = 0; i < targetVideos.length; i++) {
       for (let idx = 0; idx < commentItems.length; idx++) {
         const el = commentItems[idx];
         const lines = el.innerText.split('\n').map(s => s.trim()).filter(Boolean);
-        const author = lines[0] || "";
+        const authorLink = el.querySelector('a[href*="/user/"]');
+        const author = authorLink?.innerText?.trim() || lines[0] || "";
         let text = lines[1] || "";
         if (text === '...' && lines.length > 2) text = lines[2];
         if (text === '作者' && lines.length > 3) text = lines[3];
@@ -98,6 +102,8 @@ for (let i = 0; i < targetVideos.length; i++) {
         parsedComments.push({
           comment_id: `cm_${idx}_${Date.now()}`,
           author,
+          author_url: authorLink?.href || "",
+          parent_comment_id: el.getAttribute('data-parent-id') || "",
           text,
           likes
         });
@@ -107,6 +113,7 @@ for (let i = 0; i < targetVideos.length; i++) {
         title: document.title.replace(/ - 抖音$/, "").trim(),
         desc: descEl ? descEl.innerText.trim() : "",
         author: authorEl ? authorEl.innerText.trim() : "",
+        author_url: authorLink?.href || "",
         tags,
         comments: parsedComments
       };
@@ -119,6 +126,8 @@ for (let i = 0; i < targetVideos.length; i++) {
       text: pageData.desc || v.rawSnippet || pageData.title,
       url: v.url,
       author: pageData.author || "抖音创作者",
+      author_url: pageData.author_url || "",
+      author_id: profileIdFromUrl(pageData.author_url, "dy"),
       tags: pageData.tags,
       source_keyword: keyword,
       create_time: new Date().toISOString()
@@ -131,6 +140,9 @@ for (let i = 0; i < targetVideos.length; i++) {
       content_id: v.id,
       text: c.text,
       author: c.author,
+      author_url: c.author_url || "",
+      author_id: profileIdFromUrl(c.author_url, "dy"),
+      parent_comment_id: c.parent_comment_id || "",
       likes: c.likes,
       source_keyword: keyword,
       create_time: new Date().toISOString()
