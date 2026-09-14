@@ -9,6 +9,18 @@ uv run python -m local_tools.polyv_radar collect \
   --config local_tools/polyv_radar/pilot.toml
 ```
 
+只测试一个平台和关键词时，可以覆盖配置文件中的范围和数量：
+
+```bash
+uv run python -m local_tools.polyv_radar collect \
+  --config local_tools/polyv_radar/pilot.toml \
+  --platform dy \
+  --keyword "员工培训" \
+  --max-contents 5 \
+  --max-comments 10 \
+  --task-timeout-seconds 180
+```
+
 采集完成后，使用输出中的 `run_id` 分析和生成报告：
 
 ```bash

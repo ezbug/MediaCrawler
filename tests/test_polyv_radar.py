@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from local_tools.polyv_radar.adapters import normalize_comment, normalize_content
+from local_tools.polyv_radar.cli import apply_collect_overrides
 from local_tools.polyv_radar.config import RadarConfig
 from local_tools.polyv_radar.models import LeadEvidence
 from local_tools.polyv_radar.report import render_report
@@ -314,7 +315,12 @@ def test_collect_keeps_jsonl_when_task_times_out(tmp_path: Path) -> None:
             '{"aweme_id":"dy-timeout","desc":"员工培训","aweme_url":"https://www.douyin.com/video/dy-timeout"}\n',
             encoding="utf-8",
         )
-        raise subprocess.TimeoutExpired(command, 7, output="部分输出", stderr="等待超时")
+        raise subprocess.TimeoutExpired(
+            command,
+            7,
+            output="部分输出".encode(),
+            stderr="等待超时".encode(),
+        )
 
     from local_tools.polyv_radar.runner import collect
 
@@ -331,3 +337,26 @@ def test_collect_keeps_jsonl_when_task_times_out(tmp_path: Path) -> None:
 
     assert result.platform_status["dy"]["contents"] == 1
     assert "任务超时" in result.failures["dy:员工培训"]
+
+
+def test_collect_overrides_limit_a_run_to_selected_keyword_and_platform() -> None:
+    config = RadarConfig(
+        data_root=Path("/tmp/radar-data"),
+        platforms=["dy", "xhs"],
+        keywords={"企业培训": "员工培训", "企业直播": "发布会直播"},
+    )
+    args = SimpleNamespace(
+        platform=["dy"],
+        keyword=["员工培训"],
+        max_contents=5,
+        max_comments=10,
+        task_timeout_seconds=60,
+    )
+
+    limited = apply_collect_overrides(config, args)
+
+    assert limited.platforms == ["dy"]
+    assert limited.keywords == {"企业培训": "员工培训"}
+    assert limited.max_contents == 5
+    assert limited.max_comments == 10
+    assert limited.task_timeout_seconds == 60

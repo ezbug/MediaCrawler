@@ -90,6 +90,12 @@ def _read_jsonl(path: Path) -> Iterable[dict]:
                 yield json.loads(line)
 
 
+def _as_text(value: object) -> str:
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value or "")
+
+
 def _output_status(
     output_dir: Path,
     platform: str,
@@ -166,14 +172,17 @@ def collect(config: RadarConfig, repo_root: Path, runner: Callable[..., subproce
                 )
             log_path = output_dir / "crawler.log"
             log_prefix = f"任务超过 {config.task_timeout_seconds} 秒，保留已落盘数据并继续。\n" if timed_out else ""
-            log_path.write_text(log_prefix + (completed.stdout or "") + "\n" + (completed.stderr or ""), encoding="utf-8")
+            log_path.write_text(
+                log_prefix + _as_text(completed.stdout) + "\n" + _as_text(completed.stderr),
+                encoding="utf-8",
+            )
             contents, comments = _output_status(output_dir, platform, keyword, store)
             status["contents"] += contents
             status["comments"] += comments
             if completed.returncode != 0:
                 status["status"] = "partial"
-                reason = "任务超时，已保留部分数据" if timed_out else (completed.stderr or completed.stdout or "退出码非零")
-                failures[f"{platform}:{keyword}"] = reason.strip()[-500:]
+                reason = "任务超时，已保留部分数据" if timed_out else _as_text(completed.stderr or completed.stdout or "退出码非零")
+                failures[f"{platform}:{keyword}"] = _as_text(reason).strip()[-500:]
                 continue
         platform_status[platform] = status
     final_status = "success" if not failures else "partial"
