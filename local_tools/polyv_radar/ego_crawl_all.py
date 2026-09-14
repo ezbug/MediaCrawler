@@ -21,7 +21,7 @@ PLATFORM_SCRIPTS = {
 }
 
 
-def run_ego_crawlers(run_id: str, platforms: list[str], repo_root: Path, data_root: Path) -> dict[str, bool]:
+def run_ego_crawlers(run_id: str, platforms: list[str], keywords: dict[str, str], repo_root: Path, data_root: Path) -> dict[str, bool]:
     results = {}
     tools_dir = repo_root / "local_tools" / "polyv_radar"
     raw_dir = data_root / "raw" / run_id
@@ -35,40 +35,42 @@ def run_ego_crawlers(run_id: str, platforms: list[str], repo_root: Path, data_ro
             continue
 
         script_path = tools_dir / script_name
-        print(f"\n==========================================")
-        print(f"[+] Launching ego lite crawler for {plat.upper()}...")
-        print(f"==========================================")
+        plat_success = True
 
-        cmd = ["ego-browser", "nodejs"]
-        inline_script = f"""
-const mod = await import('{script_path.as_posix()}');
-const fn = Object.values(mod).find(v => typeof v === 'function');
-if (fn) {{
-  await fn('{run_id}');
-}} else {{
-  console.error("No export function found in {script_name}");
-}}
+        for category, keyword in keywords.items():
+            out_dir = raw_dir / plat / keyword
+            out_dir.mkdir(parents=True, exist_ok=True)
+
+            print(f"\n==========================================")
+            print(f"[+] Launching ego lite crawler: {plat.upper()} | 关键词: {keyword}")
+            print(f"==========================================")
+
+            runner_script = f"""
+process.argv = ["node", "{script_path.as_posix()}", "{keyword}", "5", "10", "{out_dir.as_posix()}"];
+await import('{script_path.as_posix()}');
 """
-        try:
-            res = subprocess.run(
-                cmd,
-                input=inline_script,
-                text=True,
-                capture_output=True,
-                check=False,
-                timeout=300
-            )
-            print(res.stdout)
-            if res.stderr:
-                print(res.stderr, file=sys.stderr)
-            results[plat] = (res.returncode == 0)
-        except subprocess.TimeoutExpired:
-            print(f"[-] {plat.upper()} crawler timed out after 300s", file=sys.stderr)
-            results[plat] = False
-        except Exception as e:
-            print(f"[-] {plat.upper()} failed: {e}", file=sys.stderr)
-            results[plat] = False
+            try:
+                res = subprocess.run(
+                    ["ego-browser", "nodejs"],
+                    input=runner_script,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=240
+                )
+                print(res.stdout)
+                if res.stderr:
+                    print(res.stderr, file=sys.stderr)
+                if res.returncode != 0:
+                    plat_success = False
+            except subprocess.TimeoutExpired:
+                print(f"[-] {plat.upper()} crawler timed out on keyword {keyword}", file=sys.stderr)
+                plat_success = False
+            except Exception as e:
+                print(f"[-] {plat.upper()} failed on keyword {keyword}: {e}", file=sys.stderr)
+                plat_success = False
 
+        results[plat] = plat_success
     return results
 
 
@@ -88,7 +90,7 @@ def main() -> int:
 
     if not args.skip_crawl:
         print(f"[*] Starting 4-platform ego lite crawl. Run ID: {run_id}")
-        crawl_results = run_ego_crawlers(run_id, args.platforms, repo_root, config.data_root)
+        crawl_results = run_ego_crawlers(run_id, args.platforms, config.keywords, repo_root, config.data_root)
         print(f"[*] Crawl results: {json.dumps(crawl_results, ensure_ascii=False)}")
 
     print(f"\n[*] Ingesting crawled data into SQLite store ({config.data_root / 'radar.sqlite3'})...")

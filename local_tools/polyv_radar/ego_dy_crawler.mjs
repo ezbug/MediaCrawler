@@ -1,10 +1,11 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-const keyword = process.env.KEYWORD || "员工培训";
-const maxContents = parseInt(process.env.MAX_CONTENTS || "5", 10);
-const maxComments = parseInt(process.env.MAX_COMMENTS || "10", 10);
-const outputDir = process.env.OUTPUT_DIR || `/Users/sexpistole111/Documents/workplace/polyv-radar-data/raw/test/dy/${keyword}`;
+const args = process.argv.slice(2);
+const keyword = process.env.KEYWORD || args[0] || "企业直播平台推荐";
+const maxContents = parseInt(process.env.MAX_CONTENTS || args[1] || "5", 10);
+const maxComments = parseInt(process.env.MAX_COMMENTS || args[2] || "10", 10);
+const outputDir = process.env.OUTPUT_DIR || args[3] || `/Users/sexpistole111/Documents/workplace/polyv-radar-data/raw/test/dy/${keyword}`;
 
 await fs.mkdir(outputDir, { recursive: true });
 
