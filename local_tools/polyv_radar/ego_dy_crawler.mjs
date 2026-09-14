@@ -1,0 +1,162 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+
+const keyword = process.env.KEYWORD || "员工培训";
+const maxContents = parseInt(process.env.MAX_CONTENTS || "5", 10);
+const maxComments = parseInt(process.env.MAX_COMMENTS || "10", 10);
+const outputDir = process.env.OUTPUT_DIR || `/Users/sexpistole111/Documents/workplace/polyv-radar-data/raw/test/dy/${keyword}`;
+
+await fs.mkdir(outputDir, { recursive: true });
+
+let task;
+try {
+  task = await takeOverTaskSpace(8);
+} catch (e) {
+  try {
+    task = await taskSpace(8);
+  } catch (err) {
+    task = await taskSpace("douyin ego scraper");
+  }
+}
+
+const page = task.page("p1");
+
+console.log(`[EgoCrawler] Searching Douyin for "${keyword}" (max ${maxContents} videos)...`);
+const searchUrl = `https://www.douyin.com/search/${encodeURIComponent(keyword)}?type=video`;
+await page.goto(searchUrl);
+await page.waitForLoadState({ timeout: 15000 }).catch(() => {});
+await new Promise(r => setTimeout(r, 4000));
+
+// Extract search results
+const candidateVideos = await page.evaluate(() => {
+  const results = [];
+  const links = Array.from(document.querySelectorAll('a[href*="/video/"]'));
+  for (const a of links) {
+    const href = a.href;
+    const match = href.match(/\/video\/(\d+)/);
+    if (!match) continue;
+    const id = match[1];
+    if (results.some(r => r.id === id)) continue;
+
+    let container = a;
+    for (let i = 0; i < 4; i++) {
+      if (container.parentElement) container = container.parentElement;
+    }
+    const fullText = container.innerText || a.innerText;
+
+    results.push({
+      id,
+      url: `https://www.douyin.com/video/${id}`,
+      title: a.innerText.trim().replace(/\n+/g, " "),
+      rawSnippet: fullText.slice(0, 300).replace(/\n+/g, " ")
+    });
+  }
+  return results;
+});
+
+const targetVideos = candidateVideos.slice(0, maxContents);
+console.log(`[EgoCrawler] Found ${candidateVideos.length} candidates, selected ${targetVideos.length} videos.`);
+
+const contents = [];
+const comments = [];
+
+for (let i = 0; i < targetVideos.length; i++) {
+  const v = targetVideos[i];
+  console.log(`[EgoCrawler] (${i + 1}/${targetVideos.length}) Fetching video: ${v.url}`);
+  try {
+    await page.goto(v.url);
+    await page.waitForLoadState({ timeout: 15000 }).catch(() => {});
+    await new Promise(r => setTimeout(r, 3500));
+
+    const pageData = await page.evaluate(() => {
+      const descEl = document.querySelector('h1, [data-e2e="video-desc"], div[class*="desc"], div[class*="title"]');
+      const authorEl = document.querySelector('[data-e2e="user-info"] a, a[href*="/user/"] span, [class*="author"]');
+      const tags = Array.from(document.querySelectorAll('a[href*="/tag/"], a[href*="/search/"]'))
+        .map(a => a.innerText.trim())
+        .filter(t => t.startsWith('#'));
+
+      // Extract comment items
+      const commentItems = document.querySelectorAll('[data-e2e="comment-item"]');
+      const parsedComments = [];
+      for (let idx = 0; idx < commentItems.length; idx++) {
+        const el = commentItems[idx];
+        const lines = el.innerText.split('\n').map(s => s.trim()).filter(Boolean);
+        const author = lines[0] || "";
+        let text = lines[1] || "";
+        if (text === '...' && lines.length > 2) text = lines[2];
+        if (text === '作者' && lines.length > 3) text = lines[3];
+
+        let likes = 0;
+        for (const l of lines) {
+          if (/^\d+$/.test(l)) {
+            likes = parseInt(l, 10);
+            break;
+          }
+        }
+
+        parsedComments.push({
+          comment_id: `cm_${idx}_${Date.now()}`,
+          author,
+          text,
+          likes
+        });
+      }
+
+      return {
+        title: document.title.replace(/ - 抖音$/, "").trim(),
+        desc: descEl ? descEl.innerText.trim() : "",
+        author: authorEl ? authorEl.innerText.trim() : "",
+        tags,
+        comments: parsedComments
+      };
+    });
+
+    const contentRecord = {
+      platform: "dy",
+      content_id: v.id,
+      title: pageData.desc || pageData.title || v.title,
+      text: pageData.desc || v.rawSnippet || pageData.title,
+      url: v.url,
+      author: pageData.author || "抖音创作者",
+      tags: pageData.tags,
+      source_keyword: keyword,
+      create_time: new Date().toISOString()
+    };
+    contents.push(contentRecord);
+
+    const videoComments = pageData.comments.slice(0, maxComments).map(c => ({
+      platform: "dy",
+      comment_id: `${v.id}_${c.comment_id}`,
+      content_id: v.id,
+      text: c.text,
+      author: c.author,
+      likes: c.likes,
+      source_keyword: keyword,
+      create_time: new Date().toISOString()
+    }));
+    comments.push(...videoComments);
+
+    console.log(`  -> Extracted: "${contentRecord.title.slice(0, 30)}..." | ${videoComments.length} comments`);
+  } catch (err) {
+    console.error(`  -> Failed fetching video ${v.id}:`, err.message);
+  }
+}
+
+// Write JSONL
+const contentsFile = path.join(outputDir, "dy_videos.jsonl");
+const commentsFile = path.join(outputDir, "dy_comments.jsonl");
+
+await fs.writeFile(
+  contentsFile,
+  contents.map(c => JSON.stringify(c)).join("\n") + "\n",
+  "utf-8"
+);
+await fs.writeFile(
+  commentsFile,
+  comments.map(c => JSON.stringify(c)).join("\n") + "\n",
+  "utf-8"
+);
+
+console.log(`[EgoCrawler] Successfully saved:`);
+console.log(`  - Contents: ${contents.length} -> ${contentsFile}`);
+console.log(`  - Comments: ${comments.length} -> ${commentsFile}`);
