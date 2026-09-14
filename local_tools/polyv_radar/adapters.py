@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import re
 from typing import Any
 
 from .models import CommentRecord, ContentRecord
@@ -71,6 +72,16 @@ def _content_id(platform: str, raw: dict[str, Any]) -> str:
     return str(_first(raw, "content_id", "question_id", "id"))
 
 
+def _bilibili_url(content_id: str, raw_url: str) -> str:
+    match = re.search(r"/video/(?:av)?(BV[\w]+)", raw_url)
+    bvid = match.group(1) if match else content_id
+    if bvid.startswith("BV"):
+        return f"https://www.bilibili.com/video/{bvid}/"
+    if bvid.isdigit():
+        return f"https://www.bilibili.com/video/av{bvid}"
+    return raw_url or f"https://www.bilibili.com/video/{bvid}/"
+
+
 def normalize_content(platform: str, raw: dict[str, Any], source_keyword: str) -> ContentRecord | None:
     platform = _platform_name(platform)
     content_id = _content_id(platform, raw)
@@ -79,12 +90,14 @@ def normalize_content(platform: str, raw: dict[str, Any], source_keyword: str) -
 
     title = str(_first(raw, "title", "desc", "content_text", default=""))
     text = str(_first(raw, "desc", "content_text", "content", "title", default=title))
-    url = str(_first(raw, "aweme_url", "note_url", "video_url", "content_url", default=""))
+    url = str(_first(raw, "aweme_url", "note_url", "video_url", "content_url", "url", default=""))
+    if platform == "bili":
+        url = _bilibili_url(content_id, url)
     if not url:
         url = {
             "dy": f"https://www.douyin.com/video/{content_id}",
             "xhs": f"https://www.xiaohongshu.com/explore/{content_id}",
-            "bili": f"https://www.bilibili.com/video/av{content_id}",
+            "bili": _bilibili_url(content_id, ""),
             "zhihu": f"https://www.zhihu.com/question/{content_id}",
         }.get(platform, "")
 

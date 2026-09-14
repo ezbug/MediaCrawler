@@ -28,22 +28,29 @@ def render_report(
     for platform, reason in failures.items():
         lines.append(f"- {_cell(platform)}：{_cell(reason)}")
 
-    lines.extend(
-        [
-            "",
-            "## 高价值候选 TOP20",
-            "",
-            "| 平台 | 用户 | 原话 | 需求类型 | POLYV方向 | 意向 | 原文 | 证据 |",
-            "| --- | --- | --- | --- | --- | ---: | --- | --- |",
-        ]
-    )
-    for lead in leads[:20]:
-        evidence = "; ".join(lead.reasons)
-        lines.append(
-            f"| {_cell(lead.platform)} | {_cell(lead.user)} | {_cell(lead.quote)} | "
-            f"{_cell(lead.category)} | {_cell(lead.solution)} | {lead.score} | "
-            f"[原文]({_cell(lead.url)}) | {_cell(evidence)} |"
+    high_value = [lead for lead in leads if lead.score >= 6]
+    review_candidates = [lead for lead in leads if 4 <= lead.score < 6]
+
+    def append_lead_table(title: str, rows: list[LeadEvidence]) -> None:
+        lines.extend(
+            [
+                "",
+                title,
+                "",
+                "| 平台 | 用户 | 原话 | 需求类型 | POLYV方向 | 意向 | 原文 | 证据 |",
+                "| --- | --- | --- | --- | --- | ---: | --- | --- |",
+            ]
         )
+        for lead in rows[:20]:
+            evidence = "; ".join(lead.reasons)
+            lines.append(
+                f"| {_cell(lead.platform)} | {_cell(lead.user)} | {_cell(lead.quote)} | "
+                f"{_cell(lead.category)} | {_cell(lead.solution)} | {lead.score} | "
+                f"[原文]({_cell(lead.url)}) | {_cell(evidence)} |"
+            )
+
+    append_lead_table("## 高价值潜客 TOP20（评分 ≥6）", high_value)
+    append_lead_table("## 待复核候选（评分 4～5）", review_candidates)
 
     lines.extend(["", "## 🎯 高价值转化闭环实施方案（公域回复 + 视频选题 + 私信 + 资料包）", ""])
     from .conversion_engine import build_conversion_pack

@@ -58,11 +58,14 @@ class ScoreResult:
 def classify_category(text: str, category_hint: str | None = None) -> str:
     if category_hint in CATEGORY_TERMS:
         return category_hint
+    if category_hint:
+        hint_text = category_hint.lower()
+        for category, terms in CATEGORY_TERMS.items():
+            if any(term.lower() in hint_text for term in terms):
+                return category
     for category, terms in CATEGORY_TERMS.items():
         if any(term.lower() in text.lower() for term in terms):
             return category
-    if category_hint:
-        return category_hint
     return "未分类"
 
 
@@ -139,8 +142,21 @@ def score_lead(
     quote = comment.text if comment else content.text
     context = f"{content.title}\n{content.text}".strip()
     signal_text = quote.strip()
-    inferred_category = category_hint or classify_category(context)
+    inferred_category = classify_category(context, category_hint)
     result = score_text(signal_text, comment.published_at if comment else content.published_at, now, inferred_category)
+    category_terms = CATEGORY_TERMS.get(inferred_category, ())
+    has_business_scene = any(term.lower() in context.lower() or term.lower() in signal_text.lower() for term in category_terms)
+    has_intent = any(
+        term.lower() in signal_text.lower()
+        for term in (*EXPLICIT_NEED, *PROJECT_TERMS, *INQUIRY_TERMS)
+    )
+    if not has_business_scene or not has_intent:
+        result = ScoreResult(
+            score=0,
+            category=result.category,
+            reasons=["过滤：缺少明确的视频业务场景或采购/项目意图"],
+            evidence_sentences=result.evidence_sentences,
+        )
     return LeadEvidence(
         platform=content.platform,
         content_id=content.content_id,

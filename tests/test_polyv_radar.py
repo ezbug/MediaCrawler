@@ -191,7 +191,7 @@ def test_report_contains_top_lead_and_failure_status() -> None:
         failures={"xhs": "等待登录"},
     )
 
-    assert "高价值候选 TOP20" in report
+    assert "高价值潜客 TOP20（评分 ≥6）" in report
     assert "企业培训" in report
     assert "POLYV" in report
     assert "等待登录" in report
@@ -302,7 +302,7 @@ def test_ingest_recovers_partial_run(tmp_path: Path) -> None:
         "run-1",
     )
     assert result.platform_status["dy"]["contents"] == 1
-    assert result.platform_status["dy"]["status"] == "partial"
+    assert result.platform_status["dy"]["status"] == "success"
 
 
 def test_collect_keeps_jsonl_when_task_times_out(tmp_path: Path) -> None:

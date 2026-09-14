@@ -103,8 +103,9 @@ def _output_status(
     store: RadarStore,
     max_contents: int | None = None,
     max_comments: int | None = None,
+    run_id: str | None = None,
 ) -> tuple[int, int]:
-    return _ingest_output(output_dir, platform, keyword, store, max_contents, max_comments)
+    return _ingest_output(output_dir, platform, keyword, store, max_contents, max_comments, run_id)
 
 
 def _ingest_output(
@@ -114,6 +115,7 @@ def _ingest_output(
     store: RadarStore,
     max_contents: int | None = None,
     max_comments: int | None = None,
+    run_id: str | None = None,
 ) -> tuple[int, int]:
     content_rows: list[dict] = []
     comment_rows: list[dict] = []
@@ -139,9 +141,9 @@ def _ingest_output(
             per_content_count[comment.content_id] = count + 1
         comments = limited_comments
     for content in contents:
-        store.upsert_content(content)
+        store.upsert_content(content, run_id=run_id)
     for comment in comments:
-        store.upsert_comment(comment)
+        store.upsert_comment(comment, run_id=run_id)
     return len(contents), len(comments)
 
 
@@ -156,7 +158,7 @@ def collect(config: RadarConfig, repo_root: Path, runner: Callable[..., subproce
     failures: dict[str, str] = {}
     for platform in config.platforms:
         status = {"status": "success", "contents": 0, "comments": 0, "tasks": 0}
-        for keyword in config.keywords.values():
+        for keyword in config.get_keywords_for_platform(platform).values():
             status["tasks"] += 1
             output_dir = raw_root / platform / safe_name(keyword)
             output_dir.mkdir(parents=True, exist_ok=True)
@@ -204,6 +206,7 @@ def collect(config: RadarConfig, repo_root: Path, runner: Callable[..., subproce
                 store,
                 config.max_contents,
                 config.max_comments,
+                run_id,
             )
             status["contents"] += contents
             status["comments"] += comments
@@ -227,8 +230,9 @@ def ingest_existing_run(config: RadarConfig, run_id: str) -> CollectionResult:
     store.initialize()
     platform_status: dict[str, dict] = {}
     failures: dict[str, str] = {}
+    store.clear_run_links(run_id)
     for platform in config.platforms:
-        status = {"status": "partial", "contents": 0, "comments": 0, "tasks": 0}
+        status = {"status": "not_run", "contents": 0, "comments": 0, "tasks": 0}
         plat_keywords = config.get_keywords_for_platform(platform) if hasattr(config, "get_keywords_for_platform") else config.keywords
         for keyword in plat_keywords.values():
             output_dir = raw_root / platform / safe_name(keyword)
@@ -242,13 +246,19 @@ def ingest_existing_run(config: RadarConfig, run_id: str) -> CollectionResult:
                 store,
                 config.max_contents,
                 config.max_comments,
+                run_id,
             )
             status["contents"] += contents
-        if status["tasks"]:
+            status["comments"] += comments
+        if status["tasks"] and status["contents"]:
+            status["status"] = "success"
+        if status["tasks"] and not status["contents"]:
+            status["status"] = "partial"
             failures[platform] = "任务被中断或未完成，已恢复已落盘数据"
         platform_status[platform] = status
     now = datetime.now(timezone.utc).isoformat()
-    store.save_run(run_id, "partial", platform_status, now, now)
+    final_status = "success" if all(item["status"] in {"success", "not_run"} for item in platform_status.values()) else "partial"
+    store.save_run(run_id, final_status, platform_status, now, now)
     store.close()
     return CollectionResult(run_id, store_path, platform_status, failures)
 
@@ -264,7 +274,7 @@ def analyze_records(
     for comment in comments:
         comments_by_content.setdefault((comment.platform, comment.content_id), []).append(comment)
     category_by_keyword = category_by_keyword or {}
-    leads: list[LeadEvidence] = []
+    leads_by_key: dict[tuple[str, str, str, str], LeadEvidence] = {}
     for key, content in content_by_key.items():
         related_comments = comments_by_content.get(key, [])
         if related_comments:
@@ -272,13 +282,23 @@ def analyze_records(
                 category_hint = category_by_keyword.get(comment.source_keyword)
                 lead = score_lead(content, comment, now, category_hint)
                 if lead.score >= 4:
-                    leads.append(lead)
+                    key = (lead.platform, lead.content_id, _text_key(lead.user), _text_key(lead.quote))
+                    existing = leads_by_key.get(key)
+                    if existing is None or lead.score > existing.score:
+                        leads_by_key[key] = lead
         else:
             category_hint = category_by_keyword.get(content.source_keywords[0]) if content.source_keywords else None
             lead = score_lead(content, None, now, category_hint)
             if lead.score >= 4:
-                leads.append(lead)
-    return leads
+                key = (lead.platform, lead.content_id, _text_key(lead.user), _text_key(lead.quote))
+                existing = leads_by_key.get(key)
+                if existing is None or lead.score > existing.score:
+                    leads_by_key[key] = lead
+    return list(leads_by_key.values())
+
+
+def _text_key(value: str) -> str:
+    return "".join(str(value).casefold().split())
 
 
 def write_review_queue(path: Path, leads: Iterable[LeadEvidence]) -> None:
@@ -292,14 +312,14 @@ def write_review_queue(path: Path, leads: Iterable[LeadEvidence]) -> None:
 def analyze_store(config: RadarConfig, run_id: str, now: datetime | None = None) -> list[LeadEvidence]:
     store = RadarStore(config.data_root / "radar.sqlite3")
     store.initialize()
-    leads = analyze_records(store.iter_contents(), store.iter_comments(), now, config.category_by_keyword)
+    leads = analyze_records(store.iter_contents(run_id), store.iter_comments(run_id), now, config.category_by_keyword)
     store.save_leads(run_id, leads)
     write_review_queue(config.data_root / "review" / f"{run_id}.jsonl", leads)
     store.close()
     return leads
 
 
-def report_store(config: RadarConfig, run_id: str) -> Path:
+def report_store(config: RadarConfig, run_id: str, output_suffix: str = "") -> Path:
     store = RadarStore(config.data_root / "radar.sqlite3")
     store.initialize()
     leads = store.load_leads(run_id)
@@ -317,12 +337,12 @@ def report_store(config: RadarConfig, run_id: str) -> Path:
         if key not in by_content or lead.score > by_content[key].score:
             by_content[key] = lead
     top_contents = sorted(
-        (item for item in by_content.values() if item.score >= 4),
+        (item for item in by_content.values() if item.score >= 6),
         key=lambda item: (-item.score, item.platform, item.content_id),
     )
-    report_path = config.data_root / "reports" / f"{run_id}.md"
+    suffix = f"-{output_suffix.strip('-')}" if output_suffix.strip('-') else ""
+    report_path = config.data_root / "reports" / f"{run_id}{suffix}.md"
     qualified_leads = [lead for lead in leads if lead.score >= 4]
     write_report(report_path, render_report(run_id, qualified_leads, top_contents, platform_status, failures))
     store.close()
     return report_path
-

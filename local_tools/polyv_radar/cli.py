@@ -35,6 +35,8 @@ def build_parser() -> argparse.ArgumentParser:
         sub.add_argument("--config", required=True)
         if name != "collect":
             sub.add_argument("--run-id", required=True)
+        if name == "report":
+            sub.add_argument("--output-suffix", default="", help="报告文件名后缀，例如 fixed")
     collect_parser = subparsers.choices["collect"]
     collect_parser.add_argument("--repo-root", default=str(Path(__file__).resolve().parents[2]))
     collect_parser.add_argument("--platform", action="append", help="只运行指定平台，可重复传入")
@@ -59,7 +61,7 @@ def main(argv: list[str] | None = None) -> int:
         leads = analyze_store(config, args.run_id)
         payload = {"run_id": args.run_id, "review_count": len(leads)}
     else:
-        path = report_store(config, args.run_id)
+        path = report_store(config, args.run_id, args.output_suffix)
         payload = {"run_id": args.run_id, "report_path": str(path)}
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0

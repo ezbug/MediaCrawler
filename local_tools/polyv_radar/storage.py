@@ -57,6 +57,18 @@ class RadarStore:
                 last_seen_at TEXT NOT NULL,
                 PRIMARY KEY (platform, comment_id)
             );
+            CREATE TABLE IF NOT EXISTS run_contents (
+                run_id TEXT NOT NULL,
+                platform TEXT NOT NULL,
+                content_id TEXT NOT NULL,
+                PRIMARY KEY (run_id, platform, content_id)
+            );
+            CREATE TABLE IF NOT EXISTS run_comments (
+                run_id TEXT NOT NULL,
+                platform TEXT NOT NULL,
+                comment_id TEXT NOT NULL,
+                PRIMARY KEY (run_id, platform, comment_id)
+            );
             CREATE TABLE IF NOT EXISTS runs (
                 run_id TEXT PRIMARY KEY,
                 started_at TEXT NOT NULL,
@@ -76,7 +88,7 @@ class RadarStore:
         )
         self.connection.commit()
 
-    def upsert_content(self, item: ContentRecord) -> bool:
+    def upsert_content(self, item: ContentRecord, run_id: str | None = None) -> bool:
         now = datetime.now().astimezone().isoformat()
         existing = self.connection.execute(
             "SELECT source_keywords FROM contents WHERE platform = ? AND content_id = ?",
@@ -109,18 +121,26 @@ class RadarStore:
                 (*values[2:], now, values[0], values[1]),
             )
             self.connection.commit()
-            return False
-        self.connection.execute(
-            """INSERT INTO contents
-               (platform, content_id, title, text, url, author, author_hash, published_at, likes,
-                comments_count, shares, plays, source_keywords, content_type, first_seen_at, last_seen_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (*values, now, now),
-        )
+            inserted = False
+        else:
+            self.connection.execute(
+                """INSERT INTO contents
+                   (platform, content_id, title, text, url, author, author_hash, published_at, likes,
+                    comments_count, shares, plays, source_keywords, content_type, first_seen_at, last_seen_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (*values, now, now),
+            )
+            inserted = True
+        if run_id:
+            self.connection.execute(
+                """INSERT OR IGNORE INTO run_contents(run_id, platform, content_id)
+                   VALUES (?, ?, ?)""",
+                (run_id, item.platform, item.content_id),
+            )
         self.connection.commit()
-        return True
+        return inserted
 
-    def upsert_comment(self, item: CommentRecord) -> bool:
+    def upsert_comment(self, item: CommentRecord, run_id: str | None = None) -> bool:
         now = datetime.now().astimezone().isoformat()
         existing = self.connection.execute(
             "SELECT 1 FROM comments WHERE platform = ? AND comment_id = ?",
@@ -146,16 +166,29 @@ class RadarStore:
                 (*values[2:], now, values[0], values[1]),
             )
             self.connection.commit()
-            return False
-        self.connection.execute(
-            """INSERT INTO comments
-               (platform, comment_id, content_id, text, author, author_hash, parent_comment_id,
-                published_at, likes, source_keyword, first_seen_at, last_seen_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (*values, now, now),
-        )
+            inserted = False
+        else:
+            self.connection.execute(
+                """INSERT INTO comments
+                   (platform, comment_id, content_id, text, author, author_hash, parent_comment_id,
+                    published_at, likes, source_keyword, first_seen_at, last_seen_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (*values, now, now),
+            )
+            inserted = True
+        if run_id:
+            self.connection.execute(
+                """INSERT OR IGNORE INTO run_comments(run_id, platform, comment_id)
+                   VALUES (?, ?, ?)""",
+                (run_id, item.platform, item.comment_id),
+            )
         self.connection.commit()
-        return True
+        return inserted
+
+    def clear_run_links(self, run_id: str) -> None:
+        self.connection.execute("DELETE FROM run_contents WHERE run_id = ?", (run_id,))
+        self.connection.execute("DELETE FROM run_comments WHERE run_id = ?", (run_id,))
+        self.connection.commit()
 
     def save_run(self, run_id: str, status: str, platform_status: dict, started_at: str, finished_at: str) -> None:
         self.connection.execute(
@@ -174,8 +207,16 @@ class RadarStore:
             )
         self.connection.commit()
 
-    def iter_contents(self) -> list[ContentRecord]:
-        rows = self.connection.execute("SELECT * FROM contents ORDER BY first_seen_at").fetchall()
+    def iter_contents(self, run_id: str | None = None) -> list[ContentRecord]:
+        if run_id:
+            rows = self.connection.execute(
+                """SELECT c.* FROM contents c
+                   JOIN run_contents rc ON rc.platform = c.platform AND rc.content_id = c.content_id
+                   WHERE rc.run_id = ? ORDER BY c.first_seen_at""",
+                (run_id,),
+            ).fetchall()
+        else:
+            rows = self.connection.execute("SELECT * FROM contents ORDER BY first_seen_at").fetchall()
         return [
             ContentRecord(
                 platform=row["platform"],
@@ -196,8 +237,16 @@ class RadarStore:
             for row in rows
         ]
 
-    def iter_comments(self) -> list[CommentRecord]:
-        rows = self.connection.execute("SELECT * FROM comments ORDER BY first_seen_at").fetchall()
+    def iter_comments(self, run_id: str | None = None) -> list[CommentRecord]:
+        if run_id:
+            rows = self.connection.execute(
+                """SELECT c.* FROM comments c
+                   JOIN run_comments rc ON rc.platform = c.platform AND rc.comment_id = c.comment_id
+                   WHERE rc.run_id = ? ORDER BY c.first_seen_at""",
+                (run_id,),
+            ).fetchall()
+        else:
+            rows = self.connection.execute("SELECT * FROM comments ORDER BY first_seen_at").fetchall()
         return [
             CommentRecord(
                 platform=row["platform"],
