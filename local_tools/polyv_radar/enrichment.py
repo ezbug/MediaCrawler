@@ -85,6 +85,8 @@ def run_profile_enrichment(
     runner=subprocess.run,
 ) -> dict[str, int | str]:
     selected = [item for item in choose_enrichment_candidates(leads) if item.author_id and item.profile_url]
+    if not selected:
+        return {"profiles": 0, "posts": 0, "external_evidence": 0, "status": "no_profile_identifiers"}
     enrichment_root = config.data_root / "enrichment" / run_id
     enrichment_root.mkdir(parents=True, exist_ok=True)
     input_path = enrichment_root / "profiles-input.json"
