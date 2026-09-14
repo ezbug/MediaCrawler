@@ -14,6 +14,9 @@ class ContentRecord:
     url: str = ""
     author: str = ""
     author_hash: str = ""
+    author_id: str = ""
+    author_url: str = ""
+    creator_url: str = ""
     published_at: datetime | None = None
     likes: int = 0
     comments_count: int = 0
@@ -21,6 +24,7 @@ class ContentRecord:
     plays: int = 0
     source_keywords: list[str] = field(default_factory=list)
     content_type: str = ""
+    tags: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
@@ -36,6 +40,8 @@ class CommentRecord:
     text: str = ""
     author: str = ""
     author_hash: str = ""
+    author_id: str = ""
+    author_url: str = ""
     parent_comment_id: str = ""
     published_at: datetime | None = None
     likes: int = 0
@@ -62,6 +68,74 @@ class LeadEvidence:
     evidence_sentences: list[str] = field(default_factory=list)
     outreach: str = ""
     content_title: str = ""
+    event_type: str = ""
+    company: str = ""
+    role: str = ""
+    profile_url: str = ""
+    author_url: str = ""
+    identity_confidence: str = "low"
+    dimensions: dict[str, int] = field(default_factory=dict)
+    evidence_urls: list[str] = field(default_factory=list)
+    stage: str = "legacy"
+    rejection_reason: str = ""
+    author_id: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+@dataclass
+class ProfileSnapshot:
+    run_id: str
+    platform: str
+    author_id: str
+    author_url: str = ""
+    display_name: str = ""
+    bio: str = ""
+    verified: bool = False
+    company: str = ""
+    role: str = ""
+    identity_confidence: str = "low"
+    source_urls: list[str] = field(default_factory=list)
+    captured_at: str = ""
+
+
+@dataclass
+class ProfilePost:
+    run_id: str
+    platform: str
+    author_id: str
+    post_id: str
+    url: str = ""
+    title: str = ""
+    text: str = ""
+    published_at: str = ""
+
+
+@dataclass
+class ExternalEvidence:
+    run_id: str
+    platform: str
+    author_id: str
+    source_url: str
+    source_type: str = ""
+    title: str = ""
+    snippet: str = ""
+    published_at: str = ""
+    match_confidence: str = "low"
+
+
+@dataclass
+class LeadAssessment:
+    run_id: str
+    platform: str
+    content_id: str
+    comment_id: str = ""
+    score: int = 0
+    dimensions: dict[str, int] = field(default_factory=dict)
+    event_type: str = ""
+    identity_confidence: str = "low"
+    evidence: list[dict[str, str]] = field(default_factory=list)
+    decision: str = "reject"
+    reason: str = ""
+    model_status: str = "rule"

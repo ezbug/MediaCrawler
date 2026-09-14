@@ -7,6 +7,36 @@ from datetime import datetime, timedelta, timezone
 from .models import CommentRecord, ContentRecord, LeadEvidence
 
 
+EVENT_TYPES = {
+    "公司年会": ("公司年会", "年会直播", "年会活动"),
+    "经销商大会": ("经销商大会", "渠道大会", "经销商培训", "全国经销商", "渠道培训"),
+    "员工培训": ("员工培训", "企业培训", "企业内训", "企业大学", "线上培训"),
+    "新品发布会": ("新品发布会", "产品发布会", "新品发布", "发布会直播"),
+    "线上招商": ("线上招商", "招商会", "招商直播", "招商活动"),
+    "医学会议": ("医学会议", "学术会议", "医学培训", "医生培训"),
+    "金融投教": ("金融投教", "投教直播", "证券培训", "投资者教育"),
+    "版权保护": ("课程版权", "课程防盗录", "课程防盗版", "视频防外传", "防录屏"),
+    "海外发布会": ("海外发布会", "海外直播", "全球发布会", "多语言直播"),
+}
+
+PURCHASE_SCENE_TERMS = (
+    "公司", "企业", "机构", "经销商", "员工", "客户", "门店", "渠道", "大会", "发布会", "培训",
+    "会议", "课程", "投教", "年会", "招商", "企业大学", "Webinar", "研讨会",
+)
+PROJECT_TIMING_TERMS = (
+    "下个月", "本月", "近期", "最近", "正在", "准备", "筹备", "项目", "上线", "落地", "启动", "实施",
+    "大会", "发布会", "年会", "培训",
+)
+PLATFORM_INTENT_TERMS = (
+    "求推荐", "推荐", "平台", "供应商", "服务商", "选型", "采购", "预算", "报价", "多少钱", "费用",
+    "方案", "用什么", "有没有", "哪家", "怎么选",
+)
+DELIVERY_INQUIRY_TERMS = (
+    "部署", "私有化", "接口", "SDK", "API", "接入", "并发", "交付", "实施周期", "周期", "支持",
+    "多少钱", "报价", "费用",
+)
+
+
 CATEGORY_TERMS = {
     "企业直播": ("企业直播", "发布会直播", "万人直播", "直播卡顿", "直播平台推荐", "线上活动直播", "活动直播", "直播选型", "发布会转线上", "大并发直播选型", "线上研讨会", "线上研讨会推荐", "线上研讨会方案", "Webinar", "低延迟互动直播", "线上峰会策划"),
     "私域直播": ("私域直播", "微信直播", "企微直播", "公众号直播", "私域搭建", "私域运营直播", "私域裂变", "私域直播引流", "私域直播SOP", "小程序公众号直播"),
@@ -53,6 +83,100 @@ class ScoreResult:
     category: str
     reasons: list[str] = field(default_factory=list)
     evidence_sentences: list[str] = field(default_factory=list)
+
+
+@dataclass
+class PurchaseEvidenceScore:
+    score: int
+    dimensions: dict[str, int]
+    event_type: str
+    evidence_sentences: list[str] = field(default_factory=list)
+    rejected_reason: str = ""
+
+
+def classify_event(text: str) -> str:
+    lowered = (text or "").lower()
+    for event_type, terms in EVENT_TYPES.items():
+        if any(term.lower() in lowered for term in terms):
+            return event_type
+    return "未分类"
+
+
+def _dimension_evidence(text: str, terms: tuple[str, ...]) -> list[str]:
+    return _evidence(text, terms) if any(term.lower() in text.lower() for term in terms) else []
+
+
+def score_purchase_evidence(
+    content: ContentRecord,
+    comment: CommentRecord | None,
+    profile: dict | None = None,
+    external_evidence: Iterable[dict] = (),
+    now: datetime | None = None,
+) -> PurchaseEvidenceScore:
+    now = now or datetime.now(timezone.utc)
+    quote = comment.text if comment else content.text
+    context = f"{content.title}\n{content.text}\n{quote}".strip()
+    lowered = context.lower()
+    profile = profile or {}
+    evidence_urls = [str(item.get("source_url", "")) for item in external_evidence if item.get("source_url")]
+
+    if any(term.lower() in lowered for term in (*AD_TERMS, *NEGATIVE_TERMS)):
+        return PurchaseEvidenceScore(
+            score=0,
+            dimensions={key: 0 for key in ("business_scene", "project_timing", "platform_intent", "delivery_inquiry", "identity")},
+            event_type=classify_event(context),
+            rejected_reason="广告、同行或非B端内容",
+        )
+
+    has_scene = any(term.lower() in lowered for term in PURCHASE_SCENE_TERMS)
+    event_type = classify_event(context)
+    business_scene = 2 if has_scene and event_type != "未分类" else (1 if has_scene else 0)
+
+    published_at = comment.published_at if comment else content.published_at
+    recent = bool(published_at and now - timedelta(days=30) <= published_at <= now)
+    project_hit = any(term.lower() in lowered for term in PROJECT_TIMING_TERMS)
+    project_timing = 2 if project_hit and recent else (1 if project_hit else 0)
+
+    platform_hits = _dimension_evidence(context, PLATFORM_INTENT_TERMS)
+    platform_intent = 2 if any(term.lower() in lowered for term in ("求推荐", "供应商", "服务商", "选型", "采购", "报价", "多少钱", "哪家") ) else (1 if platform_hits else 0)
+
+    delivery_hits = _dimension_evidence(context, DELIVERY_INQUIRY_TERMS)
+    delivery_inquiry = 2 if any(term.lower() in lowered for term in ("报价", "多少钱", "部署", "私有化", "接口", "SDK", "API", "交付", "实施周期") ) else (1 if delivery_hits else 0)
+
+    identity_confidence = str(profile.get("identity_confidence", "low"))
+    identity = {"high": 2, "medium": 1}.get(identity_confidence, 0)
+
+    dimensions = {
+        "business_scene": business_scene,
+        "project_timing": project_timing,
+        "platform_intent": platform_intent,
+        "delivery_inquiry": delivery_inquiry,
+        "identity": identity,
+    }
+    score = min(10, sum(dimensions.values()))
+    rejected_reason = ""
+    if business_scene == 0:
+        rejected_reason = "缺少明确企业业务场景"
+    elif project_timing == 0 and platform_intent == 0:
+        rejected_reason = "缺少近期项目或采购意图"
+    if business_scene == 0 or event_type == "未分类":
+        score = min(score, 4)
+        if not rejected_reason:
+            rejected_reason = "技术或泛讨论，不能证明业务采购需求"
+
+    evidence = []
+    evidence.extend(_dimension_evidence(context, PURCHASE_SCENE_TERMS))
+    evidence.extend(_dimension_evidence(context, PROJECT_TIMING_TERMS))
+    evidence.extend(platform_hits)
+    evidence.extend(delivery_hits)
+    evidence.extend(evidence_urls)
+    return PurchaseEvidenceScore(
+        score=score,
+        dimensions=dimensions,
+        event_type=event_type,
+        evidence_sentences=list(dict.fromkeys(evidence))[:8],
+        rejected_reason=rejected_reason,
+    )
 
 
 def classify_category(text: str, category_hint: str | None = None) -> str:

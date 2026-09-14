@@ -82,6 +82,15 @@ def _bilibili_url(content_id: str, raw_url: str) -> str:
     return raw_url or f"https://www.bilibili.com/video/{bvid}/"
 
 
+def _list_value(raw: dict[str, Any], *keys: str) -> list[str]:
+    value = _first(raw, *keys, default=[])
+    if isinstance(value, str):
+        return [value] if value else []
+    if isinstance(value, (list, tuple)):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return []
+
+
 def normalize_content(platform: str, raw: dict[str, Any], source_keyword: str) -> ContentRecord | None:
     platform = _platform_name(platform)
     content_id = _content_id(platform, raw)
@@ -109,6 +118,9 @@ def normalize_content(platform: str, raw: dict[str, Any], source_keyword: str) -
         url=url,
         author=str(_first(raw, "nickname", "user_nickname", "user_name", "author", default="")),
         author_hash=str(_first(raw, "creator_hash", "author_hash", default="")),
+        author_id=str(_first(raw, "author_id", "user_id", "uid", "sec_uid", "mid", default="")),
+        author_url=str(_first(raw, "author_url", "user_url", "profile_url", "user_profile_url", default="")),
+        creator_url=str(_first(raw, "creator_url", "creator_profile_url", default="")),
         published_at=parse_datetime(_first(raw, "create_time", "time", "pubdate", "created_time", default="")),
         likes=parse_count(_first(raw, "liked_count", "video_like", "voteup_count", "like_count")),
         comments_count=parse_count(_first(raw, "comment_count", "video_comment", "video_comment_count")),
@@ -116,6 +128,7 @@ def normalize_content(platform: str, raw: dict[str, Any], source_keyword: str) -
         plays=parse_count(_first(raw, "play_count", "video_play_count", "view_count")),
         source_keywords=[source_keyword] if source_keyword else [],
         content_type=str(_first(raw, "content_type", "video_type", "type", default="")),
+        tags=_list_value(raw, "tags", "hashtags", "topics"),
     )
 
 
@@ -141,6 +154,8 @@ def normalize_comment(
         text=text,
         author=str(_first(raw, "nickname", "user_nickname", "user_name", "uname", "author", default="")),
         author_hash=str(_first(raw, "creator_hash", "author_hash", default="")),
+        author_id=str(_first(raw, "author_id", "user_id", "uid", "sec_uid", "mid", default="")),
+        author_url=str(_first(raw, "author_url", "user_url", "profile_url", "user_profile_url", default="")),
         parent_comment_id=str(_first(raw, "parent_comment_id", "reply_id", "parent", default="")),
         published_at=parse_datetime(_first(raw, "create_time", "publish_time", "ctime", default="")),
         likes=parse_count(_first(raw, "like_count", "like", "digg_count")),

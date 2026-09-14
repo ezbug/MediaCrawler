@@ -6,7 +6,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterable
 
-from .models import CommentRecord, ContentRecord, LeadEvidence
+from .models import (
+    CommentRecord,
+    ContentRecord,
+    ExternalEvidence,
+    LeadAssessment,
+    LeadEvidence,
+    ProfilePost,
+    ProfileSnapshot,
+)
 
 
 def _iso(value: datetime | None) -> str:
@@ -31,6 +39,9 @@ class RadarStore:
                 url TEXT NOT NULL DEFAULT '',
                 author TEXT NOT NULL DEFAULT '',
                 author_hash TEXT NOT NULL DEFAULT '',
+                author_id TEXT NOT NULL DEFAULT '',
+                author_url TEXT NOT NULL DEFAULT '',
+                creator_url TEXT NOT NULL DEFAULT '',
                 published_at TEXT NOT NULL DEFAULT '',
                 likes INTEGER NOT NULL DEFAULT 0,
                 comments_count INTEGER NOT NULL DEFAULT 0,
@@ -38,6 +49,7 @@ class RadarStore:
                 plays INTEGER NOT NULL DEFAULT 0,
                 source_keywords TEXT NOT NULL DEFAULT '[]',
                 content_type TEXT NOT NULL DEFAULT '',
+                tags TEXT NOT NULL DEFAULT '[]',
                 first_seen_at TEXT NOT NULL,
                 last_seen_at TEXT NOT NULL,
                 PRIMARY KEY (platform, content_id)
@@ -49,6 +61,8 @@ class RadarStore:
                 text TEXT NOT NULL DEFAULT '',
                 author TEXT NOT NULL DEFAULT '',
                 author_hash TEXT NOT NULL DEFAULT '',
+                author_id TEXT NOT NULL DEFAULT '',
+                author_url TEXT NOT NULL DEFAULT '',
                 parent_comment_id TEXT NOT NULL DEFAULT '',
                 published_at TEXT NOT NULL DEFAULT '',
                 likes INTEGER NOT NULL DEFAULT 0,
@@ -84,9 +98,75 @@ class RadarStore:
                 payload TEXT NOT NULL,
                 PRIMARY KEY (run_id, platform, content_id, comment_id)
             );
+            CREATE TABLE IF NOT EXISTS profiles (
+                run_id TEXT NOT NULL,
+                platform TEXT NOT NULL,
+                author_id TEXT NOT NULL,
+                author_url TEXT NOT NULL DEFAULT '',
+                display_name TEXT NOT NULL DEFAULT '',
+                bio TEXT NOT NULL DEFAULT '',
+                verified INTEGER NOT NULL DEFAULT 0,
+                company TEXT NOT NULL DEFAULT '',
+                role TEXT NOT NULL DEFAULT '',
+                identity_confidence TEXT NOT NULL DEFAULT 'low',
+                source_urls TEXT NOT NULL DEFAULT '[]',
+                captured_at TEXT NOT NULL DEFAULT '',
+                PRIMARY KEY (run_id, platform, author_id)
+            );
+            CREATE TABLE IF NOT EXISTS profile_posts (
+                run_id TEXT NOT NULL,
+                platform TEXT NOT NULL,
+                author_id TEXT NOT NULL,
+                post_id TEXT NOT NULL,
+                url TEXT NOT NULL DEFAULT '',
+                title TEXT NOT NULL DEFAULT '',
+                text TEXT NOT NULL DEFAULT '',
+                published_at TEXT NOT NULL DEFAULT '',
+                PRIMARY KEY (run_id, platform, author_id, post_id)
+            );
+            CREATE TABLE IF NOT EXISTS external_evidence (
+                run_id TEXT NOT NULL,
+                platform TEXT NOT NULL,
+                author_id TEXT NOT NULL,
+                source_url TEXT NOT NULL,
+                source_type TEXT NOT NULL DEFAULT '',
+                title TEXT NOT NULL DEFAULT '',
+                snippet TEXT NOT NULL DEFAULT '',
+                published_at TEXT NOT NULL DEFAULT '',
+                match_confidence TEXT NOT NULL DEFAULT 'low',
+                PRIMARY KEY (run_id, platform, author_id, source_url)
+            );
+            CREATE TABLE IF NOT EXISTS lead_assessments (
+                run_id TEXT NOT NULL,
+                platform TEXT NOT NULL,
+                content_id TEXT NOT NULL,
+                comment_id TEXT NOT NULL DEFAULT '',
+                payload TEXT NOT NULL,
+                PRIMARY KEY (run_id, platform, content_id, comment_id)
+            );
             """
         )
+        self._migrate_legacy_columns()
         self.connection.commit()
+
+    def _migrate_legacy_columns(self) -> None:
+        migrations = {
+            "contents": {
+                "author_id": "TEXT NOT NULL DEFAULT ''",
+                "author_url": "TEXT NOT NULL DEFAULT ''",
+                "creator_url": "TEXT NOT NULL DEFAULT ''",
+                "tags": "TEXT NOT NULL DEFAULT '[]'",
+            },
+            "comments": {
+                "author_id": "TEXT NOT NULL DEFAULT ''",
+                "author_url": "TEXT NOT NULL DEFAULT ''",
+            },
+        }
+        for table, columns in migrations.items():
+            present = {row[1] for row in self.connection.execute(f"PRAGMA table_info({table})")}
+            for name, definition in columns.items():
+                if name not in present:
+                    self.connection.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
 
     def upsert_content(self, item: ContentRecord, run_id: str | None = None) -> bool:
         now = datetime.now().astimezone().isoformat()
@@ -105,6 +185,9 @@ class RadarStore:
             item.url,
             item.author,
             item.author_hash,
+            item.author_id,
+            item.author_url,
+            item.creator_url,
             _iso(item.published_at),
             item.likes,
             item.comments_count,
@@ -112,11 +195,13 @@ class RadarStore:
             item.plays,
             json.dumps(sorted(keywords), ensure_ascii=False),
             item.content_type,
+            json.dumps(item.tags, ensure_ascii=False),
         )
         if existing:
             self.connection.execute(
-                """UPDATE contents SET title=?, text=?, url=?, author=?, author_hash=?, published_at=?,
-                   likes=?, comments_count=?, shares=?, plays=?, source_keywords=?, content_type=?, last_seen_at=?
+                """UPDATE contents SET title=?, text=?, url=?, author=?, author_hash=?, author_id=?, author_url=?,
+                   creator_url=?, published_at=?, likes=?, comments_count=?, shares=?, plays=?, source_keywords=?,
+                   content_type=?, tags=?, last_seen_at=?
                    WHERE platform=? AND content_id=?""",
                 (*values[2:], now, values[0], values[1]),
             )
@@ -125,9 +210,10 @@ class RadarStore:
         else:
             self.connection.execute(
                 """INSERT INTO contents
-                   (platform, content_id, title, text, url, author, author_hash, published_at, likes,
-                    comments_count, shares, plays, source_keywords, content_type, first_seen_at, last_seen_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   (platform, content_id, title, text, url, author, author_hash, author_id, author_url,
+                    creator_url, published_at, likes, comments_count, shares, plays, source_keywords,
+                    content_type, tags, first_seen_at, last_seen_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (*values, now, now),
             )
             inserted = True
@@ -153,6 +239,8 @@ class RadarStore:
             item.text,
             item.author,
             item.author_hash,
+            item.author_id,
+            item.author_url,
             item.parent_comment_id,
             _iso(item.published_at),
             item.likes,
@@ -161,7 +249,7 @@ class RadarStore:
         if existing:
             self.connection.execute(
                 """UPDATE comments SET content_id=?, text=?, author=?, author_hash=?, parent_comment_id=?,
-                   published_at=?, likes=?, source_keyword=?, last_seen_at=?
+                   author_id=?, author_url=?, published_at=?, likes=?, source_keyword=?, last_seen_at=?
                    WHERE platform=? AND comment_id=?""",
                 (*values[2:], now, values[0], values[1]),
             )
@@ -170,9 +258,9 @@ class RadarStore:
         else:
             self.connection.execute(
                 """INSERT INTO comments
-                   (platform, comment_id, content_id, text, author, author_hash, parent_comment_id,
-                    published_at, likes, source_keyword, first_seen_at, last_seen_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   (platform, comment_id, content_id, text, author, author_hash, author_id, author_url,
+                    parent_comment_id, published_at, likes, source_keyword, first_seen_at, last_seen_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (*values, now, now),
             )
             inserted = True
@@ -226,6 +314,9 @@ class RadarStore:
                 url=row["url"],
                 author=row["author"],
                 author_hash=row["author_hash"],
+                author_id=row["author_id"],
+                author_url=row["author_url"],
+                creator_url=row["creator_url"],
                 published_at=datetime.fromisoformat(row["published_at"]) if row["published_at"] else None,
                 likes=row["likes"],
                 comments_count=row["comments_count"],
@@ -233,6 +324,7 @@ class RadarStore:
                 plays=row["plays"],
                 source_keywords=json.loads(row["source_keywords"]),
                 content_type=row["content_type"],
+                tags=json.loads(row["tags"] or "[]"),
             )
             for row in rows
         ]
@@ -255,6 +347,8 @@ class RadarStore:
                 text=row["text"],
                 author=row["author"],
                 author_hash=row["author_hash"],
+                author_id=row["author_id"],
+                author_url=row["author_url"],
                 parent_comment_id=row["parent_comment_id"],
                 published_at=datetime.fromisoformat(row["published_at"]) if row["published_at"] else None,
                 likes=row["likes"],
@@ -267,8 +361,63 @@ class RadarStore:
         rows = self.connection.execute("SELECT payload FROM leads WHERE run_id = ?", (run_id,)).fetchall()
         return [LeadEvidence(**json.loads(row["payload"])) for row in rows]
 
+    def upsert_profile(self, profile: ProfileSnapshot) -> None:
+        self.connection.execute(
+            """INSERT OR REPLACE INTO profiles
+               (run_id, platform, author_id, author_url, display_name, bio, verified, company, role,
+                identity_confidence, source_urls, captured_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                profile.run_id, profile.platform, profile.author_id, profile.author_url, profile.display_name,
+                profile.bio, int(profile.verified), profile.company, profile.role,
+                profile.identity_confidence, json.dumps(profile.source_urls, ensure_ascii=False), profile.captured_at,
+            ),
+        )
+        self.connection.commit()
+
+    def upsert_profile_post(self, post: ProfilePost) -> None:
+        self.connection.execute(
+            """INSERT OR REPLACE INTO profile_posts
+               (run_id, platform, author_id, post_id, url, title, text, published_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (post.run_id, post.platform, post.author_id, post.post_id, post.url, post.title, post.text, post.published_at),
+        )
+        self.connection.commit()
+
+    def upsert_external_evidence(self, evidence: ExternalEvidence) -> None:
+        self.connection.execute(
+            """INSERT OR REPLACE INTO external_evidence
+               (run_id, platform, author_id, source_url, source_type, title, snippet, published_at, match_confidence)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                evidence.run_id, evidence.platform, evidence.author_id, evidence.source_url, evidence.source_type,
+                evidence.title, evidence.snippet, evidence.published_at, evidence.match_confidence,
+            ),
+        )
+        self.connection.commit()
+
+    def save_assessments(self, assessments: Iterable[LeadAssessment]) -> None:
+        for assessment in assessments:
+            self.connection.execute(
+                """INSERT OR REPLACE INTO lead_assessments
+                   (run_id, platform, content_id, comment_id, payload) VALUES (?, ?, ?, ?, ?)""",
+                (
+                    assessment.run_id, assessment.platform, assessment.content_id, assessment.comment_id,
+                    json.dumps(assessment.__dict__, ensure_ascii=False),
+                ),
+            )
+        self.connection.commit()
+
+    def load_profiles(self, run_id: str) -> list[dict]:
+        rows = self.connection.execute("SELECT * FROM profiles WHERE run_id = ?", (run_id,)).fetchall()
+        return [dict(row) | {"source_urls": json.loads(row["source_urls"] or "[]")} for row in rows]
+
+    def load_external_evidence(self, run_id: str) -> list[dict]:
+        rows = self.connection.execute("SELECT * FROM external_evidence WHERE run_id = ?", (run_id,)).fetchall()
+        return [dict(row) for row in rows]
+
     def count(self, table: str) -> int:
-        if table not in {"contents", "comments", "leads", "runs"}:
+        if table not in {"contents", "comments", "leads", "runs", "profiles", "profile_posts", "external_evidence", "lead_assessments"}:
             raise ValueError(f"Unsupported table: {table}")
         return int(self.connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
 
