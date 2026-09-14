@@ -27,6 +27,7 @@ console.log(`[ZhihuCrawler] Searching Zhihu for "${keyword}" (max ${maxContents}
 const searchUrl = `https://www.zhihu.com/search?type=content&q=${encodeURIComponent(keyword)}`;
 await page.goto(searchUrl);
 await page.waitForLoadState({ timeout: 15000 }).catch(() => {});
+await page.waitForSelector('.SearchResult-Card, [class*="SearchResult-Card"], .Card, .ContentItem', { timeout: 20000 }).catch(() => {});
 await new Promise(r => setTimeout(r, 4000));
 
 const candidateItems = await page.evaluate(() => {
@@ -58,6 +59,10 @@ const candidateItems = await page.evaluate(() => {
 
 const targetItems = candidateItems.slice(0, maxContents);
 console.log(`[ZhihuCrawler] Found ${candidateItems.length} candidates, selected ${targetItems.length} items.`);
+if (candidateItems.length === 0) {
+  console.error(`[ZhihuCrawler] No content candidates found for "${keyword}".`);
+  process.exitCode = 2;
+}
 
 const contents = [];
 const comments = [];

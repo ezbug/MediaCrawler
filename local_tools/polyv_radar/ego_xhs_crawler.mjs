@@ -28,6 +28,7 @@ console.log(`[XhsCrawler] Searching Xiaohongshu for "${keyword}" (max ${maxConte
 const searchUrl = `https://www.xiaohongshu.com/search_result?keyword=${encodeURIComponent(keyword)}`;
 await page.goto(searchUrl);
 await page.waitForLoadState({ timeout: 15000 }).catch(() => {});
+await page.waitForSelector('a[href*="/search_result/"]', { timeout: 20000 }).catch(() => {});
 await new Promise(r => setTimeout(r, 4000));
 
 // Extract note links with xsec_token
@@ -55,6 +56,10 @@ const candidateNotes = await page.evaluate(() => {
 
 const targetNotes = candidateNotes.slice(0, maxContents);
 console.log(`[XhsCrawler] Found ${candidateNotes.length} candidates with token, selected ${targetNotes.length} notes.`);
+if (candidateNotes.length === 0) {
+  console.error(`[XhsCrawler] No note candidates found for "${keyword}".`);
+  process.exitCode = 2;
+}
 
 const contents = [];
 const comments = [];

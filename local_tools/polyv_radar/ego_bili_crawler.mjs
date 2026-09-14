@@ -27,6 +27,7 @@ console.log(`[BiliCrawler] Searching Bilibili for "${keyword}" (max ${maxContent
 const searchUrl = `https://search.bilibili.com/all?keyword=${encodeURIComponent(keyword)}`;
 await page.goto(searchUrl);
 await page.waitForLoadState({ timeout: 15000 }).catch(() => {});
+await page.waitForSelector('a[href*="/video/BV"]', { timeout: 20000 }).catch(() => {});
 await new Promise(r => setTimeout(r, 4000));
 
 const candidateVideos = await page.evaluate(() => {
@@ -54,6 +55,10 @@ const candidateVideos = await page.evaluate(() => {
 
 const targetVideos = candidateVideos.slice(0, maxContents);
 console.log(`[BiliCrawler] Found ${candidateVideos.length} candidates, selected ${targetVideos.length} videos.`);
+if (candidateVideos.length === 0) {
+  console.error(`[BiliCrawler] No video candidates found for "${keyword}".`);
+  process.exitCode = 2;
+}
 
 const contents = [];
 const comments = [];

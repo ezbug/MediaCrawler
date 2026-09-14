@@ -27,6 +27,7 @@ console.log(`[EgoCrawler] Searching Douyin for "${keyword}" (max ${maxContents} 
 const searchUrl = `https://www.douyin.com/search/${encodeURIComponent(keyword)}?type=video`;
 await page.goto(searchUrl);
 await page.waitForLoadState({ timeout: 15000 }).catch(() => {});
+await page.waitForSelector('a[href*="/video/"]', { timeout: 20000 }).catch(() => {});
 await new Promise(r => setTimeout(r, 4000));
 
 // Extract search results
@@ -58,6 +59,10 @@ const candidateVideos = await page.evaluate(() => {
 
 const targetVideos = candidateVideos.slice(0, maxContents);
 console.log(`[EgoCrawler] Found ${candidateVideos.length} candidates, selected ${targetVideos.length} videos.`);
+if (candidateVideos.length === 0) {
+  console.error(`[EgoCrawler] No video candidates found for "${keyword}".`);
+  process.exitCode = 2;
+}
 
 const contents = [];
 const comments = [];
@@ -73,7 +78,8 @@ for (let i = 0; i < targetVideos.length; i++) {
 
     const pageData = await page.evaluate(() => {
       const descEl = document.querySelector('h1, [data-e2e="video-desc"], div[class*="desc"], div[class*="title"]');
-      const authorLink = document.querySelector('[data-e2e="user-info"] a[href*="/user/"], a[href*="/user/"]');
+      const infoLinks = Array.from(document.querySelectorAll('[data-e2e="user-info"] a[href*="/user/"]'));
+      const authorLink = infoLinks.find(link => (link.innerText || '').trim()) || infoLinks[0] || document.querySelector('a[href*="/user/"]:not([href*="/user/self"])');
       const authorEl = authorLink || document.querySelector('[data-e2e="user-info"] span, [class*="author"]');
       const tags = Array.from(document.querySelectorAll('a[href*="/tag/"], a[href*="/search/"]'))
         .map(a => a.innerText.trim())
