@@ -101,11 +101,20 @@ def _output_status(
     platform: str,
     keyword: str,
     store: RadarStore,
+    max_contents: int | None = None,
+    max_comments: int | None = None,
 ) -> tuple[int, int]:
-    return _ingest_output(output_dir, platform, keyword, store)
+    return _ingest_output(output_dir, platform, keyword, store, max_contents, max_comments)
 
 
-def _ingest_output(output_dir: Path, platform: str, keyword: str, store: RadarStore) -> tuple[int, int]:
+def _ingest_output(
+    output_dir: Path,
+    platform: str,
+    keyword: str,
+    store: RadarStore,
+    max_contents: int | None = None,
+    max_comments: int | None = None,
+) -> tuple[int, int]:
     content_rows: list[dict] = []
     comment_rows: list[dict] = []
     for path in sorted(output_dir.rglob("*.jsonl")):
@@ -115,8 +124,20 @@ def _ingest_output(output_dir: Path, platform: str, keyword: str, store: RadarSt
         elif "content" in name or "video" in name:
             content_rows.extend(_read_jsonl(path))
 
+    if max_contents is not None:
+        content_rows = content_rows[:max_contents]
     contents = [item for item in (normalize_content(platform, row, keyword) for row in content_rows) if item]
     comments = [item for item in (normalize_comment(platform, row, source_keyword=keyword) for row in comment_rows) if item]
+    if max_comments is not None:
+        per_content_count: dict[str, int] = {}
+        limited_comments: list[CommentRecord] = []
+        for comment in comments:
+            count = per_content_count.get(comment.content_id, 0)
+            if count >= max_comments:
+                continue
+            limited_comments.append(comment)
+            per_content_count[comment.content_id] = count + 1
+        comments = limited_comments
     for content in contents:
         store.upsert_content(content)
     for comment in comments:
@@ -176,7 +197,14 @@ def collect(config: RadarConfig, repo_root: Path, runner: Callable[..., subproce
                 log_prefix + _as_text(completed.stdout) + "\n" + _as_text(completed.stderr),
                 encoding="utf-8",
             )
-            contents, comments = _output_status(output_dir, platform, keyword, store)
+            contents, comments = _output_status(
+                output_dir,
+                platform,
+                keyword,
+                store,
+                config.max_contents,
+                config.max_comments,
+            )
             status["contents"] += contents
             status["comments"] += comments
             if completed.returncode != 0:
@@ -206,7 +234,14 @@ def ingest_existing_run(config: RadarConfig, run_id: str) -> CollectionResult:
             if not output_dir.exists():
                 continue
             status["tasks"] += 1
-            contents, comments = _output_status(output_dir, platform, keyword, store)
+            contents, comments = _output_status(
+                output_dir,
+                platform,
+                keyword,
+                store,
+                config.max_contents,
+                config.max_comments,
+            )
             status["contents"] += contents
             status["comments"] += comments
         if status["tasks"]:

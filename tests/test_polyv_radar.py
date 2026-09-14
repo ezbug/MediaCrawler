@@ -360,3 +360,35 @@ def test_collect_overrides_limit_a_run_to_selected_keyword_and_platform() -> Non
     assert limited.max_contents == 5
     assert limited.max_comments == 10
     assert limited.task_timeout_seconds == 60
+
+
+def test_ingest_applies_content_and_per_content_comment_limits(tmp_path: Path) -> None:
+    output_dir = tmp_path / "raw"
+    jsonl_dir = output_dir / "douyin" / "jsonl"
+    jsonl_dir.mkdir(parents=True)
+    (jsonl_dir / "search_contents.jsonl").write_text(
+        "\n".join(
+            f'{{"aweme_id":"dy-{index}","desc":"员工培训","aweme_url":"https://www.douyin.com/video/dy-{index}"}}'
+            for index in range(3)
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (jsonl_dir / "search_comments.jsonl").write_text(
+        "\n".join(
+            f'{{"comment_id":"c-{index}","aweme_id":"dy-0","content":"评论 {index}"}}'
+            for index in range(4)
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    from local_tools.polyv_radar.runner import _ingest_output
+
+    store = RadarStore(tmp_path / "radar.sqlite3")
+    store.initialize()
+    contents, comments = _ingest_output(output_dir, "dy", "员工培训", store, 2, 2)
+
+    assert contents == 2
+    assert comments == 2
+    store.close()
