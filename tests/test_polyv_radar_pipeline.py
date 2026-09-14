@@ -193,6 +193,33 @@ def test_run_query_sources_are_isolated_between_batches(tmp_path: Path) -> None:
     store.close()
 
 
+def test_comment_upsert_preserves_author_id_and_author_url(tmp_path: Path) -> None:
+    store = RadarStore(tmp_path / "radar.sqlite3")
+    store.initialize()
+    comment = normalize_comment(
+        "dy",
+        {
+            "comment_id": "comment-1",
+            "aweme_id": "dy-1",
+            "content": "需要企业培训平台",
+            "author_id": "stable-user",
+            "author_url": "https://www.douyin.com/user/stable-user",
+        },
+        source_keyword="查询A",
+    )
+    assert comment is not None
+    store.upsert_comment(comment, run_id="run-a")
+    comment.text = "更新后的评论"
+    store.upsert_comment(comment, run_id="run-b")
+    row = store.connection.execute(
+        "SELECT author_id, author_url, parent_comment_id FROM comments WHERE comment_id = 'comment-1'"
+    ).fetchone()
+    assert row["author_id"] == "stable-user"
+    assert row["author_url"].endswith("/stable-user")
+    assert row["parent_comment_id"] == ""
+    store.close()
+
+
 def test_candidate_bundle_keeps_recent_profile_post_sources(tmp_path: Path) -> None:
     store = RadarStore(tmp_path / "radar.sqlite3")
     store.initialize()

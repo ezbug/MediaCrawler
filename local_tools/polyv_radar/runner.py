@@ -330,11 +330,19 @@ def report_store(config: RadarConfig, run_id: str, output_suffix: str = "") -> P
         for key, value in platform_status.items()
         if value.get("contents", 0) == 0 and value.get("tasks", 0)
     }
+    lead_author_keys = {(lead.platform, lead.author_id) for lead in leads if lead.author_id}
+    profile_rows = store.load_profiles(run_id)
     counts = {
         "contents": len(store.iter_contents(run_id)),
         "comments": len(store.iter_comments(run_id)),
         "prefilter": len(leads),
-        "profiles": int(store.connection.execute("SELECT COUNT(*) FROM profiles WHERE run_id = ?", (run_id,)).fetchone()[0]),
+        "profiles": len(
+            {
+                (row["platform"], row["author_id"])
+                for row in profile_rows
+                if (row["platform"], row["author_id"]) in lead_author_keys
+            }
+        ),
         "external_evidence": int(store.connection.execute("SELECT COUNT(*) FROM external_evidence WHERE run_id = ?", (run_id,)).fetchone()[0]),
     }
     query_counts: dict[str, dict[str, int]] = {}

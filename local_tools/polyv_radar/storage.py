@@ -272,7 +272,11 @@ class RadarStore:
                 """UPDATE comments SET content_id=?, text=?, author=?, author_hash=?, parent_comment_id=?,
                    author_id=?, author_url=?, published_at=?, likes=?, source_keyword=?, last_seen_at=?
                    WHERE platform=? AND comment_id=?""",
-                (*values[2:], now, values[0], values[1]),
+                (
+                    values[2], values[3], values[4], values[5], values[8],
+                    values[6], values[7], values[9], values[10], values[11], now,
+                    values[0], values[1],
+                ),
             )
             self.connection.commit()
             inserted = False
