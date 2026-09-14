@@ -95,6 +95,7 @@ def test_identity_extraction_requires_explicit_company_text() -> None:
     assert role == "数字化运营负责人"
     assert classify_identity_confidence(company, role, ["https://example.com/news"]) == "high"
     assert classify_identity_confidence("", "", ["https://example.com/news"]) == "low"
+    assert classify_identity_confidence("", "", [], verified=True) == "high"
 
 
 def test_candidate_enrichment_is_capped_and_deduplicated() -> None:

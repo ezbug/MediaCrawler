@@ -29,8 +29,15 @@ def extract_company_role(text: str) -> tuple[str, str]:
     return company, role
 
 
-def classify_identity_confidence(company: str, role: str, external_urls: Iterable[str]) -> str:
+def classify_identity_confidence(
+    company: str,
+    role: str,
+    external_urls: Iterable[str],
+    verified: bool = False,
+) -> str:
     has_external = any(str(url).strip() for url in external_urls)
+    if verified:
+        return "high"
     if company and role and has_external:
         return "high"
     if company or role:
@@ -132,7 +139,7 @@ def run_profile_enrichment(
             continue
         bio = str(raw.get("bio", ""))
         company, role = extract_company_role(f"{raw.get('display_name', '')}\n{bio}")
-        identity_confidence = "medium" if company or role or raw.get("verified") else "low"
+        identity_confidence = classify_identity_confidence(company, role, [], bool(raw.get("verified")))
         profile = ProfileSnapshot(
             run_id=run_id,
             platform=str(raw.get("platform", "")),
@@ -225,7 +232,7 @@ def run_profile_enrichment(
             run_id,
             platform,
             author_id,
-            classify_identity_confidence(company, role, urls),
+            classify_identity_confidence(company, role, urls, bool(profile.get("verified"))),
             urls,
         )
     store.close()
