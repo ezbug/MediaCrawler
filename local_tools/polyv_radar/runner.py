@@ -229,7 +229,8 @@ def ingest_existing_run(config: RadarConfig, run_id: str) -> CollectionResult:
     failures: dict[str, str] = {}
     for platform in config.platforms:
         status = {"status": "partial", "contents": 0, "comments": 0, "tasks": 0}
-        for keyword in config.keywords.values():
+        plat_keywords = config.get_keywords_for_platform(platform) if hasattr(config, "get_keywords_for_platform") else config.keywords
+        for keyword in plat_keywords.values():
             output_dir = raw_root / platform / safe_name(keyword)
             if not output_dir.exists():
                 continue

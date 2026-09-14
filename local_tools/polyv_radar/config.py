@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -10,6 +10,7 @@ class RadarConfig:
     data_root: Path
     platforms: list[str]
     keywords: dict[str, str]
+    platform_keywords: dict[str, dict[str, str]] = field(default_factory=dict)
     login_type: str = "qrcode"
     max_contents: int = 10
     max_comments: int = 20
@@ -20,7 +21,16 @@ class RadarConfig:
 
     @property
     def category_by_keyword(self) -> dict[str, str]:
-        return {keyword: category for category, keyword in self.keywords.items()}
+        mapping = {keyword: category for category, keyword in self.keywords.items()}
+        for plat_map in self.platform_keywords.values():
+            for category, keyword in plat_map.items():
+                mapping[keyword] = category
+        return mapping
+
+    def get_keywords_for_platform(self, platform: str) -> dict[str, str]:
+        if platform in self.platform_keywords:
+            return self.platform_keywords[platform]
+        return self.keywords
 
 
 def load_config(path: Path) -> RadarConfig:
@@ -28,10 +38,16 @@ def load_config(path: Path) -> RadarConfig:
         raw = tomllib.load(handle)
     run = raw.get("run", {})
     keywords = {str(category): str(keyword) for category, keyword in raw.get("keywords", {}).items()}
+    platform_keywords = {}
+    for plat in ("dy", "xhs", "bili", "zhihu"):
+        plat_section = raw.get(f"keywords_{plat}", {})
+        if plat_section:
+            platform_keywords[plat] = {str(k): str(v) for k, v in plat_section.items()}
     return RadarConfig(
         data_root=Path(run.get("data_root", "polyv-radar-data")).expanduser(),
         platforms=[str(platform) for platform in run.get("platforms", ["dy", "xhs", "bili", "zhihu"])],
         keywords=keywords,
+        platform_keywords=platform_keywords,
         login_type=str(run.get("login_type", "qrcode")),
         max_contents=int(run.get("max_contents", 10)),
         max_comments=int(run.get("max_comments", 20)),

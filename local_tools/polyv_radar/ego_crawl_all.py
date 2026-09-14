@@ -10,6 +10,10 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+repo_root = Path(__file__).resolve().parents[2]
+if str(repo_root) not in sys.path:
+    sys.path.insert(0, str(repo_root))
+
 from local_tools.polyv_radar.config import load_config
 from local_tools.polyv_radar.runner import analyze_store, ingest_existing_run, report_store
 
@@ -21,7 +25,7 @@ PLATFORM_SCRIPTS = {
 }
 
 
-def run_ego_crawlers(run_id: str, platforms: list[str], keywords: dict[str, str], repo_root: Path, data_root: Path) -> dict[str, bool]:
+def run_ego_crawlers(run_id: str, platforms: list[str], config, repo_root: Path, data_root: Path) -> dict[str, bool]:
     results = {}
     tools_dir = repo_root / "local_tools" / "polyv_radar"
     raw_dir = data_root / "raw" / run_id
@@ -37,7 +41,8 @@ def run_ego_crawlers(run_id: str, platforms: list[str], keywords: dict[str, str]
         script_path = tools_dir / script_name
         plat_success = True
 
-        for category, keyword in keywords.items():
+        plat_keywords = config.get_keywords_for_platform(plat)
+        for category, keyword in plat_keywords.items():
             out_dir = raw_dir / plat / keyword
             out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -90,7 +95,7 @@ def main() -> int:
 
     if not args.skip_crawl:
         print(f"[*] Starting 4-platform ego lite crawl. Run ID: {run_id}")
-        crawl_results = run_ego_crawlers(run_id, args.platforms, config.keywords, repo_root, config.data_root)
+        crawl_results = run_ego_crawlers(run_id, args.platforms, config, repo_root, config.data_root)
         print(f"[*] Crawl results: {json.dumps(crawl_results, ensure_ascii=False)}")
 
     print(f"\n[*] Ingesting crawled data into SQLite store ({config.data_root / 'radar.sqlite3'})...")

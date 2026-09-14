@@ -36,8 +36,11 @@ INQUIRY_TERMS = ("多少钱", "价格", "费用", "方案", "平台推荐", "推
 ROLE_TERMS = ("公司", "企业", "老板", "负责人", "总监", "经理", "HR", "人事", "运营", "技术", "采购", "IT")
 AD_TERMS = ("我们提供", "加微信", "私信我", "招商", "代理", "源码", "代运营", "同行", "厂家", "欢迎咨询", "出各种", "诚信接单")
 
-# Hard negative terms to filter out non-B2B discussions (medical, gaming, casual chat)
+# Hard negative terms to filter out non-B2B discussions (entertainment, gaming, personal streaming, medical, casual chat)
 NEGATIVE_TERMS = (
+    # User-specified negatives:
+    "娱乐直播", "游戏直播", "主播", "明星直播", "直播切片", "无人直播", "带货教程", "个人开播", "公会", "打赏", "榜一大哥", "pk",
+    # Casual/medical/gaming negatives:
     "用药", "不良反应", "消化不良", "吃了", "药丸", "药店", "医院", "处方", "挂号",
     "王者荣耀", "kpl", "折叠屏", "手机", "测评", "数码", "打游戏", "动漫", "游戏",
     "离职", "辞职", "工资只有", "打工人", "破防", "领导恶心", "摆烂", "躺平"
