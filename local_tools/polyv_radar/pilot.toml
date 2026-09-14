@@ -1,0 +1,18 @@
+[run]
+data_root = "/Users/sexpistole111/Documents/workplace/polyv-radar-data"
+platforms = ["dy", "xhs", "bili", "zhihu"]
+login_type = "qrcode"
+max_contents = 10
+max_comments = 20
+concurrency = 1
+comments = true
+sub_comments = true
+task_timeout_seconds = 180
+
+[keywords]
+"企业培训" = "员工培训"
+"企业直播" = "发布会直播"
+"视频安全" = "防录屏"
+"AI视频" = "PPT转视频"
+"技术集成" = "直播SDK"
+"出海" = "海外直播"

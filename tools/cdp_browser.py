@@ -325,7 +325,9 @@ class CDPBrowserManager:
                 )
                 try:
                     self.browser = await playwright.chromium.connect_over_cdp(
-                        ws_url, timeout=config.BROWSER_LAUNCH_TIMEOUT * 1000
+                        ws_url,
+                        timeout=config.BROWSER_LAUNCH_TIMEOUT * 1000,
+                        no_defaults=True,
                     )
                 except Exception as direct_error:
                     utils.logger.warning(
@@ -337,13 +339,15 @@ class CDPBrowserManager:
                         f"[CDPBrowserManager] Connecting to existing browser via discovered CDP: {ws_url}"
                     )
                     self.browser = await playwright.chromium.connect_over_cdp(
-                        ws_url, timeout=config.BROWSER_LAUNCH_TIMEOUT * 1000
+                        ws_url,
+                        timeout=config.BROWSER_LAUNCH_TIMEOUT * 1000,
+                        no_defaults=True,
                     )
             else:
                 # For launched browser, get WebSocket URL first
                 ws_url = await self._get_browser_websocket_url(self.debug_port)
                 utils.logger.info(f"[CDPBrowserManager] Connecting to browser via CDP: {ws_url}")
-                self.browser = await playwright.chromium.connect_over_cdp(ws_url)
+                self.browser = await playwright.chromium.connect_over_cdp(ws_url, no_defaults=True)
 
             if self.browser.is_connected():
                 utils.logger.info("[CDPBrowserManager] Successfully connected to browser")
