@@ -84,6 +84,9 @@ def build_prefilter_leads(
 
 def candidate_bundle(store: RadarStore, run_id: str, leads: Iterable[LeadEvidence]) -> list[dict]:
     profiles = {(row["platform"], row["author_id"]): row for row in store.load_profiles(run_id)}
+    posts_by_author: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    for row in store.load_profile_posts(run_id):
+        posts_by_author[(row["platform"], row["author_id"])].append(row)
     evidence_by_author: dict[tuple[str, str], list[dict]] = defaultdict(list)
     for row in store.load_external_evidence(run_id):
         evidence_by_author[(row["platform"], row["author_id"])].append(row)
@@ -93,6 +96,15 @@ def candidate_bundle(store: RadarStore, run_id: str, leads: Iterable[LeadEvidenc
         sources = [{"url": lead.url, "type": "content", "text": lead.quote}]
         if lead.profile_url:
             sources.append({"url": lead.profile_url, "type": "profile", "text": profile.get("bio", "")})
+        for item in posts_by_author.get((lead.platform, lead.author_id), [])[:5]:
+            if item.get("url"):
+                sources.append(
+                    {
+                        "url": item["url"],
+                        "type": "profile_post",
+                        "text": item.get("text", "") or item.get("title", ""),
+                    }
+                )
         for item in evidence_by_author.get((lead.platform, lead.author_id), []):
             sources.append({"url": item["source_url"], "type": item["source_type"], "text": item["snippet"]})
         bundle.append(

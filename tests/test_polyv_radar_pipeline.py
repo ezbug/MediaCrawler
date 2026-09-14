@@ -14,7 +14,8 @@ from local_tools.polyv_radar.enrichment import (
     extract_company_role,
 )
 from local_tools.polyv_radar.ego_crawl_all import build_ego_launcher
-from local_tools.polyv_radar.models import LeadEvidence
+from local_tools.polyv_radar.models import LeadEvidence, ProfilePost, ProfileSnapshot
+from local_tools.polyv_radar.pipeline import candidate_bundle
 from local_tools.polyv_radar.review import enforce_review_gates, parse_review_payload, review_schema, run_codex_review
 from local_tools.polyv_radar.scoring import score_purchase_evidence
 from local_tools.polyv_radar.storage import RadarStore
@@ -158,6 +159,81 @@ def test_existing_database_migration_preserves_rows(tmp_path: Path) -> None:
     assert row["content_id"] == "old-1"
     assert row["author_id"] == ""
     assert store.connection.execute("SELECT name FROM sqlite_master WHERE name='profiles'").fetchone()
+    store.close()
+
+
+def test_run_query_sources_are_isolated_between_batches(tmp_path: Path) -> None:
+    store = RadarStore(tmp_path / "radar.sqlite3")
+    store.initialize()
+    content = _content("公司年会直播平台")
+    comment_a = normalize_comment(
+        "dy",
+        {"comment_id": "comment-a", "aweme_id": "dy-1", "content": "第一批"},
+        source_keyword="批次A查询",
+    )
+    comment_b = normalize_comment(
+        "dy",
+        {"comment_id": "comment-b", "aweme_id": "dy-1", "content": "第二批"},
+        source_keyword="批次B查询",
+    )
+
+    assert content is not None and comment_a is not None and comment_b is not None
+    content.source_keywords = ["批次A查询"]
+    store.upsert_content(content, run_id="run-a")
+    content.source_keywords = ["批次B查询"]
+    store.upsert_content(content, run_id="run-b")
+    store.upsert_comment(comment_a, run_id="run-a")
+    store.upsert_comment(comment_b, run_id="run-b")
+
+    assert store.iter_contents("run-a")[0].source_keywords == ["批次A查询"]
+    assert store.iter_contents("run-b")[0].source_keywords == ["批次B查询"]
+    assert store.iter_comments("run-a")[0].source_keyword == "批次A查询"
+    assert store.iter_comments("run-b")[0].source_keyword == "批次B查询"
+    store.close()
+
+
+def test_candidate_bundle_keeps_recent_profile_post_sources(tmp_path: Path) -> None:
+    store = RadarStore(tmp_path / "radar.sqlite3")
+    store.initialize()
+    store.upsert_profile(
+        ProfileSnapshot(
+            run_id="run-a",
+            platform="dy",
+            author_id="user-2",
+            author_url="https://www.douyin.com/user/user-2",
+            display_name="企业账号",
+            bio="某某科技 公司培训负责人",
+            company="某某科技公司",
+            role="培训负责人",
+            identity_confidence="medium",
+        )
+    )
+    store.upsert_profile_post(
+        ProfilePost(
+            run_id="run-a",
+            platform="dy",
+            author_id="user-2",
+            post_id="post-1",
+            url="https://www.douyin.com/video/post-1",
+            title="近期员工培训活动",
+            text="近期员工培训活动回顾",
+        )
+    )
+    lead = LeadEvidence(
+        platform="dy",
+        content_id="video-1",
+        comment_id="comment-1",
+        url="https://www.douyin.com/video/video-1",
+        user="企业账号",
+        quote="公司下个月需要培训平台",
+        category="企业培训",
+        solution="企业培训方向",
+        score=6,
+        author_id="user-2",
+        profile_url="https://www.douyin.com/user/user-2",
+    )
+    bundle = candidate_bundle(store, "run-a", [lead])
+    assert any(item["type"] == "profile_post" for item in bundle[0]["sources"])
     store.close()
 
 

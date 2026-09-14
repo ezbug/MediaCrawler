@@ -128,6 +128,8 @@ def run_profile_enrichment(
     profile_count = 0
     post_count = 0
     for raw in profiles:
+        if raw.get("available") is False or raw.get("error"):
+            continue
         bio = str(raw.get("bio", ""))
         company, role = extract_company_role(f"{raw.get('display_name', '')}\n{bio}")
         identity_confidence = "medium" if company or role or raw.get("verified") else "low"
@@ -175,6 +177,7 @@ def run_profile_enrichment(
             )
 
     web_count = 0
+    external_urls_by_author: dict[tuple[str, str], set[str]] = {}
     if web_candidates:
         web_input = enrichment_root / "web-input.json"
         web_output = enrichment_root / "web-output.json"
@@ -205,6 +208,25 @@ def run_profile_enrichment(
                         match_confidence="medium",
                     )
                 )
+                external_urls_by_author.setdefault(
+                    (str(raw.get("platform", "")), str(raw.get("author_id", ""))), set()
+                ).add(source_url)
                 web_count += 1
+    for profile in profiles:
+        platform = str(profile.get("platform", ""))
+        author_id = str(profile.get("author_id", ""))
+        urls = external_urls_by_author.get((platform, author_id), set())
+        if not author_id or not urls:
+            continue
+        company, role = extract_company_role(
+            f"{profile.get('display_name', '')}\n{profile.get('bio', '')}"
+        )
+        store.update_profile_identity(
+            run_id,
+            platform,
+            author_id,
+            classify_identity_confidence(company, role, urls),
+            urls,
+        )
     store.close()
     return {"profiles": profile_count, "posts": post_count, "external_evidence": web_count, "status": "success"}

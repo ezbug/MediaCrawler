@@ -77,11 +77,25 @@ class RadarStore:
                 content_id TEXT NOT NULL,
                 PRIMARY KEY (run_id, platform, content_id)
             );
+            CREATE TABLE IF NOT EXISTS run_content_sources (
+                run_id TEXT NOT NULL,
+                platform TEXT NOT NULL,
+                content_id TEXT NOT NULL,
+                source_keyword TEXT NOT NULL,
+                PRIMARY KEY (run_id, platform, content_id, source_keyword)
+            );
             CREATE TABLE IF NOT EXISTS run_comments (
                 run_id TEXT NOT NULL,
                 platform TEXT NOT NULL,
                 comment_id TEXT NOT NULL,
                 PRIMARY KEY (run_id, platform, comment_id)
+            );
+            CREATE TABLE IF NOT EXISTS run_comment_sources (
+                run_id TEXT NOT NULL,
+                platform TEXT NOT NULL,
+                comment_id TEXT NOT NULL,
+                source_keyword TEXT NOT NULL,
+                PRIMARY KEY (run_id, platform, comment_id, source_keyword)
             );
             CREATE TABLE IF NOT EXISTS runs (
                 run_id TEXT PRIMARY KEY,
@@ -223,6 +237,13 @@ class RadarStore:
                    VALUES (?, ?, ?)""",
                 (run_id, item.platform, item.content_id),
             )
+            for keyword in item.source_keywords:
+                self.connection.execute(
+                    """INSERT OR IGNORE INTO run_content_sources
+                       (run_id, platform, content_id, source_keyword)
+                       VALUES (?, ?, ?, ?)""",
+                    (run_id, item.platform, item.content_id, keyword),
+                )
         self.connection.commit()
         return inserted
 
@@ -270,12 +291,21 @@ class RadarStore:
                    VALUES (?, ?, ?)""",
                 (run_id, item.platform, item.comment_id),
             )
+            if item.source_keyword:
+                self.connection.execute(
+                    """INSERT OR IGNORE INTO run_comment_sources
+                       (run_id, platform, comment_id, source_keyword)
+                       VALUES (?, ?, ?, ?)""",
+                    (run_id, item.platform, item.comment_id, item.source_keyword),
+                )
         self.connection.commit()
         return inserted
 
     def clear_run_links(self, run_id: str) -> None:
         self.connection.execute("DELETE FROM run_contents WHERE run_id = ?", (run_id,))
+        self.connection.execute("DELETE FROM run_content_sources WHERE run_id = ?", (run_id,))
         self.connection.execute("DELETE FROM run_comments WHERE run_id = ?", (run_id,))
+        self.connection.execute("DELETE FROM run_comment_sources WHERE run_id = ?", (run_id,))
         self.connection.commit()
 
     def save_run(self, run_id: str, status: str, platform_status: dict, started_at: str, finished_at: str) -> None:
@@ -305,8 +335,16 @@ class RadarStore:
             ).fetchall()
         else:
             rows = self.connection.execute("SELECT * FROM contents ORDER BY first_seen_at").fetchall()
-        return [
-            ContentRecord(
+        result = []
+        for row in rows:
+            source_rows = self.connection.execute(
+                """SELECT source_keyword FROM run_content_sources
+                   WHERE run_id = ? AND platform = ? AND content_id = ?
+                   ORDER BY source_keyword""",
+                (run_id, row["platform"], row["content_id"]),
+            ).fetchall() if run_id else []
+            source_keywords = [item["source_keyword"] for item in source_rows] or json.loads(row["source_keywords"])
+            result.append(ContentRecord(
                 platform=row["platform"],
                 content_id=row["content_id"],
                 title=row["title"],
@@ -322,12 +360,12 @@ class RadarStore:
                 comments_count=row["comments_count"],
                 shares=row["shares"],
                 plays=row["plays"],
-                source_keywords=json.loads(row["source_keywords"]),
+                source_keywords=source_keywords,
                 content_type=row["content_type"],
                 tags=json.loads(row["tags"] or "[]"),
             )
-            for row in rows
-        ]
+            )
+        return result
 
     def iter_comments(self, run_id: str | None = None) -> list[CommentRecord]:
         if run_id:
@@ -339,8 +377,16 @@ class RadarStore:
             ).fetchall()
         else:
             rows = self.connection.execute("SELECT * FROM comments ORDER BY first_seen_at").fetchall()
-        return [
-            CommentRecord(
+        result = []
+        for row in rows:
+            source_rows = self.connection.execute(
+                """SELECT source_keyword FROM run_comment_sources
+                   WHERE run_id = ? AND platform = ? AND comment_id = ?
+                   ORDER BY source_keyword""",
+                (run_id, row["platform"], row["comment_id"]),
+            ).fetchall() if run_id else []
+            source_keyword = source_rows[0]["source_keyword"] if source_rows else row["source_keyword"]
+            result.append(CommentRecord(
                 platform=row["platform"],
                 comment_id=row["comment_id"],
                 content_id=row["content_id"],
@@ -352,10 +398,10 @@ class RadarStore:
                 parent_comment_id=row["parent_comment_id"],
                 published_at=datetime.fromisoformat(row["published_at"]) if row["published_at"] else None,
                 likes=row["likes"],
-                source_keyword=row["source_keyword"],
+                source_keyword=source_keyword,
             )
-            for row in rows
-        ]
+            )
+        return result
 
     def load_leads(self, run_id: str) -> list[LeadEvidence]:
         rows = self.connection.execute("SELECT payload FROM leads WHERE run_id = ?", (run_id,)).fetchall()
@@ -396,6 +442,27 @@ class RadarStore:
         )
         self.connection.commit()
 
+    def update_profile_identity(
+        self,
+        run_id: str,
+        platform: str,
+        author_id: str,
+        identity_confidence: str,
+        source_urls: Iterable[str],
+    ) -> None:
+        self.connection.execute(
+            """UPDATE profiles SET identity_confidence = ?, source_urls = ?
+               WHERE run_id = ? AND platform = ? AND author_id = ?""",
+            (
+                identity_confidence,
+                json.dumps(sorted({str(url) for url in source_urls if str(url)}), ensure_ascii=False),
+                run_id,
+                platform,
+                author_id,
+            ),
+        )
+        self.connection.commit()
+
     def save_assessments(self, assessments: Iterable[LeadAssessment]) -> None:
         for assessment in assessments:
             self.connection.execute(
@@ -414,6 +481,10 @@ class RadarStore:
 
     def load_external_evidence(self, run_id: str) -> list[dict]:
         rows = self.connection.execute("SELECT * FROM external_evidence WHERE run_id = ?", (run_id,)).fetchall()
+        return [dict(row) for row in rows]
+
+    def load_profile_posts(self, run_id: str) -> list[dict]:
+        rows = self.connection.execute("SELECT * FROM profile_posts WHERE run_id = ?", (run_id,)).fetchall()
         return [dict(row) for row in rows]
 
     def count(self, table: str) -> int:

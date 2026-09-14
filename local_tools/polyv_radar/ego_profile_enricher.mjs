@@ -19,6 +19,8 @@ for (const candidate of candidates) {
   try {
     await page.goto(candidate.profile_url);
     await page.waitForLoadState({ timeout: 15000 }).catch(() => {});
+    await page.waitForSelector('body', { timeout: 15000 }).catch(() => {});
+    await page.waitForSelector('a[href*="/video/"], a[href*="/explore/"], a[href*="/question/"], a[href*="/p/"]', { timeout: 10000 }).catch(() => {});
     await new Promise(resolve => setTimeout(resolve, 2500));
     const data = await page.evaluate(() => {
       const body = document.body?.innerText || '';
@@ -39,7 +41,7 @@ for (const candidate of candidates) {
         });
         if (posts.length >= 5) break;
       }
-      return { display_name: display, bio: body.slice(0, 2000), verified: /认证|verified|官方/.test(body), posts };
+      return { available: Boolean(body.trim()), display_name: display, bio: body.slice(0, 2000), verified: /认证|verified|官方/.test(body), posts };
     });
     profiles.push({
       run_id: candidate.run_id,
@@ -49,6 +51,7 @@ for (const candidate of candidates) {
       display_name: data.display_name,
       bio: data.bio,
       verified: data.verified,
+      available: data.available,
       posts: data.posts,
     });
   } catch (error) {
@@ -57,6 +60,7 @@ for (const candidate of candidates) {
       platform: candidate.platform,
       author_id: candidate.author_id,
       author_url: candidate.profile_url,
+      available: false,
       error: String(error?.message || error),
       posts: [],
     });
@@ -65,4 +69,3 @@ for (const candidate of candidates) {
 
 await fs.writeFile(outputPath, JSON.stringify({ profiles }, null, 2), 'utf-8');
 console.log(`[ProfileEnricher] saved ${profiles.length} profiles to ${outputPath}`);
-
