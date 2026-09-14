@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -14,7 +15,7 @@ from local_tools.polyv_radar.enrichment import (
 )
 from local_tools.polyv_radar.ego_crawl_all import build_ego_launcher
 from local_tools.polyv_radar.models import LeadEvidence
-from local_tools.polyv_radar.review import enforce_review_gates, parse_review_payload, review_schema
+from local_tools.polyv_radar.review import enforce_review_gates, parse_review_payload, review_schema, run_codex_review
 from local_tools.polyv_radar.scoring import score_purchase_evidence
 from local_tools.polyv_radar.storage import RadarStore
 
@@ -217,6 +218,30 @@ def test_review_gate_demotes_high_score_without_business_evidence() -> None:
     payload["score"] = 6
     gated = enforce_review_gates(payload, {"profile": {"identity_confidence": "low"}})
     assert gated["decision"] == "review"
+
+
+def test_codex_review_runner_rejects_untrusted_source_urls() -> None:
+    candidate = {
+        "quote": "公司下个月需要培训平台",
+        "sources": [{"url": "https://example.com/post", "text": "公司下个月需要培训平台"}],
+        "profile": {"identity_confidence": "low"},
+    }
+    payload = {
+        "score": 8,
+        "dimensions": {name: (2 if name != "identity" else 0) for name in ("business_scene", "project_timing", "platform_intent", "delivery_inquiry", "identity")},
+        "event_type": "员工培训",
+        "identity_confidence": "low",
+        "evidence": [{"dimension": "business_scene", "quote": "公司下个月需要培训平台", "url": "https://example.com/post"}],
+        "decision": "high_value",
+        "reason": "有项目和平台需求",
+    }
+
+    def fake_runner(command, **kwargs):
+        return subprocess.CompletedProcess(command, 0, json.dumps(payload), "")
+
+    parsed, status = run_codex_review(candidate, runner=fake_runner)
+    assert status == "model_verified"
+    assert parsed is not None and parsed["decision"] == "high_value"
 
 
 def test_config_contains_event_query_volume() -> None:
