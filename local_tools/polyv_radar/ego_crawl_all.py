@@ -67,7 +67,7 @@ def run_ego_crawlers(run_id: str, platforms: list[str], config, repo_root: Path,
                     text=True,
                     capture_output=True,
                     check=False,
-                    timeout=240
+                    timeout=config.task_timeout_seconds,
                 )
                 print(res.stdout)
                 if res.stderr:
