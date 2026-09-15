@@ -16,6 +16,7 @@ from local_tools.polyv_radar.config import RadarConfig
 from local_tools.polyv_radar.models import CommentRecord, LeadEvidence
 from local_tools.polyv_radar.storage import RadarStore
 from local_tools.polyv_radar.report import render_verified_leads
+from local_tools.polyv_radar.hunt import _with_long_tail
 
 
 def test_comment_normalization_preserves_native_locator_fields() -> None:
@@ -338,3 +339,17 @@ def test_vendor_and_editorial_accounts_do_not_enter_delivery_list() -> None:
     )
 
     assert not is_deliverable_lead(lead)
+
+
+def test_long_tail_wave_does_not_repeat_first_wave_queries() -> None:
+    config = RadarConfig(
+        data_root=Path("/tmp/polyv-radar-test"),
+        platforms=["dy", "xhs", "bili", "zhihu"],
+        keywords={"base": "base"},
+        platform_keywords={"dy": {"base": "base"}},
+    )
+
+    expanded = _with_long_tail(config)
+
+    assert sum(len(values) for values in expanded.platform_keywords.values()) == 15
+    assert "base" not in expanded.platform_keywords.get("dy", {})

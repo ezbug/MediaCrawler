@@ -41,11 +41,16 @@ LONG_TAIL_KEYWORDS = {
 
 
 def _with_long_tail(config: RadarConfig) -> RadarConfig:
-    merged = {platform: dict(values) for platform, values in config.platform_keywords.items()}
-    for platform, values in LONG_TAIL_KEYWORDS.items():
-        current = merged.setdefault(platform, {})
-        for category, keyword in values.items():
-            current.setdefault(category, keyword)
+    merged: dict[str, dict[str, str]] = {}
+    remaining = 15
+    for platform in config.platforms:
+        if remaining <= 0:
+            break
+        values = LONG_TAIL_KEYWORDS.get(platform, {})
+        selected = list(values.items())[:remaining]
+        if selected:
+            merged[platform] = dict(selected)
+            remaining -= len(selected)
     return replace(config, platform_keywords=merged)
 
 
