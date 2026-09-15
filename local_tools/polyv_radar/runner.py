@@ -268,6 +268,7 @@ def analyze_records(
     comments: Iterable[CommentRecord],
     now: datetime | None = None,
     category_by_keyword: dict[str, str] | None = None,
+    min_score: int = 4,
 ) -> list[LeadEvidence]:
     content_by_key = {(item.platform, item.content_id): item for item in contents}
     comments_by_content: dict[tuple[str, str], list[CommentRecord]] = {}
@@ -281,7 +282,7 @@ def analyze_records(
             for comment in related_comments:
                 category_hint = category_by_keyword.get(comment.source_keyword)
                 lead = score_lead(content, comment, now, category_hint)
-                if lead.score >= 4:
+                if lead.score >= min_score:
                     key = (lead.platform, lead.content_id, _text_key(lead.user), _text_key(lead.quote))
                     existing = leads_by_key.get(key)
                     if existing is None or lead.score > existing.score:
@@ -289,7 +290,7 @@ def analyze_records(
         else:
             category_hint = category_by_keyword.get(content.source_keywords[0]) if content.source_keywords else None
             lead = score_lead(content, None, now, category_hint)
-            if lead.score >= 4:
+            if lead.score >= min_score:
                 key = (lead.platform, lead.content_id, _text_key(lead.user), _text_key(lead.quote))
                 existing = leads_by_key.get(key)
                 if existing is None or lead.score > existing.score:
@@ -312,7 +313,13 @@ def write_review_queue(path: Path, leads: Iterable[LeadEvidence]) -> None:
 def analyze_store(config: RadarConfig, run_id: str, now: datetime | None = None) -> list[LeadEvidence]:
     store = RadarStore(config.data_root / "radar.sqlite3")
     store.initialize()
-    leads = analyze_records(store.iter_contents(run_id), store.iter_comments(run_id), now, config.category_by_keyword)
+    leads = analyze_records(
+        store.iter_contents(run_id),
+        store.iter_comments(run_id),
+        now,
+        config.category_by_keyword,
+        config.min_lead_score,
+    )
     store.save_leads(run_id, leads)
     write_review_queue(config.data_root / "review" / f"{run_id}.jsonl", leads)
     store.close()
