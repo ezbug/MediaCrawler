@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { cardTitleFromText, filterSearchResults, loadUntilStable, profileIdFromUrl } from './ego_helpers.mjs';
+import { cardTitleFromText, filterSearchResults, loadUntilStable, profileIdFromUrl, waitForResults } from './ego_helpers.mjs';
 
 const args = process.argv.slice(2);
 const keyword = process.env.KEYWORD || args[0] || "员工培训";
@@ -27,8 +27,7 @@ console.log(`[BiliCrawler] Searching Bilibili for "${keyword}" (max ${maxContent
 const searchUrl = `https://search.bilibili.com/all?keyword=${encodeURIComponent(keyword)}`;
 await page.goto(searchUrl);
 await page.waitForLoadState({ timeout: 15000 }).catch(() => {});
-await page.waitForSelector('a[href*="/video/BV"]', { timeout: 20000 }).catch(() => {});
-await page.waitForTimeout(10000);
+await waitForResults(page, 'a[href*="/video/BV"]');
 
 const rawCandidateVideos = await page.evaluate(() => {
   const links = Array.from(document.querySelectorAll('a[href*="/video/BV"]'));
@@ -89,10 +88,7 @@ for (let i = 0; i < targetVideos.length; i++) {
   try {
     await page.goto(v.url);
     await page.waitForLoadState({ timeout: 15000 }).catch(() => {});
-    await new Promise(r => setTimeout(r, 2500));
-
     await page.evaluate(() => window.scrollBy(0, 1200));
-    await new Promise(r => setTimeout(r, 3500));
     await loadUntilStable(page, 'bili-comments bili-comment-thread-renderer', maxComments);
 
     const pageData = await page.evaluate(() => {

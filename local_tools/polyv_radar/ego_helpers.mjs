@@ -1,9 +1,25 @@
+export async function waitForResults(page, selector, timeoutMs = 20000, stableRounds = 2) {
+  const deadline = Date.now() + timeoutMs;
+  let previous = -1;
+  let stable = 0;
+  while (Date.now() < deadline) {
+    const count = await page.evaluate((value) => document.querySelectorAll(value).length, selector);
+    if (count > 0) {
+      stable = count === previous ? stable + 1 : 0;
+      if (stable >= stableRounds) return count;
+      previous = count;
+    }
+    await new Promise(resolve => setTimeout(resolve, 250));
+  }
+  return await page.evaluate((value) => document.querySelectorAll(value).length, selector);
+}
+
 export async function loadUntilStable(page, selector, maxItems, stableRounds = 3) {
   let previous = 0;
   let stable = 0;
-  for (let round = 0; round < 15 && stable < stableRounds; round += 1) {
+  for (let round = 0; round < 24 && stable < stableRounds; round += 1) {
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-    await new Promise(resolve => setTimeout(resolve, 700));
+    await new Promise(resolve => setTimeout(resolve, 400));
     const count = await page.evaluate((value) => document.querySelectorAll(value).length, selector);
     if (count >= maxItems) break;
     stable = count === previous ? stable + 1 : 0;

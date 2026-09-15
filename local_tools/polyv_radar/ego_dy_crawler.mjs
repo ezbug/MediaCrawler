@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { cardTitleFromText, filterSearchResults, loadUntilStable, profileIdFromUrl } from './ego_helpers.mjs';
+import { cardTitleFromText, filterSearchResults, loadUntilStable, profileIdFromUrl, waitForResults } from './ego_helpers.mjs';
 
 const args = process.argv.slice(2);
 const keyword = process.env.KEYWORD || args[0] || "企业直播平台推荐";
@@ -27,11 +27,9 @@ console.log(`[EgoCrawler] Searching Douyin for "${keyword}" (max ${maxContents} 
 const searchUrl = `https://www.douyin.com/search/${encodeURIComponent(keyword)}?type=video`;
 await page.goto('https://www.douyin.com/');
 await page.waitForLoadState({ timeout: 15000 }).catch(() => {});
-await page.waitForTimeout(1500);
 await page.goto(searchUrl);
 await page.waitForLoadState({ timeout: 15000 }).catch(() => {});
-await page.waitForSelector('a[href*="/video/"]', { timeout: 20000 }).catch(() => {});
-await page.waitForTimeout(10000);
+await waitForResults(page, 'a[href*="/video/"]');
 
 // Extract search results
 const rawCandidateVideos = await page.evaluate(() => {
@@ -91,7 +89,6 @@ for (let i = 0; i < targetVideos.length; i++) {
   try {
     await page.goto(v.url);
     await page.waitForLoadState({ timeout: 15000 }).catch(() => {});
-    await new Promise(r => setTimeout(r, 3500));
     await page.waitForSelector('h1, [data-e2e="video-desc"]', { timeout: 15000 }).catch(() => {});
     await loadUntilStable(page, '[data-e2e="comment-item"]', maxComments);
 

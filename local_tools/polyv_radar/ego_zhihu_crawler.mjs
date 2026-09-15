@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { filterSearchResults, loadUntilStable, profileIdFromUrl } from './ego_helpers.mjs';
+import { filterSearchResults, loadUntilStable, profileIdFromUrl, waitForResults } from './ego_helpers.mjs';
 
 const args = process.argv.slice(2);
 const keyword = process.env.KEYWORD || args[0] || "员工培训";
@@ -27,8 +27,7 @@ console.log(`[ZhihuCrawler] Searching Zhihu for "${keyword}" (max ${maxContents}
 const searchUrl = `https://www.zhihu.com/search?type=content&q=${encodeURIComponent(keyword)}`;
 await page.goto(searchUrl);
 await page.waitForLoadState({ timeout: 15000 }).catch(() => {});
-await page.waitForSelector('.SearchResult-Card, [class*="SearchResult-Card"], .Card, .ContentItem', { timeout: 20000 }).catch(() => {});
-await page.waitForTimeout(10000);
+await waitForResults(page, '.SearchResult-Card, [class*="SearchResult-Card"], .Card, .ContentItem');
 
 const candidateItems = await page.evaluate(() => {
   const items = document.querySelectorAll('.SearchResult-Card, [class*="SearchResult-Card"], .Card, .ContentItem');
@@ -75,7 +74,6 @@ for (let i = 0; i < targetItems.length; i++) {
   try {
     await page.goto(item.url);
     await page.waitForLoadState({ timeout: 15000 }).catch(() => {});
-    await new Promise(r => setTimeout(r, 3000));
     await loadUntilStable(page, '.CommentItemV2, .CommentItem, [class*="CommentItem"]', maxComments);
 
     const pageData = await page.evaluate(() => {

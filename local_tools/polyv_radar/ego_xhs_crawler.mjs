@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { filterSearchResults, isExpectedXhsNoteUrl, loadUntilStable, profileIdFromUrl } from './ego_helpers.mjs';
+import { filterSearchResults, isExpectedXhsNoteUrl, loadUntilStable, profileIdFromUrl, waitForResults } from './ego_helpers.mjs';
 
 // Support env vars or CLI arguments
 const args = process.argv.slice(2);
@@ -28,8 +28,7 @@ console.log(`[XhsCrawler] Searching Xiaohongshu for "${keyword}" (max ${maxConte
 const searchUrl = `https://www.xiaohongshu.com/search_result?keyword=${encodeURIComponent(keyword)}`;
 await page.goto(searchUrl);
 await page.waitForLoadState({ timeout: 15000 }).catch(() => {});
-await page.waitForSelector('a[href*="/search_result/"]', { timeout: 20000 }).catch(() => {});
-await page.waitForTimeout(10000);
+await waitForResults(page, 'a[href*="/search_result/"]');
 
 // Extract note links with xsec_token
 const candidateNotes = await page.evaluate(() => {
@@ -80,7 +79,6 @@ for (let i = 0; i < targetNotes.length; i++) {
   try {
     await page.goto(n.url);
     await page.waitForLoadState({ timeout: 15000 }).catch(() => {});
-    await new Promise(r => setTimeout(r, 3500));
     await page.waitForSelector('#detail-title, #detail-desc', { timeout: 15000 }).catch(() => {});
     const detailUrl = await page.url();
     if (!isExpectedXhsNoteUrl(detailUrl, n.id)) {

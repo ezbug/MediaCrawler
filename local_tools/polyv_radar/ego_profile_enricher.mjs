@@ -21,7 +21,6 @@ for (const candidate of candidates) {
     await page.waitForLoadState({ timeout: 15000 }).catch(() => {});
     await page.waitForSelector('body', { timeout: 15000 }).catch(() => {});
     await page.waitForSelector('a[href*="/video/"], a[href*="/explore/"], a[href*="/question/"], a[href*="/p/"]', { timeout: 10000 }).catch(() => {});
-    await new Promise(resolve => setTimeout(resolve, 2500));
     const data = await page.evaluate(() => {
       const body = document.body?.innerText || '';
       const display = document.querySelector('h1, [class*="user-name"], [class*="nickname"], [class*="name"]')?.innerText?.trim() || '';

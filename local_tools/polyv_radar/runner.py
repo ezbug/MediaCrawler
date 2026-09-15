@@ -4,6 +4,7 @@ import json
 import os
 import re
 import subprocess
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -108,6 +109,114 @@ def _output_status(
     return _ingest_output(output_dir, platform, keyword, store, max_contents, max_comments, run_id)
 
 
+def _source_keyword(row: dict, fallback: str) -> str:
+    value = row.get("source_keyword") or row.get("sourceKeyword") or fallback
+    return str(value or fallback)
+
+
+def _limit_by_source(rows: list[dict], limit: int | None, fallback: str, key: str) -> list[dict]:
+    if limit is None:
+        return rows
+    counts: dict[str, int] = {}
+    limited: list[dict] = []
+    for row in rows:
+        source = _source_keyword(row, fallback)
+        if counts.get(source, 0) >= limit:
+            continue
+        counts[source] = counts.get(source, 0) + 1
+        limited.append(row)
+    return limited
+
+
+def _ingest_output_details(
+    output_dir: Path,
+    platform: str,
+    keyword: str,
+    store: RadarStore,
+    max_contents: int | None = None,
+    max_comments: int | None = None,
+    run_id: str | None = None,
+) -> dict:
+    content_rows: list[dict] = []
+    comment_rows: list[dict] = []
+    for path in sorted(output_dir.rglob("*.jsonl")):
+        name = path.name.lower()
+        if "comment" in name:
+            comment_rows.extend(_read_jsonl(path))
+        elif "content" in name or "video" in name or "note" in name:
+            content_rows.extend(_read_jsonl(path))
+
+    content_rows = _limit_by_source(content_rows, max_contents, keyword, "content")
+    contents = [
+        item
+        for item in (
+            normalize_content(platform, row, _source_keyword(row, keyword))
+            for row in content_rows
+        )
+        if item
+    ]
+    content_source_by_id = {item.content_id: item.source_keywords[0] for item in contents if item.source_keywords}
+    if max_comments is not None:
+        comment_counts: dict[str, int] = {}
+        limited_comments: list[dict] = []
+        for row in comment_rows:
+            content_id = str(row.get("aweme_id") or row.get("note_id") or row.get("video_id") or row.get("content_id") or "")
+            source = _source_keyword(row, content_source_by_id.get(content_id, keyword))
+            count_key = f"{source}\x1f{content_id}"
+            if comment_counts.get(count_key, 0) >= max_comments:
+                continue
+            comment_counts[count_key] = comment_counts.get(count_key, 0) + 1
+            limited_comments.append(row)
+        comment_rows = limited_comments
+    comments = [
+        item
+        for item in (
+            normalize_comment(
+                platform,
+                row,
+                source_keyword=_source_keyword(
+                    row,
+                    content_source_by_id.get(
+                        str(row.get("aweme_id") or row.get("note_id") or row.get("video_id") or row.get("content_id") or ""),
+                        keyword,
+                    ),
+                ),
+            )
+            for row in comment_rows
+        )
+        if item
+    ]
+    unique_contents = {(item.platform, item.content_id): item for item in contents}
+    unique_comments = {(item.platform, item.comment_id): item for item in comments}
+    for content in unique_contents.values():
+        store.upsert_content(content, run_id=run_id)
+    for comment in unique_comments.values():
+        store.upsert_comment(comment, run_id=run_id)
+
+    by_keyword: dict[str, dict[str, int]] = {}
+    for row in content_rows:
+        source = _source_keyword(row, keyword)
+        item = by_keyword.setdefault(source, {"raw_contents": 0, "raw_comments": 0, "dedup_contents": 0, "dedup_comments": 0})
+        item["raw_contents"] += 1
+    for row in comment_rows:
+        content_id = str(row.get("aweme_id") or row.get("note_id") or row.get("video_id") or row.get("content_id") or "")
+        source = _source_keyword(row, content_source_by_id.get(content_id, keyword))
+        item = by_keyword.setdefault(source, {"raw_contents": 0, "raw_comments": 0, "dedup_contents": 0, "dedup_comments": 0})
+        item["raw_comments"] += 1
+    for item in unique_contents.values():
+        source = item.source_keywords[0] if item.source_keywords else keyword
+        by_keyword.setdefault(source, {"raw_contents": 0, "raw_comments": 0, "dedup_contents": 0, "dedup_comments": 0})["dedup_contents"] += 1
+    for item in unique_comments.values():
+        by_keyword.setdefault(item.source_keyword or keyword, {"raw_contents": 0, "raw_comments": 0, "dedup_contents": 0, "dedup_comments": 0})["dedup_comments"] += 1
+    return {
+        "raw_contents": len(content_rows),
+        "raw_comments": len(comment_rows),
+        "dedup_contents": len(unique_contents),
+        "dedup_comments": len(unique_comments),
+        "by_keyword": by_keyword,
+    }
+
+
 def _ingest_output(
     output_dir: Path,
     platform: str,
@@ -117,39 +226,55 @@ def _ingest_output(
     max_comments: int | None = None,
     run_id: str | None = None,
 ) -> tuple[int, int]:
-    content_rows: list[dict] = []
-    comment_rows: list[dict] = []
-    for path in sorted(output_dir.rglob("*.jsonl")):
-        name = path.name.lower()
-        if "comment" in name:
-            comment_rows.extend(_read_jsonl(path))
-        elif "content" in name or "video" in name:
-            content_rows.extend(_read_jsonl(path))
-
-    if max_contents is not None:
-        content_rows = content_rows[:max_contents]
-    contents = [item for item in (normalize_content(platform, row, keyword) for row in content_rows) if item]
-    comments = [item for item in (normalize_comment(platform, row, source_keyword=keyword) for row in comment_rows) if item]
-    if max_comments is not None:
-        per_content_count: dict[str, int] = {}
-        limited_comments: list[CommentRecord] = []
-        for comment in comments:
-            count = per_content_count.get(comment.content_id, 0)
-            if count >= max_comments:
-                continue
-            limited_comments.append(comment)
-            per_content_count[comment.content_id] = count + 1
-        comments = limited_comments
-    for content in contents:
-        store.upsert_content(content, run_id=run_id)
-    for comment in comments:
-        store.upsert_comment(comment, run_id=run_id)
-    return len(contents), len(comments)
+    details = _ingest_output_details(output_dir, platform, keyword, store, max_contents, max_comments, run_id)
+    return details["dedup_contents"], details["dedup_comments"]
 
 
-def collect(config: RadarConfig, repo_root: Path, runner: Callable[..., subprocess.CompletedProcess] = subprocess.run) -> CollectionResult:
-    now = datetime.now(timezone.utc)
-    run_id = now.strftime("%Y%m%d-%H%M%S")
+def _task_record(
+    run_id: str,
+    platform: str,
+    keyword: str,
+    backend: str,
+    started: datetime,
+    finished: datetime,
+    stats: dict | None = None,
+    status: str = "success",
+    error: str = "",
+    fallback_backend: str = "",
+    fallback_reason: str = "",
+) -> dict:
+    stats = stats or {}
+    return {
+        "run_id": run_id,
+        "platform": platform,
+        "keyword": keyword,
+        "backend": backend,
+        "started_at": started.isoformat(),
+        "finished_at": finished.isoformat(),
+        "duration_seconds": max(0.0, (finished - started).total_seconds()),
+        "raw_contents": stats.get("raw_contents", 0),
+        "raw_comments": stats.get("raw_comments", 0),
+        "dedup_contents": stats.get("dedup_contents", 0),
+        "dedup_comments": stats.get("dedup_comments", 0),
+        "status": status,
+        "error": error[-500:],
+        "fallback_backend": fallback_backend,
+        "fallback_reason": fallback_reason[-500:],
+    }
+
+
+def _save_run(store: RadarStore, run_id: str, started: datetime, platform_status: dict, failures: dict[str, str]) -> None:
+    final_status = "success" if not failures else "partial"
+    store.save_run(run_id, final_status, platform_status, started.isoformat(), datetime.now(timezone.utc).isoformat())
+
+
+def _collect_native(
+    config: RadarConfig,
+    repo_root: Path,
+    runner: Callable[..., subprocess.CompletedProcess],
+    run_id: str,
+) -> CollectionResult:
+    started_run = datetime.now(timezone.utc)
     raw_root = config.data_root / "raw" / run_id
     store_path = config.data_root / "radar.sqlite3"
     store = RadarStore(store_path)
@@ -158,68 +283,116 @@ def collect(config: RadarConfig, repo_root: Path, runner: Callable[..., subproce
     failures: dict[str, str] = {}
     for platform in config.platforms:
         status = {"status": "success", "contents": 0, "comments": 0, "tasks": 0}
-        for keyword in config.get_keywords_for_platform(platform).values():
-            status["tasks"] += 1
-            output_dir = raw_root / platform / safe_name(keyword)
-            output_dir.mkdir(parents=True, exist_ok=True)
-            command = build_crawl_command(
-                repo_root,
-                platform,
-                keyword,
-                output_dir,
-                config.max_contents,
-                config.max_comments,
-                config.login_type,
-                config.concurrency,
-                config.comments,
-                config.sub_comments,
+        keywords = list(config.get_keywords_for_platform(platform).values())
+        status["tasks"] = len(keywords)
+        if not keywords:
+            platform_status[platform] = {**status, "status": "not_run"}
+            continue
+        output_dir = raw_root / platform / "__native_batch__"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        command = build_crawl_command(
+            repo_root,
+            platform,
+            ",".join(keywords),
+            output_dir,
+            config.max_contents,
+            config.max_comments,
+            config.login_type,
+            config.concurrency,
+            config.comments,
+            config.sub_comments,
+        )
+        task_started = datetime.now(timezone.utc)
+        timed_out = False
+        completed = None
+        error = ""
+        try:
+            completed = runner(
+                command,
+                cwd=repo_root,
+                env=_crawler_env(),
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=config.task_timeout_seconds,
             )
-            timed_out = False
-            try:
-                completed = runner(
-                    command,
-                    cwd=repo_root,
-                    env=_crawler_env(),
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                    timeout=config.task_timeout_seconds,
-                )
-            except subprocess.TimeoutExpired as exc:
-                timed_out = True
-                completed = subprocess.CompletedProcess(
-                    command,
-                    returncode=124,
-                    stdout=exc.stdout or "",
-                    stderr=exc.stderr or "",
-                )
-            log_path = output_dir / "crawler.log"
-            log_prefix = f"任务超过 {config.task_timeout_seconds} 秒，保留已落盘数据并继续。\n" if timed_out else ""
-            log_path.write_text(
-                log_prefix + _as_text(completed.stdout) + "\n" + _as_text(completed.stderr),
-                encoding="utf-8",
-            )
-            contents, comments = _output_status(
-                output_dir,
-                platform,
-                keyword,
-                store,
-                config.max_contents,
-                config.max_comments,
-                run_id,
-            )
-            status["contents"] += contents
-            status["comments"] += comments
-            if completed.returncode != 0:
-                status["status"] = "partial"
-                reason = "任务超时，已保留部分数据" if timed_out else _as_text(completed.stderr or completed.stdout or "退出码非零")
-                failures[f"{platform}:{keyword}"] = _as_text(reason).strip()[-500:]
-                continue
+        except subprocess.TimeoutExpired as exc:
+            timed_out = True
+            completed = subprocess.CompletedProcess(command, returncode=124, stdout=exc.stdout or "", stderr=exc.stderr or "")
+        except Exception as exc:
+            completed = subprocess.CompletedProcess(command, returncode=1, stdout="", stderr=str(exc))
+        finished = datetime.now(timezone.utc)
+        log_prefix = f"任务超过 {config.task_timeout_seconds} 秒，保留已落盘数据并继续。\n" if timed_out else ""
+        log_path = output_dir / "crawler.log"
+        log_path.write_text(log_prefix + _as_text(getattr(completed, "stdout", "")) + "\n" + _as_text(getattr(completed, "stderr", "")), encoding="utf-8")
+        try:
+            details = _ingest_output_details(output_dir, platform, keywords[0], store, config.max_contents, config.max_comments, run_id)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            details = {"raw_contents": 0, "raw_comments": 0, "dedup_contents": 0, "dedup_comments": 0, "by_keyword": {}}
+            error = f"输出解析失败: {exc}"
+        status["contents"] = details["dedup_contents"]
+        status["comments"] = details["dedup_comments"]
+        returncode = int(getattr(completed, "returncode", 1))
+        if timed_out:
+            error = error or "任务超时，已保留部分数据"
+        elif returncode != 0:
+            error = error or _as_text(getattr(completed, "stderr", "") or getattr(completed, "stdout", "") or "退出码非零")
+        if error:
+            status["status"] = "partial"
+            for keyword in keywords:
+                failures[f"{platform}:{keyword}"] = error.strip()[-500:]
+        for keyword in keywords:
+            task_stats = details["by_keyword"].get(keyword, {})
+            store.save_crawl_task(_task_record(run_id, platform, keyword, "native", task_started, finished, task_stats, "partial" if error else "success", error))
         platform_status[platform] = status
-    final_status = "success" if not failures else "partial"
-    store.save_run(run_id, final_status, platform_status, now.isoformat(), datetime.now(timezone.utc).isoformat())
+    _save_run(store, run_id, started_run, platform_status, failures)
     store.close()
     return CollectionResult(run_id, store_path, platform_status, failures)
+
+
+def collect(
+    config: RadarConfig,
+    repo_root: Path,
+    runner: Callable[..., subprocess.CompletedProcess] = subprocess.run,
+    collector: str | None = None,
+    run_id: str | None = None,
+) -> CollectionResult:
+    mode = collector or config.collector_backend
+    if mode not in {"native", "ego", "hybrid"}:
+        raise ValueError(f"Unsupported collector backend: {mode}")
+    run_id = run_id or datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    if mode == "native":
+        return _collect_native(config, repo_root, runner, run_id)
+
+    from .ego_crawl_all import run_ego_crawlers
+
+    if mode == "ego":
+        started = datetime.now(timezone.utc)
+        results = run_ego_crawlers(run_id, config.platforms, config, repo_root, config.data_root)
+        result = ingest_existing_run(config, run_id)
+        store = RadarStore(result.store_path)
+        store.initialize()
+        for platform, success in results.items():
+            for keyword in config.get_keywords_for_platform(platform).values():
+                store.save_crawl_task(_task_record(run_id, platform, keyword, "ego", started, datetime.now(timezone.utc), status="success" if success else "partial", error="" if success else "Ego任务失败"))
+        store.close()
+        return result
+
+    native_result = _collect_native(config, repo_root, runner, run_id)
+    failed_platforms = [platform for platform, value in native_result.platform_status.items() if value.get("status") == "partial"]
+    if not failed_platforms:
+        return native_result
+    fallback_config = RadarConfig(**{**config.__dict__, "platforms": failed_platforms})
+    results = run_ego_crawlers(run_id, failed_platforms, fallback_config, repo_root, config.data_root)
+    result = ingest_existing_run(config, run_id)
+    store = RadarStore(result.store_path)
+    store.initialize()
+    for platform in failed_platforms:
+        reason = next((value for key, value in native_result.failures.items() if key.startswith(f"{platform}:")), "原生采集失败")
+        for keyword in config.get_keywords_for_platform(platform).values():
+            store.save_crawl_task(_task_record(run_id, platform, keyword, "ego", datetime.now(timezone.utc), datetime.now(timezone.utc), status="success" if results.get(platform) else "partial", fallback_backend="ego", fallback_reason=reason, error="" if results.get(platform) else "Ego回退失败"))
+    store.close()
+    return result
 
 
 def ingest_existing_run(config: RadarConfig, run_id: str) -> CollectionResult:
@@ -233,23 +406,21 @@ def ingest_existing_run(config: RadarConfig, run_id: str) -> CollectionResult:
     store.clear_run_links(run_id)
     for platform in config.platforms:
         status = {"status": "not_run", "contents": 0, "comments": 0, "tasks": 0}
-        plat_keywords = config.get_keywords_for_platform(platform) if hasattr(config, "get_keywords_for_platform") else config.keywords
-        for keyword in plat_keywords.values():
-            output_dir = raw_root / platform / safe_name(keyword)
-            if not output_dir.exists():
-                continue
-            status["tasks"] += 1
-            contents, comments = _output_status(
-                output_dir,
+        platform_root = raw_root / platform
+        if platform_root.exists():
+            keywords = list((config.get_keywords_for_platform(platform) if hasattr(config, "get_keywords_for_platform") else config.keywords).values())
+            details = _ingest_output_details(
+                platform_root,
                 platform,
-                keyword,
+                keywords[0] if keywords else "",
                 store,
                 config.max_contents,
                 config.max_comments,
                 run_id,
             )
-            status["contents"] += contents
-            status["comments"] += comments
+            status["contents"] = details["dedup_contents"]
+            status["comments"] = details["dedup_comments"]
+            status["tasks"] = len(details["by_keyword"]) or (1 if list(platform_root.rglob("*.jsonl")) else 0)
         if status["tasks"] and status["contents"]:
             status["status"] = "success"
         if status["tasks"] and not status["contents"]:
