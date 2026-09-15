@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { filterSearchResults, loadUntilStable, profileIdFromUrl, waitForResults } from './ego_helpers.mjs';
+import { filterSearchResults, loadUntilStable, parseDisplayedTime, profileIdFromUrl, waitForResults } from './ego_helpers.mjs';
 
 const args = process.argv.slice(2);
 const keyword = process.env.KEYWORD || args[0] || "员工培训";
@@ -92,8 +92,18 @@ for (let i = 0; i < targetItems.length; i++) {
         const author = authorLink?.innerText?.trim() || el.querySelector('.UserLink-link, [class*="author"]')?.innerText?.trim() || "知乎用户";
         const text = el.querySelector('.CommentItemV2-content, [class*="content"]')?.innerText?.trim() || "";
         if (text) {
+          const lines = (el.innerText || "").split('\n').map(line => line.trim()).filter(Boolean);
+          const publishedAtRaw = [...lines].reverse().find(line => /刚刚|刚才|今天|昨天|\d+\s*(秒|分钟|小时|天|周|月|个月|年)前|20\d{2}[-/.]\d{1,2}[-/.]\d{1,2}/.test(line)) || "";
+          const nativeCommentId = el.getAttribute('data-comment-id') || el.getAttribute('data-id') || "";
+          const nativeParentId = el.getAttribute('data-parent-id') || el.getAttribute('data-root-id') || "";
+          const commentLink = el.querySelector('a[href*="comment"], a[href*="#"]');
           parsedComments.push({
             comment_id: `zh_cm_${idx}_${Date.now()}`,
+            native_comment_id: nativeCommentId,
+            native_parent_id: nativeParentId,
+            comment_url: commentLink?.href || "",
+            source_type: nativeParentId ? "reply" : "comment",
+            published_at_raw: publishedAtRaw,
             author,
             author_url: authorLink?.href || "",
             parent_comment_id: el.getAttribute('data-parent-id') || "",
@@ -133,16 +143,21 @@ for (let i = 0; i < targetItems.length; i++) {
 
     const itemComments = pageData.comments.slice(0, maxComments).map(c => ({
       platform: "zhihu",
-      comment_id: `${contentId}_${c.comment_id}`,
+      comment_id: `${contentId}_${c.native_comment_id || c.comment_id}`,
       content_id: contentId,
       text: c.text,
       author: c.author,
       author_url: c.author_url || "",
       author_id: profileIdFromUrl(c.author_url, "zhihu"),
       parent_comment_id: c.parent_comment_id || "",
+      native_comment_id: c.native_comment_id || "",
+      native_parent_id: c.native_parent_id || "",
+      comment_url: c.comment_url || "",
+      source_type: c.source_type || "comment",
+      published_at_raw: c.published_at_raw || "",
       likes: c.likes,
       source_keyword: keyword,
-      create_time: new Date().toISOString()
+      create_time: parseDisplayedTime(c.published_at_raw)?.toISOString() || ""
     }));
     comments.push(...itemComments);
 

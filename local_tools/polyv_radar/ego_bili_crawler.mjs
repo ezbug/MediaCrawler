@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { cardTitleFromText, filterSearchResults, loadUntilStable, profileIdFromUrl, waitForResults } from './ego_helpers.mjs';
+import { cardTitleFromText, filterSearchResults, loadUntilStable, parseDisplayedTime, profileIdFromUrl, waitForResults } from './ego_helpers.mjs';
 
 const args = process.argv.slice(2);
 const keyword = process.env.KEYWORD || args[0] || "员工培训";
@@ -111,9 +111,21 @@ for (let i = 0; i < targetVideos.length; i++) {
 
         const richText = comment.shadowRoot.querySelector('bili-rich-text');
         const text = richText?.shadowRoot?.querySelector('#contents')?.innerText || richText?.innerText || "";
+        const attributes = (node) => Object.fromEntries(Array.from(node?.attributes || []).map(attribute => [attribute.name, attribute.value]));
+        const threadAttrs = attributes(t);
+        const commentAttrs = attributes(comment);
+        const nativeCommentId = threadAttrs['data-rpid'] || threadAttrs['data-comment-id'] || commentAttrs['data-rpid'] || commentAttrs['data-comment-id'] || "";
+        const nativeParentId = threadAttrs['data-root'] || threadAttrs['data-parent-id'] || commentAttrs['data-root'] || commentAttrs['data-parent-id'] || "";
+        const commentLink = Array.from(comment.shadowRoot.querySelectorAll('a[href]')).find(a => /reply|comment/i.test(a.getAttribute('href') || ''));
+        const publishedAtRaw = (comment.shadowRoot.innerText || "").split('\n').map(line => line.trim()).filter(Boolean).reverse().find(line => /刚刚|刚才|今天|昨天|\d+\s*(秒|分钟|小时|天|周|月|个月|年)前|20\d{2}[-/.]\d{1,2}[-/.]\d{1,2}/.test(line)) || "";
 
         parsedComments.push({
           comment_id: `bili_cm_${idx}_${Date.now()}`,
+          native_comment_id: nativeCommentId,
+          native_parent_id: nativeParentId,
+          comment_url: commentLink?.href || "",
+          source_type: nativeParentId ? "reply" : "comment",
+          published_at_raw: publishedAtRaw,
           author: user.trim(),
           author_url: userInfo?.shadowRoot?.querySelector('a[href*="space.bilibili.com"]')?.href || "",
           text: text.trim(),
@@ -148,15 +160,20 @@ for (let i = 0; i < targetVideos.length; i++) {
 
     const videoComments = pageData.comments.slice(0, maxComments).map(c => ({
       platform: "bili",
-      comment_id: `${v.bvid}_${c.comment_id}`,
+      comment_id: `${v.bvid}_${c.native_comment_id || c.comment_id}`,
       content_id: v.bvid,
       text: c.text,
       author: c.author,
       author_url: c.author_url || "",
       author_id: profileIdFromUrl(c.author_url, "bili"),
+      native_comment_id: c.native_comment_id || "",
+      native_parent_id: c.native_parent_id || "",
+      comment_url: c.comment_url || "",
+      source_type: c.source_type || "comment",
+      published_at_raw: c.published_at_raw || "",
       likes: c.likes,
       source_keyword: keyword,
-      create_time: new Date().toISOString()
+      create_time: parseDisplayedTime(c.published_at_raw)?.toISOString() || ""
     }));
     comments.push(...videoComments);
 

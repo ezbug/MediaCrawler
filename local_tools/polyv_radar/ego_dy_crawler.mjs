@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { cardTitleFromText, filterSearchResults, loadUntilStable, profileIdFromUrl, waitForResults } from './ego_helpers.mjs';
+import { cardTitleFromText, filterSearchResults, loadUntilStable, parseDisplayedTime, profileIdFromUrl, waitForResults } from './ego_helpers.mjs';
 
 const args = process.argv.slice(2);
 const keyword = process.env.KEYWORD || args[0] || "企业直播平台推荐";
@@ -112,6 +112,10 @@ for (let i = 0; i < targetVideos.length; i++) {
         let text = lines[1] || "";
         if (text === '...' && lines.length > 2) text = lines[2];
         if (text === '作者' && lines.length > 3) text = lines[3];
+        const publishedAtRaw = [...lines].reverse().find(line => /刚刚|刚才|今天|昨天|\d+\s*(秒|分钟|小时|天|周|月|个月|年)前|20\d{2}[-/.]\d{1,2}[-/.]\d{1,2}/.test(line)) || "";
+        const nativeCommentId = el.getAttribute('data-comment-id') || el.getAttribute('data-cid') || el.getAttribute('data-id') || "";
+        const nativeParentId = el.getAttribute('data-root-id') || el.getAttribute('data-parent-id') || "";
+        const commentLink = el.querySelector('a[href*="comment"], a[href*="reply"]');
 
         let likes = 0;
         for (const l of lines) {
@@ -123,6 +127,11 @@ for (let i = 0; i < targetVideos.length; i++) {
 
         parsedComments.push({
           comment_id: `cm_${idx}_${Date.now()}`,
+          native_comment_id: nativeCommentId,
+          native_parent_id: nativeParentId,
+          comment_url: commentLink?.href || "",
+          source_type: nativeParentId ? "reply" : "comment",
+          published_at_raw: publishedAtRaw,
           author,
           author_url: authorLink?.href || "",
           parent_comment_id: el.getAttribute('data-parent-id') || "",
@@ -158,16 +167,21 @@ for (let i = 0; i < targetVideos.length; i++) {
 
     const videoComments = pageData.comments.slice(0, maxComments).map(c => ({
       platform: "dy",
-      comment_id: `${v.id}_${c.comment_id}`,
+      comment_id: `${v.id}_${c.native_comment_id || c.comment_id}`,
       content_id: v.id,
       text: c.text,
       author: c.author,
       author_url: c.author_url || "",
       author_id: profileIdFromUrl(c.author_url, "dy"),
       parent_comment_id: c.parent_comment_id || "",
+      native_comment_id: c.native_comment_id || "",
+      native_parent_id: c.native_parent_id || "",
+      comment_url: c.comment_url || "",
+      source_type: c.source_type || "comment",
+      published_at_raw: c.published_at_raw || "",
       likes: c.likes,
       source_keyword: keyword,
-      create_time: new Date().toISOString()
+      create_time: parseDisplayedTime(c.published_at_raw)?.toISOString() || ""
     }));
     comments.push(...videoComments);
 

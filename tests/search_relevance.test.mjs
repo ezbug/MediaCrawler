@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { cardTitleFromText, filterSearchResults, isExpectedXhsNoteUrl, searchRelevance } from '../local_tools/polyv_radar/ego_helpers.mjs';
+import { cardTitleFromText, filterSearchResults, isExpectedXhsNoteUrl, parseDisplayedTime, searchRelevance } from '../local_tools/polyv_radar/ego_helpers.mjs';
 
 test('extracts the title from a Douyin search card', () => {
   const title = cardTitleFromText('01:14\n57\n神鹏品牌全国经销商大会圆满召开\n@郑州三邦机电（周晓峰）\n3周前');
@@ -69,4 +69,11 @@ test('rejects a consumer product launch without an enterprise scene', () => {
 test('rejects an event title without delivery or project context', () => {
   const result = searchRelevance('公司年会直播 平台报价', '年会唱歌罚4万');
   assert.equal(result.accepted, false);
+});
+
+test('parses displayed relative comment time instead of crawl time', () => {
+  const now = new Date('2026-09-15T12:00:00Z');
+  assert.equal(parseDisplayedTime('60天前·北京', now).toISOString(), '2026-07-17T12:00:00.000Z');
+  assert.equal(parseDisplayedTime('91天前', now).toISOString(), '2026-06-16T12:00:00.000Z');
+  assert.equal(parseDisplayedTime('未知时间', now), null);
 });

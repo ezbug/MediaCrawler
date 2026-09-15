@@ -141,3 +141,38 @@ export function profileIdFromUrl(url, platform) {
   }
   return "";
 }
+
+export function parseDisplayedTime(value, now = new Date()) {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  const base = new Date(now);
+  const absolute = text.match(/(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})(?:\s+(\d{1,2}):(\d{2}))?/);
+  if (absolute) {
+    const [, year, month, day, hour = "00", minute = "00"] = absolute;
+    return new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute)));
+  }
+  if (/刚刚|刚才/.test(text)) return base;
+  const timeMatch = text.match(/(\d{1,2}):(\d{2})/);
+  const withTime = (date) => {
+    if (!timeMatch) return date;
+    date.setUTCHours(Number(timeMatch[1]), Number(timeMatch[2]), 0, 0);
+    return date;
+  };
+  if (/今天/.test(text)) return withTime(base);
+  if (/昨天/.test(text)) return withTime(new Date(base.getTime() - 24 * 60 * 60 * 1000));
+  const relative = text.match(/(\d+)\s*(秒|分钟|小时|天|周|月|个月|年)前/);
+  if (!relative) return null;
+  const amount = Number(relative[1]);
+  const unit = relative[2];
+  const milliseconds = {
+    秒: 1000,
+    分钟: 60 * 1000,
+    小时: 60 * 60 * 1000,
+    天: 24 * 60 * 60 * 1000,
+    周: 7 * 24 * 60 * 60 * 1000,
+    月: 30 * 24 * 60 * 60 * 1000,
+    个月: 30 * 24 * 60 * 60 * 1000,
+    年: 365 * 24 * 60 * 60 * 1000,
+  }[unit];
+  return milliseconds ? new Date(base.getTime() - amount * milliseconds) : null;
+}
