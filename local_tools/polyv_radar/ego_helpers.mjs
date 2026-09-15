@@ -12,14 +12,14 @@ export async function loadUntilStable(page, selector, maxItems, stableRounds = 3
 }
 
 const SEARCH_EVENT_TERMS = [
-  "企业直播", "公司年会", "年会", "经销商", "渠道大会", "员工培训", "企业培训", "企业内训",
+  "企业直播", "直播", "公司年会", "年会", "经销商", "渠道大会", "员工培训", "企业培训", "企业内训",
   "新品", "新品发布会", "产品发布会", "发布会", "招商会", "医学会议", "学术会议", "金融投教", "投教直播", "企业大学",
   "课程版权", "防录屏", "防盗录", "视频加密", "海外发布会", "海外直播", "多语言直播", "webinar", "直播sdk",
   "app接直播", "直播api",
 ];
 const SEARCH_SCENE_TERMS = [
   "公司", "企业", "机构", "员工", "经销商", "渠道", "培训", "投教", "年会", "招商会",
-  "医学", "学术", "医生", "金融", "证券", "投资者", "海外", "多语言",
+  "医学", "学术", "医生", "金融", "证券", "投资者", "海外", "多语言", "集成", "开发", "搭建",
 ];
 const SEARCH_INTENT_TERMS = [
   "平台", "采购", "供应商", "服务商", "选型", "报价", "价格", "多少钱", "方案", "部署", "交付", "私有化",
@@ -56,7 +56,7 @@ export function cardTitleFromText(value) {
     if (/^(刚刚|今天|昨天|前天|\d+(秒|分钟|小时|天|周|个月|年|月)(前)?|\d+(小时前|分钟前))$/.test(line)) return false;
     return true;
   });
-  return (meaningful.join(" ") || lines[0] || "").trim();
+  return meaningful.join(" ").trim();
 }
 
 export function isExpectedXhsNoteUrl(url, expectedId) {
@@ -79,9 +79,10 @@ export function searchRelevance(keyword, text) {
   const deliveryHit = deliveryMatches.length > 0;
   const technicalEventHit = eventMatches.some((term) => [
     "直播sdk", "直播api", "app接直播", "视频加密", "防录屏", "多语言直播", "webinar",
-  ].includes(term));
+  ].includes(term)) || (normalized.includes("直播") && /sdk|api/.test(normalized));
+  const technicalQueryHit = /sdk|api/.test(normalizedSearchText(keyword)) && /sdk|api/.test(normalized);
   const strongBusinessHit = eventHit && sceneHit && (deliveryHit || intentHit || queryHits >= 2);
-  const technicalBusinessHit = technicalEventHit && queryHits >= 1;
+  const technicalBusinessHit = technicalEventHit && (technicalQueryHit || queryHits >= 1);
   const contextualPhoneNoise = noiseMatches.length === 1 && noiseMatches[0] === "手机" && eventHit && intentHit;
   const accepted = (strongBusinessHit || technicalBusinessHit) && (noiseMatches.length === 0 || contextualPhoneNoise);
   const score = (eventHit ? 3 : 0) + (sceneHit ? 2 : 0) + (intentHit ? 2 : 0) + Math.min(queryHits, 3) - (noiseMatches.length ? 5 : 0);

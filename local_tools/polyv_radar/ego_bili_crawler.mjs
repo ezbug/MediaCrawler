@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { filterSearchResults, loadUntilStable, profileIdFromUrl } from './ego_helpers.mjs';
+import { cardTitleFromText, filterSearchResults, loadUntilStable, profileIdFromUrl } from './ego_helpers.mjs';
 
 const args = process.argv.slice(2);
 const keyword = process.env.KEYWORD || args[0] || "员工培训";
@@ -30,22 +30,17 @@ await page.waitForLoadState({ timeout: 15000 }).catch(() => {});
 await page.waitForSelector('a[href*="/video/BV"]', { timeout: 20000 }).catch(() => {});
 await page.waitForTimeout(10000);
 
-const candidateVideos = await page.evaluate(() => {
+const rawCandidateVideos = await page.evaluate(() => {
   const links = Array.from(document.querySelectorAll('a[href*="/video/BV"]'));
-  const seen = new Set();
   const list = [];
   for (const a of links) {
     const href = a.href;
     const match = href.match(/\/video\/(BV[a-zA-Z0-9]+)/);
     if (!match) continue;
     const bvid = match[1];
-    if (seen.has(bvid)) continue;
-    seen.add(bvid);
-    
-    // Title is usually inside title attribute or card info
-    const title = a.getAttribute("title") || a.innerText.trim().replace(/\n+/g, " ");
+    const cardText = a.getAttribute("title") || a.innerText || "";
     let container = a.parentElement;
-    let snippet = title;
+    let snippet = cardText;
     for (let i = 0; i < 5 && container; i++, container = container.parentElement) {
       const text = (container.innerText || "").trim().replace(/\n+/g, " ");
       if (text.length > 900) break;
@@ -54,13 +49,28 @@ const candidateVideos = await page.evaluate(() => {
     list.push({
       bvid,
       url: `https://www.bilibili.com/video/${bvid}/`,
-      title,
-      searchText: title,
+      cardText,
       rawSnippet: snippet.slice(0, 500)
     });
   }
   return list;
 });
+
+const candidateById = new Map();
+for (const video of rawCandidateVideos) {
+  const title = cardTitleFromText(video.cardText);
+  if (!title) continue;
+  const candidate = {
+    bvid: video.bvid,
+    url: video.url,
+    title,
+    searchText: title,
+    rawSnippet: video.rawSnippet,
+  };
+  const existing = candidateById.get(video.bvid);
+  if (!existing || title.length > existing.title.length) candidateById.set(video.bvid, candidate);
+}
+const candidateVideos = Array.from(candidateById.values());
 
 const relevantVideos = filterSearchResults(keyword, candidateVideos);
 const targetVideos = relevantVideos.slice(0, maxContents);
@@ -87,7 +97,7 @@ for (let i = 0; i < targetVideos.length; i++) {
 
     const pageData = await page.evaluate(() => {
       const titleEl = document.querySelector('h1, .video-title, [class*="video-title"]');
-      const descEl = document.querySelector('.basic-desc-info, .desc-info-text, [class*="desc"]');
+      const descEl = document.querySelector('.basic-desc-info, .desc-info-text');
       const upLink = document.querySelector('a[href*="space.bilibili.com"]');
       const upEl = upLink || document.querySelector('.up-name, .up-info__name');
       const tags = Array.from(document.querySelectorAll('.tag-link, a[href*="/tag/"]')).map(a => a.innerText.trim());

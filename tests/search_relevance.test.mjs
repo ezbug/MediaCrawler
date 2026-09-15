@@ -8,6 +8,10 @@ test('extracts the title from a Douyin search card', () => {
   assert.equal(title, '神鹏品牌全国经销商大会圆满召开');
 });
 
+test('does not treat Bilibili metadata as a title', () => {
+  assert.equal(cardTitleFromText('1257\n0\n01:12'), '');
+});
+
 test('rejects an XHS detail redirect to a different note', () => {
   assert.equal(isExpectedXhsNoteUrl('https://www.xiaohongshu.com/explore/68d922490000000013009d19', '635e3e26000000001601bdac'), false);
   assert.equal(isExpectedXhsNoteUrl('https://www.xiaohongshu.com/explore/635e3e26000000001601bdac', '635e3e26000000001601bdac'), true);
@@ -44,6 +48,11 @@ test('uses an explicit card search text instead of a mixed ancestor snippet', ()
 
 test('accepts overseas multilingual webinar events', () => {
   const result = searchRelevance('海外发布会 多语言直播 方案', '海外发布会多语言直播方案');
+  assert.equal(result.accepted, true);
+});
+
+test('accepts a livestream SDK integration title', () => {
+  const result = searchRelevance('直播SDK 商用集成 供应商', '直播APP开发接入美颜SDK详解集成流程');
   assert.equal(result.accepted, true);
 });
 
