@@ -78,6 +78,36 @@ def _process_run(
     }
 
 
+def _has_completed_locator_stage(config: RadarConfig, run_id: str, max_candidates: int) -> bool:
+    store = RadarStore(config.data_root / "radar.sqlite3")
+    store.initialize()
+    leads = store.load_leads(run_id)
+    locators = store.load_comment_locators(run_id)
+    store.close()
+    if not leads or not locators:
+        return False
+    eligible_count = min(max_candidates, sum(1 for lead in leads if lead.score >= config.min_lead_score and lead.decision != "reject"))
+    return len(locators) >= eligible_count and all(item.get("status") not in {"pending", "error"} for item in locators)
+
+
+def _reused_stage_result(config: RadarConfig, run_id: str) -> dict:
+    store = RadarStore(config.data_root / "radar.sqlite3")
+    store.initialize()
+    locators = store.load_comment_locators(run_id)
+    store.close()
+    counts = {"candidates": len(locators), "verified": 0, "not_found": 0, "blocked": 0, "ambiguous": 0, "error": 0}
+    for item in locators:
+        status = str(item.get("status", "error"))
+        counts[status] = int(counts.get(status, 0)) + 1
+    return {
+        "run_id": run_id,
+        "enrichment": {"status": "reused"},
+        "review": {"status": "reused"},
+        "locator": counts,
+        "report_path": str(config.data_root / "reports" / f"{run_id}.md"),
+    }
+
+
 def run_hunt(
     config: RadarConfig,
     repo_root: Path,
@@ -103,16 +133,19 @@ def run_hunt(
     for wave in range(max_batches):
         current_run_id = first_run_id if wave == 0 else f"{first_run_id}-wave{wave + 1}"
         current_config = config if wave == 0 else _with_long_tail(config)
-        result = _process_run(
-            current_config,
-            repo_root,
-            current_run_id,
-            collector,
-            taskspace,
-            max_candidates,
-            codex,
-            skip_crawl=bool(run_id and wave == 0),
-        )
+        if run_id and wave == 0 and _has_completed_locator_stage(current_config, current_run_id, max_candidates):
+            result = _reused_stage_result(current_config, current_run_id)
+        else:
+            result = _process_run(
+                current_config,
+                repo_root,
+                current_run_id,
+                collector,
+                taskspace,
+                max_candidates,
+                codex,
+                skip_crawl=bool(run_id and wave == 0),
+            )
         run_ids.append(current_run_id)
         stage_results.append(result)
         store = RadarStore(current_config.data_root / "radar.sqlite3")

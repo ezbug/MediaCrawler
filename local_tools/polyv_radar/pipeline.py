@@ -8,6 +8,7 @@ from typing import Callable, Iterable
 
 from .config import RadarConfig
 from .enrichment import choose_enrichment_candidates, run_profile_enrichment
+from .locator import lead_exclusion_reason
 from .models import CommentRecord, ContentRecord, LeadAssessment, LeadEvidence
 from .review import run_codex_review
 from .scoring import SOLUTIONS, classify_category, score_purchase_evidence
@@ -192,6 +193,13 @@ def review_store(
     for lead, candidate in zip(leads, bundle):
         payload, status = run_codex_review(candidate, codex=codex, runner=runner or __import__("subprocess").run)
         profile = profiles.get((lead.platform, lead.author_id), {})
+        profile_updates = {
+            "company": profile.get("company", lead.company),
+            "role": profile.get("role", lead.role),
+            "profile_bio": profile.get("bio", lead.profile_bio),
+            "profile_url": profile.get("author_url", lead.profile_url) or lead.profile_url,
+            "author_url": profile.get("author_url", lead.author_url) or lead.author_url,
+        }
         if payload is None:
             stats["model_fallback"] += 1
             assessment = LeadAssessment(
@@ -214,6 +222,7 @@ def review_store(
                     "stage": "model_fallback",
                     "decision": "review",
                     "identity_confidence": profile.get("identity_confidence", "low"),
+                    **profile_updates,
                 }
             )
         else:
@@ -242,8 +251,16 @@ def review_store(
                     "rejection_reason": "" if payload["decision"] != "reject" else payload["reason"],
                     "stage": "model_rejected" if payload["decision"] == "reject" else "model_reviewed",
                     "decision": payload["decision"],
+                    **profile_updates,
                 }
             )
+        exclusion = lead_exclusion_reason(reviewed_lead)
+        if exclusion and reviewed_lead.decision != "reject":
+            assessment.decision = "reject"
+            assessment.reason = exclusion
+            reviewed_lead.decision = "reject"
+            reviewed_lead.stage = "model_rejected"
+            reviewed_lead.rejection_reason = exclusion
         if assessment.decision == "high_value" and assessment.score >= config.min_lead_score:
             stats["high_value"] += 1
         elif assessment.decision == "review":

@@ -5,6 +5,7 @@ from pathlib import Path
 
 from local_tools.polyv_radar.adapters import normalize_comment
 from local_tools.polyv_radar.locator import (
+    is_deliverable_lead,
     locate_comment,
     locator_url,
     locate_store,
@@ -315,3 +316,25 @@ def test_delivery_evidence_is_enough_for_a_four_point_candidate() -> None:
     )
 
     assert select_deliverable_leads([lead], 20) == [lead]
+
+
+def test_vendor_and_editorial_accounts_do_not_enter_delivery_list() -> None:
+    lead = LeadEvidence(
+        platform="zhihu",
+        content_id="p-1",
+        comment_id="",
+        url="https://zhuanlan.zhihu.com/p/1",
+        user="诺云直播",
+        quote="2026企业年会直播攻略与平台推荐",
+        content_title="2026企业年会直播攻略与平台推荐",
+        category="企业直播",
+        solution="企业直播方向",
+        score=8,
+        dimensions={"business_scene": 2, "project_timing": 2, "platform_intent": 2, "delivery_inquiry": 1, "identity": 1},
+        source_type="post",
+        profile_bio="企业直播服务系统",
+        locator_status="verified",
+        decision="high_value",
+    )
+
+    assert not is_deliverable_lead(lead)

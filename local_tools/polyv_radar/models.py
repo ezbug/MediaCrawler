@@ -76,6 +76,7 @@ class LeadEvidence:
     event_type: str = ""
     company: str = ""
     role: str = ""
+    profile_bio: str = ""
     profile_url: str = ""
     author_url: str = ""
     identity_confidence: str = "low"

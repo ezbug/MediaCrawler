@@ -545,6 +545,36 @@ def report_store(config: RadarConfig, run_id: str, output_suffix: str = "") -> P
     store = RadarStore(config.data_root / "radar.sqlite3")
     store.initialize()
     leads = store.load_leads(run_id)
+    from .locator import lead_exclusion_reason
+
+    # Older batches predate profile fields and vendor filtering. Hydrate them
+    # from the batch-scoped profile table before rendering any deliverable list.
+    profile_map = {
+        (row["platform"], row["author_id"]): row
+        for row in store.load_profiles(run_id)
+    }
+    hydrated_leads = []
+    for lead in leads:
+        profile = profile_map.get((lead.platform, lead.author_id), {})
+        hydrated = type(lead)(
+            **{
+                **lead.to_dict(),
+                "company": profile.get("company", lead.company),
+                "role": profile.get("role", lead.role),
+                "profile_bio": profile.get("bio", lead.profile_bio),
+                "profile_url": profile.get("author_url", lead.profile_url) or lead.profile_url,
+                "author_url": profile.get("author_url", lead.author_url) or lead.author_url,
+            }
+        )
+        exclusion = lead_exclusion_reason(hydrated)
+        if exclusion and hydrated.decision != "reject":
+            hydrated.decision = "reject"
+            hydrated.stage = "model_rejected"
+            hydrated.rejection_reason = exclusion
+        hydrated_leads.append(hydrated)
+    if hydrated_leads:
+        store.save_leads(run_id, hydrated_leads)
+    leads = hydrated_leads
     row = store.connection.execute("SELECT platform_status FROM runs WHERE run_id = ?", (run_id,)).fetchone()
     platform_status = json.loads(row[0]) if row else {}
     failures = {

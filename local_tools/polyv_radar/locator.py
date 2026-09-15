@@ -9,6 +9,20 @@ from typing import Iterable
 from urllib.parse import urlsplit, urlunsplit
 
 
+VENDOR_PROFILE_TERMS = (
+    "服务商", "供应商", "服务系统", "云直播", "直播服务", "一站式会务", "会展公司", "影像服务",
+    "软件平台", "考培系统", "商学园", "酷学院", "咨询师", "培训顾问", "咨询公司", "我们提供",
+    "欢迎交流", "欢迎咨询", "解决方案提供", "专注企业直播",
+)
+VENDOR_NAME_TERMS = ("云直播", "直播服务", "会展", "影像", "商学园", "酷学院", "考培系统", "直播平台")
+BUYER_SIGNAL_TERMS = (
+    "我们公司", "我司", "公司要", "企业要", "公司需要", "企业需要", "正在找", "在找", "求推荐", "求平台",
+    "多少钱", "报价", "采购", "选型", "老板让我", "下个月", "本月", "近期", "准备", "筹备",
+    "正在做", "需要", "想找", "用什么", "哪家", "能不能支持",
+)
+EDITORIAL_TERMS = ("攻略", "指南", "避坑", "解析", "案例", "经验分享", "保姆级", "干货")
+
+
 def normalize_locator_text(value: str) -> str:
     return " ".join(str(value or "").casefold().split())
 
@@ -179,9 +193,30 @@ def is_deliverable_lead(lead, min_score: int = 4) -> bool:
         lead.score >= min_score
         and lead.locator_status == "verified"
         and lead.decision != "reject"
+        and not lead_exclusion_reason(lead)
         and has_business_scene
         and has_project_selection_or_delivery
     )
+
+
+def lead_exclusion_reason(lead) -> str:
+    profile_text = " ".join(
+        str(value or "")
+        for value in (lead.user, lead.company, lead.role, lead.profile_bio)
+    ).casefold()
+    if any(term.casefold() in profile_text for term in VENDOR_PROFILE_TERMS):
+        return "主页或身份信息显示为服务商、平台方或咨询/会展账号"
+    if any(term.casefold() in str(lead.user or "").casefold() for term in VENDOR_NAME_TERMS):
+        return "用户名显示为直播、软件或会展服务账号"
+    signal_text = f"{lead.content_title}\n{lead.quote}".casefold()
+    has_buyer_signal = any(term.casefold() in signal_text for term in BUYER_SIGNAL_TERMS)
+    if not has_buyer_signal:
+        return "原文缺少第一人称需求或明确采购/项目询问"
+    if lead.source_type in {"post", "answer", "content"} and any(
+        term.casefold() in signal_text for term in EDITORIAL_TERMS
+    ) and not any(term.casefold() in str(lead.quote or "").casefold() for term in ("我们公司", "我司", "公司要", "公司需要", "企业要", "企业需要")):
+        return "内容为攻略、指南或案例型发布，缺少第一人称项目需求"
+    return ""
 
 
 def select_deliverable_leads(leads: Iterable, target: int, min_score: int = 4) -> list:
