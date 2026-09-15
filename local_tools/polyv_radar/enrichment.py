@@ -18,10 +18,24 @@ _COMPANY_RE = re.compile(
     r"(?P<company>[^|｜\n]{2,40}(?:公司|集团|证券|银行|科技|教育|大学|医院|研究院|基金|保险|传媒|制造|股份|有限))"
 )
 _ROLE_RE = re.compile(r"(?P<role>[^|｜\n]{2,30}(?:负责人|总监|经理|主管|专员|顾问|架构师|工程师|老师|主任))")
+_PROFILE_FOOTER_TERMS = (
+    "ICP备案", "营业执照", "增值电信", "网络文化经营许可证", "公网安备", "违法不良信息举报",
+    "互联网药品信息", "医疗器械网络交易", "地址:", "电话:", "版权所有", "行吟信息科技",
+)
+
+
+def _clean_profile_text(text: str) -> str:
+    lines = []
+    for line in re.split(r"[\n|｜]+", text or ""):
+        line = re.sub(r"\s+", " ", line).strip()
+        if line and not any(term.casefold() in line.casefold() for term in _PROFILE_FOOTER_TERMS):
+            lines.append(line)
+    return "｜".join(lines)
 
 
 def extract_company_role(text: str) -> tuple[str, str]:
-    text = re.sub(r"\s+", " ", text or "").strip()
+    text = _clean_profile_text(text)
+    text = re.sub(r"\s+", " ", text).strip()
     company_match = _COMPANY_RE.search(text)
     role_match = _ROLE_RE.search(text)
     company = company_match.group("company").strip(" ·|｜") if company_match else ""
@@ -78,6 +92,7 @@ def _run_ego_json_script(
             capture_output=True,
             check=False,
             timeout=240,
+            cwd=script_path.resolve().parents[2],
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         return False, str(exc)
@@ -131,6 +146,7 @@ def run_profile_enrichment(
     profiles = payload.get("profiles", [])
     store = RadarStore(config.data_root / "radar.sqlite3")
     store.initialize()
+    store.clear_enrichment(run_id)
     web_candidates = []
     profile_count = 0
     post_count = 0

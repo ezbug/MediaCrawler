@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { loadUntilStable, profileIdFromUrl } from './ego_helpers.mjs';
+import { filterSearchResults, loadUntilStable, profileIdFromUrl } from './ego_helpers.mjs';
 
 const args = process.argv.slice(2);
 const keyword = process.env.KEYWORD || args[0] || "企业直播平台推荐";
@@ -57,10 +57,11 @@ const candidateVideos = await page.evaluate(() => {
   return results;
 });
 
-const targetVideos = candidateVideos.slice(0, maxContents);
-console.log(`[EgoCrawler] Found ${candidateVideos.length} candidates, selected ${targetVideos.length} videos.`);
-if (candidateVideos.length === 0) {
-  console.error(`[EgoCrawler] No video candidates found for "${keyword}".`);
+const relevantVideos = filterSearchResults(keyword, candidateVideos);
+const targetVideos = relevantVideos.slice(0, maxContents);
+console.log(`[EgoCrawler] Found ${candidateVideos.length} raw candidates, ${relevantVideos.length} relevant, selected ${targetVideos.length} videos.`);
+if (relevantVideos.length === 0) {
+  console.error(`[EgoCrawler] No relevant video candidates found for "${keyword}".`);
   process.exitCode = 2;
 }
 

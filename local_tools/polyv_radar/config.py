@@ -18,6 +18,7 @@ class RadarConfig:
     comments: bool = True
     sub_comments: bool = True
     task_timeout_seconds: int = 180
+    min_lead_score: int = 4
     excluded_author_names: tuple[str, ...] = ()
 
     @property
@@ -56,5 +57,6 @@ def load_config(path: Path) -> RadarConfig:
         comments=bool(run.get("comments", True)),
         sub_comments=bool(run.get("sub_comments", True)),
         task_timeout_seconds=int(run.get("task_timeout_seconds", 180)),
+        min_lead_score=int(run.get("min_lead_score", 4)),
         excluded_author_names=tuple(str(item) for item in raw.get("filters", {}).get("excluded_author_names", [])),
     )

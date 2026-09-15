@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { loadUntilStable, profileIdFromUrl } from './ego_helpers.mjs';
+import { filterSearchResults, loadUntilStable, profileIdFromUrl } from './ego_helpers.mjs';
 
 // Support env vars or CLI arguments
 const args = process.argv.slice(2);
@@ -44,20 +44,26 @@ const candidateNotes = await page.evaluate(() => {
     if (results.some(r => r.id === id)) continue;
 
     const title = a.innerText.trim().replace(/\n+/g, " ");
+    let container = a;
+    for (let i = 0; i < 4; i++) {
+      if (container.parentElement) container = container.parentElement;
+    }
 
     results.push({
       id,
       url: href,
-      title
+      title,
+      rawSnippet: (container.innerText || title).slice(0, 500).replace(/\n+/g, " ")
     });
   }
   return results;
 });
 
-const targetNotes = candidateNotes.slice(0, maxContents);
-console.log(`[XhsCrawler] Found ${candidateNotes.length} candidates with token, selected ${targetNotes.length} notes.`);
-if (candidateNotes.length === 0) {
-  console.error(`[XhsCrawler] No note candidates found for "${keyword}".`);
+const relevantNotes = filterSearchResults(keyword, candidateNotes);
+const targetNotes = relevantNotes.slice(0, maxContents);
+console.log(`[XhsCrawler] Found ${candidateNotes.length} raw candidates with token, ${relevantNotes.length} relevant, selected ${targetNotes.length} notes.`);
+if (relevantNotes.length === 0) {
+  console.error(`[XhsCrawler] No relevant note candidates found for "${keyword}".`);
   process.exitCode = 2;
 }
 

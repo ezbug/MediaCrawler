@@ -336,6 +336,7 @@ def report_store(config: RadarConfig, run_id: str, output_suffix: str = "") -> P
         "contents": len(store.iter_contents(run_id)),
         "comments": len(store.iter_comments(run_id)),
         "prefilter": len(leads),
+        "threshold": config.min_lead_score,
         "profiles": len(
             {
                 (row["platform"], row["author_id"])
@@ -362,9 +363,9 @@ def report_store(config: RadarConfig, run_id: str, output_suffix: str = "") -> P
     assessment_rows = store.connection.execute("SELECT payload FROM lead_assessments WHERE run_id = ?", (run_id,)).fetchall()
     for row in assessment_rows:
         payload = json.loads(row[0])
-        if payload.get("decision") == "high_value" and payload.get("score", 0) >= 6:
+        if payload.get("decision") == "high_value" and payload.get("score", 0) >= config.min_lead_score:
             counts["high_value"] = counts.get("high_value", 0) + 1
-        if payload.get("decision") == "review" and payload.get("score", 0) >= 4:
+        if payload.get("decision") == "review":
             counts["review"] = counts.get("review", 0) + 1
     top_contents: list[LeadEvidence] = []
     by_content: dict[tuple[str, str], LeadEvidence] = {}
@@ -373,12 +374,17 @@ def report_store(config: RadarConfig, run_id: str, output_suffix: str = "") -> P
         if key not in by_content or lead.score > by_content[key].score:
             by_content[key] = lead
     top_contents = sorted(
-        (item for item in by_content.values() if item.score >= 6 and item.stage not in {"model_fallback", "model_rejected"}),
+        (
+            item
+            for item in by_content.values()
+            if item.score >= config.min_lead_score
+            and item.stage == "model_reviewed"
+            and item.decision == "high_value"
+        ),
         key=lambda item: (-item.score, item.platform, item.content_id),
     )
     suffix = f"-{output_suffix.strip('-')}" if output_suffix.strip('-') else ""
     report_path = config.data_root / "reports" / f"{run_id}{suffix}.md"
-    qualified_leads = [lead for lead in leads if lead.score >= 4]
-    write_report(report_path, render_report(run_id, qualified_leads, top_contents, platform_status, failures, counts))
+    write_report(report_path, render_report(run_id, leads, top_contents, platform_status, failures, counts))
     store.close()
     return report_path

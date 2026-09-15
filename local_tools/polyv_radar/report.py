@@ -62,8 +62,21 @@ def render_report(
                     f"| {_cell(item['keyword'])} | {item['contents']} | {item['comments']} | {item['leads']} |"
                 )
 
-    high_value = [lead for lead in leads if lead.score >= 6 and lead.stage != "model_rejected" and lead.stage != "model_fallback"]
-    review_candidates = [lead for lead in leads if 4 <= lead.score < 6 or lead.stage == "model_fallback"]
+    threshold = int(funnel_stats.get("threshold", 4)) if funnel_stats else 4
+    high_value = [
+        lead
+        for lead in leads
+        if lead.score >= threshold
+        and lead.stage == "model_reviewed"
+        and lead.decision == "high_value"
+    ]
+    review_candidates = [
+        lead
+        for lead in leads
+        if lead.stage == "model_fallback"
+        or lead.decision == "review"
+    ]
+    rejected_leads = [lead for lead in leads if lead.stage == "model_rejected" or lead.decision == "reject"]
 
     def append_lead_table(title: str, rows: list[LeadEvidence]) -> None:
         lines.extend(
@@ -84,8 +97,24 @@ def render_report(
                 f"{_cell(lead.identity_confidence)} | [原文]({_cell(lead.url)}) | {_cell(evidence)} |"
             )
 
-    append_lead_table("## 高价值潜客 TOP20（评分 ≥6）", high_value)
-    append_lead_table("## 待复核候选（评分 4～5）", review_candidates)
+    append_lead_table(f"## 高价值潜客 TOP20（评分 ≥{threshold}）", high_value)
+    append_lead_table(f"## 待复核候选（低于 {threshold} 分或模型要求复核）", review_candidates)
+
+    lines.extend(
+        [
+            "",
+            "## 已过滤记录与原因",
+            "",
+            "| 平台 | 用户 | 原话 | 模型分数 | 过滤原因 | 原文 |",
+            "| --- | --- | --- | ---: | --- | --- |",
+        ]
+    )
+    for lead in rejected_leads[:50]:
+        reason = lead.rejection_reason or "; ".join(lead.reasons) or "模型判定不满足高价值条件"
+        lines.append(
+            f"| {_cell(lead.platform)} | {_cell(lead.user)} | {_cell(lead.quote)} | {lead.score} | "
+            f"{_cell(reason)} | [原文]({_cell(lead.url)}) |"
+        )
 
     lines.extend(["", "## 🎯 高价值转化闭环实施方案（公域回复 + 视频选题 + 私信 + 资料包）", ""])
     from .conversion_engine import build_conversion_pack

@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { loadUntilStable, profileIdFromUrl } from './ego_helpers.mjs';
+import { filterSearchResults, loadUntilStable, profileIdFromUrl } from './ego_helpers.mjs';
 
 const args = process.argv.slice(2);
 const keyword = process.env.KEYWORD || args[0] || "员工培训";
@@ -44,19 +44,25 @@ const candidateVideos = await page.evaluate(() => {
     
     // Title is usually inside title attribute or card info
     const title = a.getAttribute("title") || a.innerText.trim().replace(/\n+/g, " ");
+    let container = a;
+    for (let i = 0; i < 3; i++) {
+      if (container.parentElement) container = container.parentElement;
+    }
     list.push({
       bvid,
       url: `https://www.bilibili.com/video/${bvid}/`,
-      title
+      title,
+      rawSnippet: (container.innerText || title).slice(0, 500).replace(/\n+/g, " ")
     });
   }
   return list;
 });
 
-const targetVideos = candidateVideos.slice(0, maxContents);
-console.log(`[BiliCrawler] Found ${candidateVideos.length} candidates, selected ${targetVideos.length} videos.`);
-if (candidateVideos.length === 0) {
-  console.error(`[BiliCrawler] No video candidates found for "${keyword}".`);
+const relevantVideos = filterSearchResults(keyword, candidateVideos);
+const targetVideos = relevantVideos.slice(0, maxContents);
+console.log(`[BiliCrawler] Found ${candidateVideos.length} raw candidates, ${relevantVideos.length} relevant, selected ${targetVideos.length} videos.`);
+if (relevantVideos.length === 0) {
+  console.error(`[BiliCrawler] No relevant video candidates found for "${keyword}".`);
   process.exitCode = 2;
 }
 

@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { loadUntilStable, profileIdFromUrl } from './ego_helpers.mjs';
+import { filterSearchResults, loadUntilStable, profileIdFromUrl } from './ego_helpers.mjs';
 
 const args = process.argv.slice(2);
 const keyword = process.env.KEYWORD || args[0] || "员工培训";
@@ -57,10 +57,11 @@ const candidateItems = await page.evaluate(() => {
   return list;
 });
 
-const targetItems = candidateItems.slice(0, maxContents);
-console.log(`[ZhihuCrawler] Found ${candidateItems.length} candidates, selected ${targetItems.length} items.`);
-if (candidateItems.length === 0) {
-  console.error(`[ZhihuCrawler] No content candidates found for "${keyword}".`);
+const relevantItems = filterSearchResults(keyword, candidateItems);
+const targetItems = relevantItems.slice(0, maxContents);
+console.log(`[ZhihuCrawler] Found ${candidateItems.length} raw candidates, ${relevantItems.length} relevant, selected ${targetItems.length} items.`);
+if (relevantItems.length === 0) {
+  console.error(`[ZhihuCrawler] No relevant content candidates found for "${keyword}".`);
   process.exitCode = 2;
 }
 

@@ -191,7 +191,7 @@ def test_report_contains_top_lead_and_failure_status() -> None:
         failures={"xhs": "等待登录"},
     )
 
-    assert "高价值潜客 TOP20（评分 ≥6）" in report
+    assert "高价值潜客 TOP20（评分 ≥4）" in report
     assert "企业培训" in report
     assert "POLYV" in report
     assert "等待登录" in report

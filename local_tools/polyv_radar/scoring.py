@@ -32,7 +32,7 @@ PLATFORM_INTENT_TERMS = (
     "方案", "用什么", "有没有", "哪家", "怎么选",
 )
 DELIVERY_INQUIRY_TERMS = (
-    "部署", "私有化", "接口", "SDK", "API", "接入", "并发", "交付", "实施周期", "周期", "支持",
+    "部署", "私有化", "接口", "SDK", "API", "接入", "并发", "交付", "实施周期", "周期", "能不能支持", "支持多少人", "支持并发",
     "多少钱", "报价", "费用",
 )
 
@@ -64,14 +64,14 @@ EXPLICIT_NEED = ("我们公司", "我司", "公司需要", "企业需要", "正�
 PROJECT_TERMS = ("项目", "上线", "准备", "正在做", "筹备", "落地", "启动", "实施", "采购", "老板让我")
 INQUIRY_TERMS = ("多少钱", "价格", "费用", "方案", "平台推荐", "推荐一下", "能不能支持", "怎么选", "有没有做过", "好用吗", "怎么收费", "试用")
 ROLE_TERMS = ("公司", "企业", "老板", "负责人", "总监", "经理", "HR", "人事", "运营", "技术", "采购", "IT")
-AD_TERMS = ("我们提供", "加微信", "私信我", "招商", "代理", "源码", "代运营", "同行", "厂家", "欢迎咨询", "出各种", "诚信接单")
+AD_TERMS = ("我们提供", "加微信", "私信我", "招商加盟", "招商代理", "招代理", "代理加盟", "源码", "代运营", "同行", "厂家", "欢迎咨询", "出各种", "诚信接单")
 
 # Hard negative terms to filter out non-B2B discussions (entertainment, gaming, personal streaming, medical, casual chat)
 NEGATIVE_TERMS = (
     # User-specified negatives:
     "娱乐直播", "游戏直播", "主播", "明星直播", "直播切片", "无人直播", "带货教程", "个人开播", "公会", "打赏", "榜一大哥", "pk",
     # Casual/medical/gaming negatives:
-    "用药", "不良反应", "消化不良", "吃了", "药丸", "药店", "医院", "处方", "挂号",
+    "用药", "不良反应", "消化不良", "吃了", "药丸", "药店", "处方", "挂号",
     "王者荣耀", "kpl", "折叠屏", "手机", "测评", "数码", "打游戏", "动漫", "游戏",
     "离职", "辞职", "工资只有", "打工人", "破防", "领导恶心", "摆烂", "躺平"
 )
@@ -115,8 +115,12 @@ def score_purchase_evidence(
 ) -> PurchaseEvidenceScore:
     now = now or datetime.now(timezone.utc)
     quote = comment.text if comment else content.text
-    context = f"{content.title}\n{content.text}\n{quote}".strip()
+    content_context = f"{content.title}\n{content.text}".strip()
+    signal_text = quote.strip() if comment else content_context
+    context = f"{content_context}\n{signal_text}".strip()
     lowered = context.lower()
+    content_lower = content_context.lower()
+    signal_lower = signal_text.lower()
     profile = profile or {}
     evidence_urls = [str(item.get("source_url", "")) for item in external_evidence if item.get("source_url")]
 
@@ -124,24 +128,28 @@ def score_purchase_evidence(
         return PurchaseEvidenceScore(
             score=0,
             dimensions={key: 0 for key in ("business_scene", "project_timing", "platform_intent", "delivery_inquiry", "identity")},
-            event_type=classify_event(context),
+            event_type=classify_event(content_context) or classify_event(signal_text),
             rejected_reason="广告、同行或非B端内容",
         )
 
-    has_scene = any(term.lower() in lowered for term in PURCHASE_SCENE_TERMS)
-    event_type = classify_event(context)
+    has_scene = any(term.lower() in content_lower or term.lower() in signal_lower for term in PURCHASE_SCENE_TERMS)
+    event_type = classify_event(content_context)
+    if event_type == "未分类":
+        event_type = classify_event(signal_text)
     business_scene = 2 if has_scene and event_type != "未分类" else (1 if has_scene else 0)
 
     published_at = comment.published_at if comment else content.published_at
     recent = bool(published_at and now - timedelta(days=30) <= published_at <= now)
-    project_hit = any(term.lower() in lowered for term in PROJECT_TIMING_TERMS)
+    buyer_context = signal_text if comment else content_context
+    buyer_lower = buyer_context.lower()
+    project_hit = any(term.lower() in buyer_lower for term in PROJECT_TIMING_TERMS)
     project_timing = 2 if project_hit and recent else (1 if project_hit else 0)
 
-    platform_hits = _dimension_evidence(context, PLATFORM_INTENT_TERMS)
-    platform_intent = 2 if any(term.lower() in lowered for term in ("求推荐", "供应商", "服务商", "选型", "采购", "报价", "多少钱", "哪家") ) else (1 if platform_hits else 0)
+    platform_hits = _dimension_evidence(buyer_context, PLATFORM_INTENT_TERMS)
+    platform_intent = 2 if any(term.lower() in buyer_lower for term in ("求推荐", "供应商", "服务商", "选型", "采购", "报价", "多少钱", "哪家")) else (1 if platform_hits else 0)
 
-    delivery_hits = _dimension_evidence(context, DELIVERY_INQUIRY_TERMS)
-    delivery_inquiry = 2 if any(term.lower() in lowered for term in ("报价", "多少钱", "部署", "私有化", "接口", "SDK", "API", "交付", "实施周期") ) else (1 if delivery_hits else 0)
+    delivery_hits = _dimension_evidence(buyer_context, DELIVERY_INQUIRY_TERMS)
+    delivery_inquiry = 2 if any(term.lower() in buyer_lower for term in ("报价", "多少钱", "部署", "私有化", "接口", "SDK", "API", "交付", "实施周期")) else (1 if delivery_hits else 0)
 
     identity_confidence = str(profile.get("identity_confidence", "low"))
     identity = {"high": 2, "medium": 1}.get(identity_confidence, 0)
@@ -165,8 +173,8 @@ def score_purchase_evidence(
             rejected_reason = "技术或泛讨论，不能证明业务采购需求"
 
     evidence = []
-    evidence.extend(_dimension_evidence(context, PURCHASE_SCENE_TERMS))
-    evidence.extend(_dimension_evidence(context, PROJECT_TIMING_TERMS))
+    evidence.extend(_dimension_evidence(content_context, PURCHASE_SCENE_TERMS))
+    evidence.extend(_dimension_evidence(buyer_context, PROJECT_TIMING_TERMS))
     evidence.extend(platform_hits)
     evidence.extend(delivery_hits)
     evidence.extend(evidence_urls)

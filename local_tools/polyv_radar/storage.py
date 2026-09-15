@@ -425,6 +425,12 @@ class RadarStore:
         )
         self.connection.commit()
 
+    def clear_enrichment(self, run_id: str) -> None:
+        """Clear only derived profile evidence for one run before re-enrichment."""
+        for table in ("external_evidence", "profile_posts", "profiles"):
+            self.connection.execute(f"DELETE FROM {table} WHERE run_id = ?", (run_id,))
+        self.connection.commit()
+
     def upsert_profile_post(self, post: ProfilePost) -> None:
         self.connection.execute(
             """INSERT OR REPLACE INTO profile_posts

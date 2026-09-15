@@ -53,6 +53,7 @@ def build_prefilter_leads(
     comments: Iterable[CommentRecord],
     max_candidates: int = 50,
     now: datetime | None = None,
+    min_score: int = 4,
     excluded_author_names: Iterable[str] = (),
 ) -> list[LeadEvidence]:
     content_by_key = {(item.platform, item.content_id): item for item in contents}
@@ -70,7 +71,7 @@ def build_prefilter_leads(
             if any(token in author_name for token in excluded):
                 continue
             result = score_purchase_evidence(item, comment, now=now)
-            if result.score < 4:
+            if result.score < min_score:
                 continue
             lead = _lead_from_score(item, comment, result)
             identity = lead.author_id or lead.profile_url or lead.user
@@ -139,6 +140,7 @@ def prefilter_store(config: RadarConfig, run_id: str, max_candidates: int = 50) 
         store.iter_contents(run_id),
         store.iter_comments(run_id),
         max_candidates=max_candidates,
+        min_score=config.min_lead_score,
         excluded_author_names=config.excluded_author_names,
     )
     store.save_leads(run_id, leads)
@@ -186,7 +188,7 @@ def review_store(
                 event_type=lead.event_type,
                 identity_confidence=profile.get("identity_confidence", "low"),
                 evidence=[{"dimension": "rule", "quote": lead.quote, "url": lead.url}],
-                decision="review" if lead.score < 6 else "high_value",
+                decision="review",
                 reason="模型复核未完成，保留规则结果并要求人工核验",
                 model_status=status,
             )
@@ -226,9 +228,9 @@ def review_store(
                     "decision": payload["decision"],
                 }
             )
-        if assessment.decision == "high_value" and assessment.score >= 6:
+        if assessment.decision == "high_value" and assessment.score >= config.min_lead_score:
             stats["high_value"] += 1
-        elif assessment.decision == "review" and assessment.score >= 4:
+        elif assessment.decision == "review":
             stats["review"] += 1
         else:
             stats["rejected"] += 1

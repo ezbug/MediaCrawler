@@ -117,16 +117,26 @@ def test_semantically_duplicate_comments_are_returned_once() -> None:
 def test_report_separates_high_value_and_review_candidates() -> None:
     high = _lead(score=6)
     review = _lead(score=5)
+    rejected = _lead(score=0)
+    high.stage = "model_reviewed"
+    high.decision = "high_value"
+    review.stage = "model_reviewed"
+    review.decision = "review"
+    rejected.stage = "model_rejected"
+    rejected.decision = "reject"
+    rejected.rejection_reason = "无明确企业场景"
     report = render_report(
         "run-1",
-        [high, review],
+        [high, review, rejected],
         [high],
         {"dy": {"status": "success", "contents": 1, "comments": 2}},
         {},
     )
 
-    assert "高价值潜客 TOP20（评分 ≥6）" in report
-    assert "待复核候选（评分 4～5）" in report
+    assert "高价值潜客 TOP20（评分 ≥4）" in report
+    assert "待复核候选（低于 4 分或模型要求复核）" in report
+    assert "已过滤记录与原因" in report
+    assert "无明确企业场景" in report
     assert "dy-1" in report
     assert "| 5 |" in report
 

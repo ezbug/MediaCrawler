@@ -88,6 +88,38 @@ def test_generic_sdk_question_is_capped_without_business_scene() -> None:
     assert result.rejected_reason != ""
 
 
+def test_generic_comment_does_not_inherit_purchase_intent_from_video_title() -> None:
+    content = _content("企业新品发布会直播方案")
+    comment = _comment("支持，讲得很好")
+
+    assert content is not None and comment is not None
+    result = score_purchase_evidence(content, comment)
+
+    assert result.dimensions["business_scene"] == 2
+    assert result.dimensions["project_timing"] == 0
+    assert result.dimensions["platform_intent"] == 0
+    assert result.dimensions["delivery_inquiry"] == 0
+    assert result.score == 2
+
+
+def test_business_event_terms_are_not_treated_as_ad_or_medical_negatives() -> None:
+    promotion = _content("线上招商会直播方案")
+    promotion_comment = _comment("我们公司正在筹备线上招商会，求平台报价")
+    medical = _content("医院学术会议直播")
+    medical_comment = _comment("我们正在筹备学术会议，求直播平台方案")
+
+    assert promotion is not None and promotion_comment is not None
+    assert medical is not None and medical_comment is not None
+    promotion_result = score_purchase_evidence(promotion, promotion_comment)
+    medical_result = score_purchase_evidence(medical, medical_comment)
+
+    assert promotion_result.rejected_reason == ""
+    assert promotion_result.score >= 4
+    assert medical_result.rejected_reason == ""
+    assert medical_result.event_type == "医学会议"
+    assert medical_result.score >= 4
+
+
 def test_identity_extraction_requires_explicit_company_text() -> None:
     company, role = extract_company_role("某某证券｜数字化运营负责人｜负责投教直播")
 
@@ -355,6 +387,7 @@ def test_config_contains_event_query_volume() -> None:
     assert total >= 30
     assert config.max_contents == 15
     assert config.max_comments == 30
+    assert config.min_lead_score == 4
 
 
 def test_ego_launcher_uses_configured_collection_limits(tmp_path: Path) -> None:
