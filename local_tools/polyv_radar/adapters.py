@@ -162,7 +162,9 @@ def normalize_comment(
         published_at=parse_datetime(published_value),
         likes=parse_count(_first(raw, "like_count", "like", "digg_count")),
         source_keyword=source_keyword,
-        native_comment_id=str(_first(raw, "native_comment_id", "comment_native_id", "cid", "rpid", "id")),
+        # Internal comment_id values are often synthetic fallbacks and must not
+        # be presented as platform-native identifiers.
+        native_comment_id=str(_first(raw, "native_comment_id", "comment_native_id", "cid", "rpid")),
         native_parent_id=str(_first(raw, "native_parent_id", "root_comment_id", "root", default="")),
         comment_url=str(_first(raw, "comment_url", "reply_url", "permalink", default="")),
         source_type=str(_first(raw, "source_type", "comment_type", default="comment")),

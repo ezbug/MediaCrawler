@@ -4,8 +4,15 @@ import sqlite3
 from pathlib import Path
 
 from local_tools.polyv_radar.adapters import normalize_comment
-from local_tools.polyv_radar.locator import locate_comment, locator_url
-from local_tools.polyv_radar.models import CommentRecord
+from local_tools.polyv_radar.locator import (
+    locate_comment,
+    locator_url,
+    locate_store,
+    run_ego_locator,
+    select_deliverable_leads,
+)
+from local_tools.polyv_radar.config import RadarConfig
+from local_tools.polyv_radar.models import CommentRecord, LeadEvidence
 from local_tools.polyv_radar.storage import RadarStore
 
 
@@ -32,6 +39,21 @@ def test_comment_normalization_preserves_native_locator_fields() -> None:
     assert comment.source_type == "reply"
     assert comment.published_at is None
     assert comment.published_at_raw == "2天前"
+
+
+def test_synthetic_internal_comment_id_is_not_native_id() -> None:
+    comment = normalize_comment(
+        "dy",
+        {
+            "comment_id": "video-1_cm_2_1234567890",
+            "content_id": "video-1",
+            "text": "求平台报价",
+        },
+    )
+
+    assert comment is not None
+    assert comment.comment_id == "video-1_cm_2_1234567890"
+    assert comment.native_comment_id == ""
 
 
 def test_locator_requires_one_author_and_quote_match() -> None:
@@ -147,4 +169,99 @@ def test_store_persists_batch_locator_result(tmp_path: Path) -> None:
 
     assert rows[0]["status"] == "verified"
     assert rows[0]["locator_method"] == "author_quote"
+    store.close()
+
+
+def test_ego_locator_runner_uses_ego_browser_only(tmp_path: Path) -> None:
+    calls = []
+
+    def fake_runner(command, **kwargs):
+        calls.append((command, kwargs))
+        (tmp_path / "locator-output.json").write_text(
+            '{"results":[{"run_id":"run-1","platform":"dy","content_id":"video-1","comment_id":"comment-1","status":"verified","locator_method":"author_quote","locator_url":"https://www.douyin.com/video/video-1","matched_author":"甲","matched_quote":"求平台报价"}]}',
+            encoding="utf-8",
+        )
+        return type("Completed", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+
+    results, log = run_ego_locator(
+        [{"run_id": "run-1", "platform": "dy", "content_id": "video-1", "comment_id": "comment-1"}],
+        tmp_path,
+        tmp_path,
+        runner=fake_runner,
+    )
+
+    assert not log
+    assert calls[0][0] == ["ego-browser", "nodejs"]
+    assert results["run-1:dy:video-1:comment-1"]["status"] == "verified"
+
+
+def test_deliverable_leads_require_verified_locator_and_unique_user() -> None:
+    def lead(index: int, author_id: str, status: str = "verified") -> LeadEvidence:
+        return LeadEvidence(
+            platform="dy",
+            content_id=f"video-{index}",
+            comment_id=f"comment-{index}",
+            url=f"https://www.douyin.com/video/{index}",
+            user=f"用户{index}",
+            quote="我们公司正在找平台报价",
+            category="企业直播",
+            solution="企业直播方向",
+            score=4,
+            author_id=author_id,
+            dimensions={"business_scene": 1, "project_timing": 1, "platform_intent": 0, "delivery_inquiry": 0, "identity": 0},
+            locator_status=status,
+            decision="review",
+        )
+
+    selected = select_deliverable_leads([lead(1, "same"), lead(2, "same"), lead(3, "other", "ambiguous")], 20)
+
+    assert len(selected) == 1
+    assert selected[0].author_id == "same"
+
+
+def test_locate_store_writes_ego_result_back_to_the_same_lead(tmp_path: Path) -> None:
+    config = RadarConfig(
+        data_root=tmp_path / "radar-data",
+        platforms=["dy"],
+        keywords={"企业直播": "企业直播平台"},
+    )
+    store = RadarStore(config.data_root / "radar.sqlite3")
+    store.initialize()
+    candidate = LeadEvidence(
+        platform="dy",
+        content_id="video-1",
+        comment_id="comment-1",
+        url="https://www.douyin.com/video/video-1",
+        user="甲",
+        quote="公司正在找平台报价",
+        category="企业直播",
+        solution="企业直播方向",
+        score=4,
+        dimensions={"business_scene": 1, "project_timing": 1, "platform_intent": 1, "delivery_inquiry": 1, "identity": 0},
+        decision="review",
+        author_id="author-1",
+    )
+    store.save_leads("run-1", [candidate])
+    store.close()
+
+    def fake_runner(command, **kwargs):
+        output = config.data_root / "locators" / "run-1" / "locator-output.json"
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(
+            '{"results":[{"run_id":"run-1","platform":"dy","content_id":"video-1","comment_id":"comment-1",'
+            '"status":"verified","locator_method":"author_quote","locator_url":"https://www.douyin.com/video/video-1",'
+            '"matched_author":"甲","matched_quote":"公司正在找平台报价"}]}',
+            encoding="utf-8",
+        )
+        return type("Completed", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+
+    result = locate_store(config, tmp_path, "run-1", runner=fake_runner)
+
+    assert result["verified"] == 1
+    store = RadarStore(config.data_root / "radar.sqlite3")
+    store.initialize()
+    saved = store.load_leads("run-1")[0]
+    assert saved.locator_status == "verified"
+    assert saved.locator_method == "author_quote"
+    assert store.load_comment_locators("run-1")[0]["status"] == "verified"
     store.close()

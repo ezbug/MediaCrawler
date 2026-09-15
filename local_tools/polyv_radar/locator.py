@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
+import json
+import subprocess
+from pathlib import Path
 from typing import Iterable
 from urllib.parse import urlsplit, urlunsplit
 
@@ -74,3 +78,219 @@ def locator_url(
             "native_id",
         )
     return LocatorUrl(content_url, "author_quote")
+
+
+def _candidate_key(item: dict) -> str:
+    return ":".join(
+        str(item.get(name, ""))
+        for name in ("run_id", "platform", "content_id", "comment_id")
+    )
+
+
+def _lead_candidate_key(run_id: str, lead) -> str:
+    return _candidate_key({"run_id": run_id, **lead.to_dict()})
+
+
+def run_ego_locator(
+    candidates: Iterable[dict],
+    repo_root: Path,
+    work_dir: Path,
+    taskspace: int = 8,
+    runner=subprocess.run,
+    timeout: int = 240,
+) -> tuple[dict[str, dict], str]:
+    rows = list(candidates)
+    if not rows:
+        return {}, ""
+    work_dir.mkdir(parents=True, exist_ok=True)
+    input_path = work_dir / "locator-input.json"
+    output_path = work_dir / "locator-output.json"
+    input_path.write_text(json.dumps({"candidates": rows}, ensure_ascii=False), encoding="utf-8")
+    script_path = repo_root / "local_tools" / "polyv_radar" / "ego_comment_locator.mjs"
+    launcher = (
+        f"process.env.POLYV_LOCATOR_INPUT = {json.dumps(str(input_path))};\n"
+        f"process.env.POLYV_LOCATOR_OUTPUT = {json.dumps(str(output_path))};\n"
+        f"process.env.POLYV_TASKSPACE_ID = {json.dumps(str(taskspace))};\n"
+        f"await import({json.dumps(str(script_path))});\n"
+    )
+    try:
+        result = runner(
+            ["ego-browser", "nodejs"],
+            input=launcher,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=timeout,
+            cwd=repo_root,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        log = str(exc)
+        return {
+            _candidate_key(row): {
+                **row,
+                "status": "error",
+                "reason": f"Ego Lite定位失败: {log}",
+                "verified_at": datetime.now(timezone.utc).isoformat(),
+            }
+            for row in rows
+        }, log
+    if result.returncode != 0 or not output_path.exists():
+        log = (result.stderr or result.stdout or "Ego Lite定位没有生成结果").strip()[-1000:]
+        return {
+            _candidate_key(row): {
+                **row,
+                "status": "error",
+                "reason": f"Ego Lite定位失败: {log}",
+                "verified_at": datetime.now(timezone.utc).isoformat(),
+            }
+            for row in rows
+        }, log
+    log = ""
+    try:
+        payload = json.loads(output_path.read_text(encoding="utf-8"))
+        results = payload.get("results", [])
+    except (OSError, json.JSONDecodeError) as exc:
+        log = f"Ego Lite定位结果解析失败: {exc}"
+        results = []
+    checked = {_candidate_key(item): item for item in results if isinstance(item, dict)}
+    return {
+        _candidate_key(row): checked.get(
+            _candidate_key(row),
+            {
+                **row,
+                "status": "error",
+                "reason": "Ego Lite未返回该候选结果",
+                "verified_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        for row in rows
+    }, log
+
+
+def is_deliverable_lead(lead, min_score: int = 4) -> bool:
+    dimensions = lead.dimensions or {}
+    has_business_scene = int(dimensions.get("business_scene", 0) or 0) > 0
+    has_project_or_selection = (
+        int(dimensions.get("project_timing", 0) or 0) > 0
+        or int(dimensions.get("platform_intent", 0) or 0) > 0
+    )
+    return (
+        lead.score >= min_score
+        and lead.locator_status == "verified"
+        and lead.decision != "reject"
+        and has_business_scene
+        and has_project_or_selection
+    )
+
+
+def select_deliverable_leads(leads: Iterable, target: int, min_score: int = 4) -> list:
+    selected = []
+    seen_identities: set[str] = set()
+    seen_companies: set[str] = set()
+    ranked = sorted(leads, key=lambda item: (-item.score, item.platform, item.content_id, item.comment_id))
+    for lead in ranked:
+        if not is_deliverable_lead(lead, min_score):
+            continue
+        identity = lead.author_id or lead.profile_url or f"{lead.platform}:{lead.user}"
+        identity_key = normalize_locator_text(identity)
+        if not identity_key or identity_key in seen_identities:
+            continue
+        company_key = normalize_locator_text(lead.company)
+        if company_key and company_key in seen_companies:
+            continue
+        seen_identities.add(identity_key)
+        if company_key:
+            seen_companies.add(company_key)
+        selected.append(lead)
+        if len(selected) >= max(0, target):
+            break
+    return selected
+
+
+def locate_store(
+    config,
+    repo_root: Path,
+    run_id: str,
+    max_candidates: int = 80,
+    taskspace: int = 8,
+    runner=subprocess.run,
+) -> dict[str, int | str]:
+    from .storage import RadarStore
+
+    store = RadarStore(config.data_root / "radar.sqlite3")
+    store.initialize()
+    leads = [lead for lead in store.load_leads(run_id) if lead.score >= config.min_lead_score and lead.decision != "reject"][:max_candidates]
+    candidates = [
+        {
+            "run_id": run_id,
+            "platform": lead.platform,
+            "content_id": lead.content_id,
+            "comment_id": lead.comment_id,
+            "source_type": lead.source_type,
+            "content_url": lead.url,
+            "comment_url": lead.comment_url,
+            "user": lead.user,
+            "author_id": lead.author_id,
+            "quote": lead.quote,
+            "native_comment_id": lead.native_comment_id,
+            "parent_comment_id": lead.parent_comment_id,
+        }
+        for lead in leads
+    ]
+    results, log = run_ego_locator(
+        candidates,
+        repo_root,
+        config.data_root / "locators" / run_id,
+        taskspace=taskspace,
+        runner=runner,
+    )
+    store.clear_comment_locators(run_id)
+    updated = []
+    for lead in leads:
+        result = results.get(
+            _lead_candidate_key(run_id, lead),
+            {"status": "error", "reason": "Ego Lite未返回该候选结果"},
+        )
+        locator_url_value = str(result.get("locator_url") or lead.comment_url or (lead.url if lead.source_type in {"post", "answer", "content"} else ""))
+        locator_status = str(result.get("status", "error"))
+        verified_at = str(result.get("verified_at", datetime.now(timezone.utc).isoformat()))
+        updated_lead = type(lead)(
+            **{
+                **lead.to_dict(),
+                "comment_url": locator_url_value,
+                "locator_status": locator_status,
+                "locator_method": str(result.get("locator_method", "")),
+                "locator_verified_at": verified_at if locator_status == "verified" else "",
+                "locator_reason": str(result.get("reason", "")),
+            }
+        )
+        updated.append(updated_lead)
+        store.save_comment_locator(
+            {
+                "run_id": run_id,
+                "platform": lead.platform,
+                "content_id": lead.content_id,
+                "comment_id": lead.comment_id,
+                "source_type": lead.source_type,
+                "content_url": lead.url,
+                "comment_url": locator_url_value,
+                "locator_method": updated_lead.locator_method,
+                "status": locator_status,
+                "native_comment_id": lead.native_comment_id,
+                "native_parent_id": lead.parent_comment_id,
+                "matched_author": str(result.get("matched_author", "")),
+                "matched_quote": str(result.get("matched_quote", "")),
+                "final_url": str(result.get("final_url", "")),
+                "reason": updated_lead.locator_reason,
+                "screenshot_path": str(result.get("screenshot_path", "")),
+                "verified_at": verified_at,
+            }
+        )
+    store.save_leads(run_id, updated)
+    store.close()
+    counts: dict[str, int | str] = {"candidates": len(leads), "verified": 0, "not_found": 0, "blocked": 0, "ambiguous": 0, "error": 0}
+    for lead in updated:
+        counts[lead.locator_status] = int(counts.get(lead.locator_status, 0)) + 1
+    if log:
+        counts["log"] = log
+    return counts
