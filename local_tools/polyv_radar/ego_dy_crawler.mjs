@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { filterSearchResults, loadUntilStable, profileIdFromUrl } from './ego_helpers.mjs';
+import { cardTitleFromText, filterSearchResults, loadUntilStable, profileIdFromUrl } from './ego_helpers.mjs';
 
 const args = process.argv.slice(2);
 const keyword = process.env.KEYWORD || args[0] || "企业直播平台推荐";
@@ -41,8 +41,10 @@ const candidateVideos = await page.evaluate(() => {
     const id = match[1];
     if (results.some(r => r.id === id)) continue;
 
+    const cardText = a.innerText || "";
+    const title = cardTitleFromText(cardText);
     let container = a.parentElement;
-    let snippet = a.innerText || "";
+    let snippet = cardText;
     for (let i = 0; i < 5 && container; i++, container = container.parentElement) {
       const text = (container.innerText || "").trim().replace(/\n+/g, " ");
       if (text.length > 900) break;
@@ -52,8 +54,8 @@ const candidateVideos = await page.evaluate(() => {
     results.push({
       id,
       url: `https://www.douyin.com/video/${id}`,
-      title: a.innerText.trim().replace(/\n+/g, " "),
-      searchText: a.innerText.trim().replace(/\n+/g, " "),
+      title: title || cardText.trim().replace(/\n+/g, " "),
+      searchText: title || cardText.trim().replace(/\n+/g, " "),
       rawSnippet: snippet.slice(0, 500)
     });
   }

@@ -1,13 +1,23 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { filterSearchResults, searchRelevance } from '../local_tools/polyv_radar/ego_helpers.mjs';
+import { cardTitleFromText, filterSearchResults, searchRelevance } from '../local_tools/polyv_radar/ego_helpers.mjs';
+
+test('extracts the title from a Douyin search card', () => {
+  const title = cardTitleFromText('01:14\n57\n神鹏品牌全国经销商大会圆满召开\n@郑州三邦机电（周晓峰）\n3周前');
+  assert.equal(title, '神鹏品牌全国经销商大会圆满召开');
+});
 
 test('accepts business event results with selection intent', () => {
   const result = searchRelevance('企业直播平台 采购 服务商', '企业直播平台采购方案');
   assert.equal(result.accepted, true);
   assert.ok(result.eventMatches.length > 0);
   assert.ok(result.intentMatches.length > 0);
+});
+
+test('accepts a business event title variant', () => {
+  const result = searchRelevance('公司年会直播 平台报价', '年会策划与直播执行');
+  assert.equal(result.accepted, true);
 });
 
 test('rejects unrelated noisy results', () => {
@@ -30,4 +40,9 @@ test('uses an explicit card search text instead of a mixed ancestor snippet', ()
 test('accepts overseas multilingual webinar events', () => {
   const result = searchRelevance('海外发布会 多语言直播 方案', '海外发布会多语言直播方案');
   assert.equal(result.accepted, true);
+});
+
+test('rejects a consumer product launch without an enterprise scene', () => {
+  const result = searchRelevance('新品发布会直播 平台报价', '鸿蒙智行春季新品发布会价格');
+  assert.equal(result.accepted, false);
 });
