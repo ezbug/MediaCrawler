@@ -170,16 +170,17 @@ def run_ego_locator(
 def is_deliverable_lead(lead, min_score: int = 4) -> bool:
     dimensions = lead.dimensions or {}
     has_business_scene = int(dimensions.get("business_scene", 0) or 0) > 0
-    has_project_or_selection = (
+    has_project_selection_or_delivery = (
         int(dimensions.get("project_timing", 0) or 0) > 0
         or int(dimensions.get("platform_intent", 0) or 0) > 0
+        or int(dimensions.get("delivery_inquiry", 0) or 0) > 0
     )
     return (
         lead.score >= min_score
         and lead.locator_status == "verified"
         and lead.decision != "reject"
         and has_business_scene
-        and has_project_or_selection
+        and has_project_selection_or_delivery
     )
 
 

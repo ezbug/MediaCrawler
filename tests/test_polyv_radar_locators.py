@@ -296,3 +296,22 @@ def test_verified_report_contains_mixed_locator_fields() -> None:
     assert "#replyrpid-1" in report
     assert "rpid-root" in report
     assert "Ego验证状态" in report
+
+
+def test_delivery_evidence_is_enough_for_a_four_point_candidate() -> None:
+    lead = LeadEvidence(
+        platform="dy",
+        content_id="video-delivery",
+        comment_id="comment-delivery",
+        url="https://www.douyin.com/video/video-delivery",
+        user="甲",
+        quote="公司在找支持并发和交付的平台",
+        category="企业直播",
+        solution="企业直播方向",
+        score=4,
+        dimensions={"business_scene": 2, "project_timing": 0, "platform_intent": 0, "delivery_inquiry": 2, "identity": 0},
+        locator_status="verified",
+        decision="review",
+    )
+
+    assert select_deliverable_leads([lead], 20) == [lead]
