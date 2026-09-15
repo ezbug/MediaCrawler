@@ -20,6 +20,9 @@ class RadarConfig:
     task_timeout_seconds: int = 180
     min_lead_score: int = 4
     excluded_author_names: tuple[str, ...] = ()
+    collector_backend: str = "native"
+    platform_collectors: dict[str, str] = field(default_factory=dict)
+    platform_workers: int = 1
 
     @property
     def category_by_keyword(self) -> dict[str, str]:
@@ -33,6 +36,9 @@ class RadarConfig:
         if platform in self.platform_keywords:
             return self.platform_keywords[platform]
         return self.keywords
+
+    def get_collector_for_platform(self, platform: str) -> str:
+        return self.platform_collectors.get(platform, self.collector_backend)
 
 
 def load_config(path: Path) -> RadarConfig:
@@ -59,4 +65,7 @@ def load_config(path: Path) -> RadarConfig:
         task_timeout_seconds=int(run.get("task_timeout_seconds", 180)),
         min_lead_score=int(run.get("min_lead_score", 4)),
         excluded_author_names=tuple(str(item) for item in raw.get("filters", {}).get("excluded_author_names", [])),
+        collector_backend=str(run.get("collector_backend", "ego")),
+        platform_collectors={str(k): str(v) for k, v in run.get("platform_collectors", {}).items()},
+        platform_workers=max(1, int(run.get("platform_workers", 1))),
     )

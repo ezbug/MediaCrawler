@@ -104,6 +104,24 @@ class RadarStore:
                 status TEXT NOT NULL,
                 platform_status TEXT NOT NULL DEFAULT '{}'
             );
+            CREATE TABLE IF NOT EXISTS crawl_tasks (
+                task_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id TEXT NOT NULL,
+                platform TEXT NOT NULL,
+                keyword TEXT NOT NULL DEFAULT '',
+                backend TEXT NOT NULL DEFAULT '',
+                started_at TEXT NOT NULL DEFAULT '',
+                finished_at TEXT NOT NULL DEFAULT '',
+                duration_seconds REAL NOT NULL DEFAULT 0,
+                raw_contents INTEGER NOT NULL DEFAULT 0,
+                raw_comments INTEGER NOT NULL DEFAULT 0,
+                dedup_contents INTEGER NOT NULL DEFAULT 0,
+                dedup_comments INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL DEFAULT '',
+                error TEXT NOT NULL DEFAULT '',
+                fallback_backend TEXT NOT NULL DEFAULT '',
+                fallback_reason TEXT NOT NULL DEFAULT ''
+            );
             CREATE TABLE IF NOT EXISTS leads (
                 run_id TEXT NOT NULL,
                 platform TEXT NOT NULL,
@@ -320,6 +338,30 @@ class RadarStore:
         )
         self.connection.commit()
 
+    def save_crawl_task(self, task: dict) -> None:
+        self.connection.execute(
+            """INSERT INTO crawl_tasks
+               (run_id, platform, keyword, backend, started_at, finished_at, duration_seconds,
+                raw_contents, raw_comments, dedup_contents, dedup_comments, status, error,
+                fallback_backend, fallback_reason)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                task.get("run_id", ""), task.get("platform", ""), task.get("keyword", ""),
+                task.get("backend", ""), task.get("started_at", ""), task.get("finished_at", ""),
+                float(task.get("duration_seconds", 0) or 0), int(task.get("raw_contents", 0) or 0),
+                int(task.get("raw_comments", 0) or 0), int(task.get("dedup_contents", 0) or 0),
+                int(task.get("dedup_comments", 0) or 0), task.get("status", ""), task.get("error", ""),
+                task.get("fallback_backend", ""), task.get("fallback_reason", ""),
+            ),
+        )
+        self.connection.commit()
+
+    def load_crawl_tasks(self, run_id: str) -> list[dict]:
+        rows = self.connection.execute(
+            "SELECT * FROM crawl_tasks WHERE run_id = ? ORDER BY task_id", (run_id,)
+        ).fetchall()
+        return [dict(row) for row in rows]
+
     def save_leads(self, run_id: str, leads: Iterable[LeadEvidence]) -> None:
         self.connection.execute("DELETE FROM leads WHERE run_id = ?", (run_id,))
         for lead in leads:
@@ -498,7 +540,7 @@ class RadarStore:
         return [dict(row) for row in rows]
 
     def count(self, table: str) -> int:
-        if table not in {"contents", "comments", "leads", "runs", "profiles", "profile_posts", "external_evidence", "lead_assessments"}:
+        if table not in {"contents", "comments", "leads", "runs", "crawl_tasks", "profiles", "profile_posts", "external_evidence", "lead_assessments"}:
             raise ValueError(f"Unsupported table: {table}")
         return int(self.connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
 

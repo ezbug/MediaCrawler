@@ -9,6 +9,8 @@ comments = true
 sub_comments = true
 task_timeout_seconds = 180
 min_lead_score = 4
+collector_backend = "ego"
+platform_workers = 1
 
 [filters]
 excluded_author_names = ["保利威", "POLYV"]
