@@ -25,6 +25,10 @@ const SEARCH_INTENT_TERMS = [
   "平台", "采购", "供应商", "服务商", "选型", "报价", "价格", "多少钱", "方案", "部署", "交付", "私有化",
   "sdk", "api", "并发", "策划", "推荐", "怎么选", "支持",
 ];
+const SEARCH_DELIVERY_TERMS = [
+  "直播", "培训", "平台", "方案", "供应商", "服务商", "系统", "部署", "交付", "在线", "sdk", "api",
+  "防录屏", "防盗录", "视频加密", "webinar",
+];
 const SEARCH_NOISE_TERMS = [
   "王者荣耀", "kpl", "游戏", "动漫", "手机", "数码", "美食", "旅游", "留学", "工资", "离职", "相亲",
 ];
@@ -62,20 +66,19 @@ export function searchRelevance(keyword, text) {
   const eventMatches = SEARCH_EVENT_TERMS.filter((term) => normalized.includes(normalizedSearchText(term)));
   const sceneMatches = SEARCH_SCENE_TERMS.filter((term) => normalized.includes(normalizedSearchText(term)));
   const intentMatches = SEARCH_INTENT_TERMS.filter((term) => normalized.includes(normalizedSearchText(term)));
+  const deliveryMatches = SEARCH_DELIVERY_TERMS.filter((term) => normalized.includes(normalizedSearchText(term)));
   const noiseMatches = SEARCH_NOISE_TERMS.filter((term) => normalized.includes(normalizedSearchText(term)));
   const eventHit = eventMatches.length > 0;
   const sceneHit = sceneMatches.length > 0;
   const intentHit = intentMatches.length > 0;
+  const deliveryHit = deliveryMatches.length > 0;
   const technicalEventHit = eventMatches.some((term) => [
     "直播sdk", "直播api", "app接直播", "视频加密", "防录屏", "多语言直播", "webinar",
   ].includes(term));
-  const strongBusinessHit = eventHit && (
-    sceneHit
-    || (intentHit && queryHits >= 2)
-    || (technicalEventHit && queryHits >= 1)
-  );
+  const strongBusinessHit = eventHit && sceneHit && (deliveryHit || intentHit || queryHits >= 2);
+  const technicalBusinessHit = technicalEventHit && queryHits >= 1;
   const contextualPhoneNoise = noiseMatches.length === 1 && noiseMatches[0] === "手机" && eventHit && intentHit;
-  const accepted = (strongBusinessHit || queryHits >= 2) && (noiseMatches.length === 0 || contextualPhoneNoise);
+  const accepted = (strongBusinessHit || technicalBusinessHit) && (noiseMatches.length === 0 || contextualPhoneNoise);
   const score = (eventHit ? 3 : 0) + (sceneHit ? 2 : 0) + (intentHit ? 2 : 0) + Math.min(queryHits, 3) - (noiseMatches.length ? 5 : 0);
   return {
     accepted,
@@ -84,6 +87,7 @@ export function searchRelevance(keyword, text) {
     eventMatches,
     sceneMatches,
     intentMatches,
+    deliveryMatches,
     noiseMatches,
   };
 }

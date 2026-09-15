@@ -46,3 +46,8 @@ test('rejects a consumer product launch without an enterprise scene', () => {
   const result = searchRelevance('新品发布会直播 平台报价', '鸿蒙智行春季新品发布会价格');
   assert.equal(result.accepted, false);
 });
+
+test('rejects an event title without delivery or project context', () => {
+  const result = searchRelevance('公司年会直播 平台报价', '年会唱歌罚4万');
+  assert.equal(result.accepted, false);
+});
