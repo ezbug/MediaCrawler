@@ -67,6 +67,11 @@ class RadarStore:
                 published_at TEXT NOT NULL DEFAULT '',
                 likes INTEGER NOT NULL DEFAULT 0,
                 source_keyword TEXT NOT NULL DEFAULT '',
+                native_comment_id TEXT NOT NULL DEFAULT '',
+                native_parent_id TEXT NOT NULL DEFAULT '',
+                comment_url TEXT NOT NULL DEFAULT '',
+                source_type TEXT NOT NULL DEFAULT 'comment',
+                published_at_raw TEXT NOT NULL DEFAULT '',
                 first_seen_at TEXT NOT NULL,
                 last_seen_at TEXT NOT NULL,
                 PRIMARY KEY (platform, comment_id)
@@ -176,6 +181,26 @@ class RadarStore:
                 payload TEXT NOT NULL,
                 PRIMARY KEY (run_id, platform, content_id, comment_id)
             );
+            CREATE TABLE IF NOT EXISTS comment_locators (
+                run_id TEXT NOT NULL,
+                platform TEXT NOT NULL,
+                content_id TEXT NOT NULL,
+                comment_id TEXT NOT NULL DEFAULT '',
+                source_type TEXT NOT NULL DEFAULT 'comment',
+                content_url TEXT NOT NULL DEFAULT '',
+                comment_url TEXT NOT NULL DEFAULT '',
+                locator_method TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'pending',
+                native_comment_id TEXT NOT NULL DEFAULT '',
+                native_parent_id TEXT NOT NULL DEFAULT '',
+                matched_author TEXT NOT NULL DEFAULT '',
+                matched_quote TEXT NOT NULL DEFAULT '',
+                final_url TEXT NOT NULL DEFAULT '',
+                reason TEXT NOT NULL DEFAULT '',
+                screenshot_path TEXT NOT NULL DEFAULT '',
+                verified_at TEXT NOT NULL DEFAULT '',
+                PRIMARY KEY (run_id, platform, content_id, comment_id)
+            );
             """
         )
         self._migrate_legacy_columns()
@@ -192,6 +217,11 @@ class RadarStore:
             "comments": {
                 "author_id": "TEXT NOT NULL DEFAULT ''",
                 "author_url": "TEXT NOT NULL DEFAULT ''",
+                "native_comment_id": "TEXT NOT NULL DEFAULT ''",
+                "native_parent_id": "TEXT NOT NULL DEFAULT ''",
+                "comment_url": "TEXT NOT NULL DEFAULT ''",
+                "source_type": "TEXT NOT NULL DEFAULT 'comment'",
+                "published_at_raw": "TEXT NOT NULL DEFAULT ''",
             },
         }
         for table, columns in migrations.items():
@@ -284,15 +314,22 @@ class RadarStore:
             _iso(item.published_at),
             item.likes,
             item.source_keyword,
+            item.native_comment_id,
+            item.native_parent_id,
+            item.comment_url,
+            item.source_type,
+            item.published_at_raw,
         )
         if existing:
             self.connection.execute(
                 """UPDATE comments SET content_id=?, text=?, author=?, author_hash=?, parent_comment_id=?,
-                   author_id=?, author_url=?, published_at=?, likes=?, source_keyword=?, last_seen_at=?
+                   author_id=?, author_url=?, published_at=?, likes=?, source_keyword=?, native_comment_id=?,
+                   native_parent_id=?, comment_url=?, source_type=?, published_at_raw=?, last_seen_at=?
                    WHERE platform=? AND comment_id=?""",
                 (
                     values[2], values[3], values[4], values[5], values[8],
-                    values[6], values[7], values[9], values[10], values[11], now,
+                    values[6], values[7], values[9], values[10], values[11], values[12], values[13],
+                    values[14], values[15], values[16], now,
                     values[0], values[1],
                 ),
             )
@@ -302,8 +339,9 @@ class RadarStore:
             self.connection.execute(
                 """INSERT INTO comments
                    (platform, comment_id, content_id, text, author, author_hash, author_id, author_url,
-                    parent_comment_id, published_at, likes, source_keyword, first_seen_at, last_seen_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    parent_comment_id, published_at, likes, source_keyword, native_comment_id,
+                    native_parent_id, comment_url, source_type, published_at_raw, first_seen_at, last_seen_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (*values, now, now),
             )
             inserted = True
@@ -361,6 +399,37 @@ class RadarStore:
             "SELECT * FROM crawl_tasks WHERE run_id = ? ORDER BY task_id", (run_id,)
         ).fetchall()
         return [dict(row) for row in rows]
+
+    def save_comment_locator(self, locator: dict) -> None:
+        self.connection.execute(
+            """INSERT OR REPLACE INTO comment_locators
+               (run_id, platform, content_id, comment_id, source_type, content_url, comment_url,
+                locator_method, status, native_comment_id, native_parent_id, matched_author,
+                matched_quote, final_url, reason, screenshot_path, verified_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                locator.get("run_id", ""), locator.get("platform", ""), locator.get("content_id", ""),
+                locator.get("comment_id", ""), locator.get("source_type", "comment"),
+                locator.get("content_url", ""), locator.get("comment_url", ""),
+                locator.get("locator_method", ""), locator.get("status", "pending"),
+                locator.get("native_comment_id", ""), locator.get("native_parent_id", ""),
+                locator.get("matched_author", ""), locator.get("matched_quote", ""),
+                locator.get("final_url", ""), locator.get("reason", ""),
+                locator.get("screenshot_path", ""), locator.get("verified_at", ""),
+            ),
+        )
+        self.connection.commit()
+
+    def load_comment_locators(self, run_id: str) -> list[dict]:
+        rows = self.connection.execute(
+            "SELECT * FROM comment_locators WHERE run_id = ? ORDER BY platform, content_id, comment_id",
+            (run_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def clear_comment_locators(self, run_id: str) -> None:
+        self.connection.execute("DELETE FROM comment_locators WHERE run_id = ?", (run_id,))
+        self.connection.commit()
 
     def save_leads(self, run_id: str, leads: Iterable[LeadEvidence]) -> None:
         self.connection.execute("DELETE FROM leads WHERE run_id = ?", (run_id,))
@@ -445,6 +514,11 @@ class RadarStore:
                 published_at=datetime.fromisoformat(row["published_at"]) if row["published_at"] else None,
                 likes=row["likes"],
                 source_keyword=source_keyword,
+                native_comment_id=row["native_comment_id"],
+                native_parent_id=row["native_parent_id"],
+                comment_url=row["comment_url"],
+                source_type=row["source_type"] or "comment",
+                published_at_raw=row["published_at_raw"],
             )
             )
         return result
@@ -540,7 +614,7 @@ class RadarStore:
         return [dict(row) for row in rows]
 
     def count(self, table: str) -> int:
-        if table not in {"contents", "comments", "leads", "runs", "crawl_tasks", "profiles", "profile_posts", "external_evidence", "lead_assessments"}:
+        if table not in {"contents", "comments", "leads", "runs", "crawl_tasks", "profiles", "profile_posts", "external_evidence", "lead_assessments", "comment_locators"}:
             raise ValueError(f"Unsupported table: {table}")
         return int(self.connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
 

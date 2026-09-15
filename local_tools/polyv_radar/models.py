@@ -46,6 +46,11 @@ class CommentRecord:
     published_at: datetime | None = None
     likes: int = 0
     source_keyword: str = ""
+    native_comment_id: str = ""
+    native_parent_id: str = ""
+    comment_url: str = ""
+    source_type: str = "comment"
+    published_at_raw: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
@@ -80,6 +85,14 @@ class LeadEvidence:
     decision: str = ""
     rejection_reason: str = ""
     author_id: str = ""
+    source_type: str = "comment"
+    comment_url: str = ""
+    parent_comment_id: str = ""
+    locator_status: str = "pending"
+    locator_method: str = ""
+    locator_verified_at: str = ""
+    locator_reason: str = ""
+    native_comment_id: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

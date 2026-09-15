@@ -147,6 +147,8 @@ def normalize_comment(
     if isinstance(nested_content, dict):
         nested_content = nested_content.get("message", "")
     text = str(_first(raw, "text", "content", "comment_content", default=nested_content or ""))
+    published_at_raw = str(_first(raw, "published_at_raw", "publish_time_text", "time_text", default=""))
+    published_value = _first(raw, "create_time", "published_at", "publish_time", "ctime", default="")
     return CommentRecord(
         platform=platform,
         comment_id=comment_id,
@@ -157,7 +159,12 @@ def normalize_comment(
         author_id=str(_first(raw, "author_id", "user_id", "uid", "sec_uid", "mid", default="")),
         author_url=str(_first(raw, "author_url", "user_url", "profile_url", "user_profile_url", default="")),
         parent_comment_id=str(_first(raw, "parent_comment_id", "reply_id", "parent", default="")),
-        published_at=parse_datetime(_first(raw, "create_time", "publish_time", "ctime", default="")),
+        published_at=parse_datetime(published_value),
         likes=parse_count(_first(raw, "like_count", "like", "digg_count")),
         source_keyword=source_keyword,
+        native_comment_id=str(_first(raw, "native_comment_id", "comment_native_id", "cid", "rpid", "id")),
+        native_parent_id=str(_first(raw, "native_parent_id", "root_comment_id", "root", default="")),
+        comment_url=str(_first(raw, "comment_url", "reply_url", "permalink", default="")),
+        source_type=str(_first(raw, "source_type", "comment_type", default="comment")),
+        published_at_raw=published_at_raw,
     )

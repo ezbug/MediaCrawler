@@ -24,6 +24,14 @@ def _lead_from_score(content: ContentRecord, comment: CommentRecord | None, resu
     author_id = (comment.author_id if comment else "") or content.author_id
     category = classify_category(f"{content.title}\n{content.text}", None)
     reasons = [f"{name}:{value}" for name, value in result.dimensions.items() if value]
+    if comment:
+        source_type = comment.source_type or "comment"
+    elif content.platform == "zhihu" and "/answer/" in content.url:
+        source_type = "answer"
+    elif content.platform == "zhihu" and "/p/" in content.url:
+        source_type = "post"
+    else:
+        source_type = "content"
     return LeadEvidence(
         platform=content.platform,
         content_id=content.content_id,
@@ -45,6 +53,10 @@ def _lead_from_score(content: ContentRecord, comment: CommentRecord | None, resu
         stage="prefilter",
         rejection_reason=result.rejected_reason,
         author_id=author_id,
+        source_type=source_type,
+        comment_url=comment.comment_url if comment else "",
+        parent_comment_id=comment.parent_comment_id if comment else "",
+        native_comment_id=comment.native_comment_id if comment else "",
     )
 
 
