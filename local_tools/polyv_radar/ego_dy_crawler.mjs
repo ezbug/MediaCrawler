@@ -41,17 +41,19 @@ const candidateVideos = await page.evaluate(() => {
     const id = match[1];
     if (results.some(r => r.id === id)) continue;
 
-    let container = a;
-    for (let i = 0; i < 4; i++) {
-      if (container.parentElement) container = container.parentElement;
+    let container = a.parentElement;
+    let snippet = a.innerText || "";
+    for (let i = 0; i < 5 && container; i++, container = container.parentElement) {
+      const text = (container.innerText || "").trim().replace(/\n+/g, " ");
+      if (text.length > 900) break;
+      if (text.length > snippet.length) snippet = text;
     }
-    const fullText = container.innerText || a.innerText;
 
     results.push({
       id,
       url: `https://www.douyin.com/video/${id}`,
       title: a.innerText.trim().replace(/\n+/g, " "),
-      rawSnippet: fullText.slice(0, 300).replace(/\n+/g, " ")
+      rawSnippet: snippet.slice(0, 500)
     });
   }
   return results;

@@ -44,16 +44,19 @@ const candidateNotes = await page.evaluate(() => {
     if (results.some(r => r.id === id)) continue;
 
     const title = a.innerText.trim().replace(/\n+/g, " ");
-    let container = a;
-    for (let i = 0; i < 4; i++) {
-      if (container.parentElement) container = container.parentElement;
+    let container = a.parentElement;
+    let snippet = title;
+    for (let i = 0; i < 5 && container; i++, container = container.parentElement) {
+      const text = (container.innerText || "").trim().replace(/\n+/g, " ");
+      if (text.length > 900) break;
+      if (text.length > snippet.length) snippet = text;
     }
 
     results.push({
       id,
       url: href,
       title,
-      rawSnippet: (container.innerText || title).slice(0, 500).replace(/\n+/g, " ")
+      rawSnippet: snippet.slice(0, 500)
     });
   }
   return results;

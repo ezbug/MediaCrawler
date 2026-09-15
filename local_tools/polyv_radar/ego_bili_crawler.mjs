@@ -44,15 +44,18 @@ const candidateVideos = await page.evaluate(() => {
     
     // Title is usually inside title attribute or card info
     const title = a.getAttribute("title") || a.innerText.trim().replace(/\n+/g, " ");
-    let container = a;
-    for (let i = 0; i < 3; i++) {
-      if (container.parentElement) container = container.parentElement;
+    let container = a.parentElement;
+    let snippet = title;
+    for (let i = 0; i < 5 && container; i++, container = container.parentElement) {
+      const text = (container.innerText || "").trim().replace(/\n+/g, " ");
+      if (text.length > 900) break;
+      if (text.length > snippet.length) snippet = text;
     }
     list.push({
       bvid,
       url: `https://www.bilibili.com/video/${bvid}/`,
       title,
-      rawSnippet: (container.innerText || title).slice(0, 500).replace(/\n+/g, " ")
+      rawSnippet: snippet.slice(0, 500)
     });
   }
   return list;
