@@ -2,11 +2,22 @@
 
 这是 MediaCrawler 的本地旁路分析层：MediaCrawler 负责低频抓取，雷达负责统一字段、去重、规则评分和 Markdown 报告。
 
+采集后端可选 `native`、`ego` 或 `hybrid`。原生后端按平台批量关键词启动一次 MediaCrawler；混合后端仅在原生任务异常时回退 Ego。需求信号默认保留 90 天，仍只处理公开/授权信息，并按仓库许可证进行本机非商业低频测试。
+
 首轮配置位于 `local_tools/polyv_radar/pilot.toml`，运行数据位于仓库外的 `polyv-radar-data/`。
 
 ```bash
 uv run python -m local_tools.polyv_radar collect \
   --config local_tools/polyv_radar/pilot.toml
+```
+
+显式运行原生批量采集：
+
+```bash
+uv run python -m local_tools.polyv_radar collect \
+  --config local_tools/polyv_radar/pilot.toml \
+  --collector native \
+  --platform dy
 ```
 
 只测试一个平台和关键词时，可以覆盖配置文件中的范围和数量：
@@ -42,3 +53,14 @@ uv run python -m local_tools.polyv_radar ingest \
 ```
 
 规则层只生成复核队列和回复草稿，不自动发表评论或联系用户。四个平台任务串行运行；平台登录失效、超时或非零退出会记录为部分失败，并保留已抓到的数据。
+
+运行后端 A/B 基准（只生成对比文件，不参与评分）：
+
+```bash
+uv run python -m local_tools.polyv_radar benchmark \
+  --config local_tools/polyv_radar/pilot.toml \
+  --platform dy \
+  --keyword "公司年会直播 平台报价" \
+  --keyword "员工线上培训 平台推荐" \
+  --keyword "医学学术会议 直播平台"
+```

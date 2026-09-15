@@ -9,6 +9,7 @@ from pathlib import Path
 from .config import load_config
 from .runner import analyze_store, collect, ingest_existing_run, report_store
 from .pipeline import enrich_store, prefilter_store, review_store
+from .benchmark import run_benchmark
 
 
 def apply_collect_overrides(config, args):
@@ -22,10 +23,17 @@ def apply_collect_overrides(config, args):
             category = original_categories.get(keyword, f"自定义{index}")
             keywords[category] = keyword
         updates["keywords"] = keywords
+        if args.platform:
+            platform_keywords = {platform: dict(values) for platform, values in config.platform_keywords.items()}
+            for platform in args.platform:
+                platform_keywords[platform] = dict(keywords)
+            updates["platform_keywords"] = platform_keywords
     for name in ("max_contents", "max_comments", "task_timeout_seconds"):
         value = getattr(args, name)
         if value is not None:
             updates[name] = value
+    if getattr(args, "collector", None):
+        updates["collector_backend"] = args.collector
     return replace(config, **updates) if updates else config
 
 
@@ -46,6 +54,7 @@ def build_parser() -> argparse.ArgumentParser:
     collect_parser.add_argument("--max-contents", type=int)
     collect_parser.add_argument("--max-comments", type=int)
     collect_parser.add_argument("--task-timeout-seconds", type=int)
+    collect_parser.add_argument("--collector", choices=("native", "ego", "hybrid"))
     prefilter_parser = subparsers.choices["prefilter"]
     prefilter_parser.add_argument("--max-candidates", type=int, default=50)
     enrich_parser = subparsers.choices["enrich"]
@@ -60,6 +69,12 @@ def build_parser() -> argparse.ArgumentParser:
     pipeline_parser.add_argument("--skip-crawl", action="store_true")
     pipeline_parser.add_argument("--max-contents", type=int)
     pipeline_parser.add_argument("--max-comments", type=int)
+    pipeline_parser.add_argument("--collector", choices=("native", "ego", "hybrid"))
+    benchmark_parser = subparsers.add_parser("benchmark")
+    benchmark_parser.add_argument("--config", required=True)
+    benchmark_parser.add_argument("--repo-root", default=str(Path(__file__).resolve().parents[2]))
+    benchmark_parser.add_argument("--platform", required=True, choices=("dy", "xhs", "bili", "zhihu"))
+    benchmark_parser.add_argument("--keyword", action="append", help="覆盖默认基准关键词，可重复传入")
     return parser
 
 
@@ -68,7 +83,7 @@ def main(argv: list[str] | None = None) -> int:
     config = load_config(Path(args.config))
     if args.command == "collect":
         config = apply_collect_overrides(config, args)
-        result = collect(config, Path(args.repo_root))
+        result = collect(config, Path(args.repo_root), collector=args.collector)
         payload = {"run_id": result.run_id, "store_path": str(result.store_path), "failures": result.failures}
     elif args.command == "ingest":
         result = ingest_existing_run(config, args.run_id)
@@ -86,8 +101,6 @@ def main(argv: list[str] | None = None) -> int:
         result = review_store(config, args.run_id, codex=args.codex)
         payload = {"run_id": args.run_id, **result}
     elif args.command == "pipeline":
-        from .ego_crawl_all import run_ego_crawlers
-
         run_id = args.run_id or datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
         if args.max_contents is not None or args.max_comments is not None:
             updates = {}
@@ -97,13 +110,22 @@ def main(argv: list[str] | None = None) -> int:
                 updates["max_comments"] = args.max_comments
             config = replace(config, **updates)
         if not args.skip_crawl:
-            run_ego_crawlers(run_id, config.platforms, config, Path(args.repo_root), config.data_root)
-        ingest_existing_run(config, run_id)
+            collect(config, Path(args.repo_root), collector=args.collector, run_id=run_id)
+        else:
+            ingest_existing_run(config, run_id)
         prefilter_store(config, run_id, args.max_candidates)
         enrich_store(config, Path(args.repo_root), run_id)
         review_result = review_store(config, run_id, codex=args.codex)
         report_path = report_store(config, run_id, "pipeline")
         payload = {"run_id": run_id, "report_path": str(report_path), **review_result}
+    elif args.command == "benchmark":
+        result = run_benchmark(
+            config,
+            Path(args.repo_root),
+            args.platform,
+            args.keyword,
+        )
+        payload = result
     else:
         path = report_store(config, args.run_id, args.output_suffix)
         payload = {"run_id": args.run_id, "report_path": str(path)}

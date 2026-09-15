@@ -4,7 +4,6 @@ import json
 import os
 import re
 import subprocess
-import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -114,7 +113,7 @@ def _source_keyword(row: dict, fallback: str) -> str:
     return str(value or fallback)
 
 
-def _limit_by_source(rows: list[dict], limit: int | None, fallback: str, key: str) -> list[dict]:
+def _limit_by_source(rows: list[dict], limit: int | None, fallback: str) -> list[dict]:
     if limit is None:
         return rows
     counts: dict[str, int] = {}
@@ -146,7 +145,7 @@ def _ingest_output_details(
         elif "content" in name or "video" in name or "note" in name:
             content_rows.extend(_read_jsonl(path))
 
-    content_rows = _limit_by_source(content_rows, max_contents, keyword, "content")
+    content_rows = _limit_by_source(content_rows, max_contents, keyword)
     contents = [
         item
         for item in (
@@ -358,9 +357,29 @@ def collect(
     run_id: str | None = None,
 ) -> CollectionResult:
     mode = collector or config.collector_backend
-    if mode not in {"native", "ego", "hybrid"}:
-        raise ValueError(f"Unsupported collector backend: {mode}")
     run_id = run_id or datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    selected_modes = {
+        platform: (collector or config.get_collector_for_platform(platform))
+        for platform in config.platforms
+    }
+    invalid = sorted({value for value in selected_modes.values() if value not in {"native", "ego", "hybrid"}})
+    if invalid:
+        raise ValueError(f"Unsupported collector backend: {', '.join(invalid)}")
+    if collector is None and len(set(selected_modes.values())) > 1:
+        combined_status: dict[str, dict] = {}
+        combined_failures: dict[str, str] = {}
+        store_path = config.data_root / "radar.sqlite3"
+        for platform, platform_mode in selected_modes.items():
+            platform_config = RadarConfig(**{**config.__dict__, "platforms": [platform]})
+            result = collect(platform_config, repo_root, runner=runner, collector=platform_mode, run_id=run_id)
+            combined_status.update(result.platform_status)
+            combined_failures.update(result.failures)
+        store = RadarStore(store_path)
+        store.initialize()
+        store.save_run(run_id, "success" if not combined_failures else "partial", combined_status, datetime.now(timezone.utc).isoformat(), datetime.now(timezone.utc).isoformat())
+        store.close()
+        return CollectionResult(run_id, store_path, combined_status, combined_failures)
+    mode = collector or next(iter(selected_modes.values()), config.collector_backend)
     if mode == "native":
         return _collect_native(config, repo_root, runner, run_id)
 
@@ -440,6 +459,7 @@ def analyze_records(
     now: datetime | None = None,
     category_by_keyword: dict[str, str] | None = None,
     min_score: int = 4,
+    recent_days: int = 90,
 ) -> list[LeadEvidence]:
     content_by_key = {(item.platform, item.content_id): item for item in contents}
     comments_by_content: dict[tuple[str, str], list[CommentRecord]] = {}
@@ -452,7 +472,7 @@ def analyze_records(
         if related_comments:
             for comment in related_comments:
                 category_hint = category_by_keyword.get(comment.source_keyword)
-                lead = score_lead(content, comment, now, category_hint)
+                lead = score_lead(content, comment, now, category_hint, recent_days)
                 if lead.score >= min_score:
                     key = (lead.platform, lead.content_id, _text_key(lead.user), _text_key(lead.quote))
                     existing = leads_by_key.get(key)
@@ -460,7 +480,7 @@ def analyze_records(
                         leads_by_key[key] = lead
         else:
             category_hint = category_by_keyword.get(content.source_keywords[0]) if content.source_keywords else None
-            lead = score_lead(content, None, now, category_hint)
+            lead = score_lead(content, None, now, category_hint, recent_days)
             if lead.score >= min_score:
                 key = (lead.platform, lead.content_id, _text_key(lead.user), _text_key(lead.quote))
                 existing = leads_by_key.get(key)
@@ -490,6 +510,7 @@ def analyze_store(config: RadarConfig, run_id: str, now: datetime | None = None)
         now,
         config.category_by_keyword,
         config.min_lead_score,
+        config.recent_days,
     )
     store.save_leads(run_id, leads)
     write_review_queue(config.data_root / "review" / f"{run_id}.jsonl", leads)
@@ -510,11 +531,41 @@ def report_store(config: RadarConfig, run_id: str, output_suffix: str = "") -> P
     }
     lead_author_keys = {(lead.platform, lead.author_id) for lead in leads if lead.author_id}
     profile_rows = store.load_profiles(run_id)
+    run_row = store.connection.execute(
+        "SELECT started_at, finished_at FROM runs WHERE run_id = ?", (run_id,)
+    ).fetchone()
+    wall_seconds = 0.0
+    if run_row:
+        try:
+            wall_seconds = max(
+                0.0,
+                (datetime.fromisoformat(run_row["finished_at"]) - datetime.fromisoformat(run_row["started_at"])).total_seconds(),
+            )
+        except ValueError:
+            wall_seconds = 0.0
+    tasks = store.load_crawl_tasks(run_id)
+    raw_contents = sum(int(item.get("raw_contents", 0) or 0) for item in tasks)
+    raw_comments = sum(int(item.get("raw_comments", 0) or 0) for item in tasks)
+    for platform, status in platform_status.items():
+        platform_tasks = [item for item in tasks if item.get("platform") == platform]
+        duration = max((float(item.get("duration_seconds", 0) or 0) for item in platform_tasks), default=0.0)
+        if not duration and wall_seconds and len(platform_status) == 1:
+            duration = wall_seconds
+        per_minute = max(duration / 60, 1e-9)
+        status["duration_seconds"] = duration
+        status["contents_per_minute"] = status.get("contents", 0) / per_minute
+        status["comments_per_minute"] = status.get("comments", 0) / per_minute
+        status["raw_contents"] = sum(int(item.get("raw_contents", 0) or 0) for item in platform_tasks)
+        status["raw_comments"] = sum(int(item.get("raw_comments", 0) or 0) for item in platform_tasks)
+        status["backends"] = sorted({str(item.get("backend", "")) for item in platform_tasks if item.get("backend")})
     counts = {
         "contents": len(store.iter_contents(run_id)),
         "comments": len(store.iter_comments(run_id)),
+        "raw_contents": raw_contents,
+        "raw_comments": raw_comments,
         "prefilter": len(leads),
         "threshold": config.min_lead_score,
+        "wall_seconds": wall_seconds,
         "profiles": len(
             {
                 (row["platform"], row["author_id"])
@@ -537,6 +588,8 @@ def report_store(config: RadarConfig, run_id: str, output_suffix: str = "") -> P
             continue
         for keyword in content.source_keywords:
             query_counts.setdefault(keyword, {"keyword": keyword, "contents": 0, "comments": 0, "leads": 0})["leads"] += 1
+    for item in query_counts.values():
+        item["candidate_rate"] = item["leads"] / item["contents"] if item["contents"] else 0.0
     counts["query_stats"] = sorted(query_counts.values(), key=lambda item: (-item["leads"], -item["comments"], item["keyword"]))
     assessment_rows = store.connection.execute("SELECT payload FROM lead_assessments WHERE run_id = ?", (run_id,)).fetchall()
     for row in assessment_rows:
@@ -545,6 +598,11 @@ def report_store(config: RadarConfig, run_id: str, output_suffix: str = "") -> P
             counts["high_value"] = counts.get("high_value", 0) + 1
         if payload.get("decision") == "review":
             counts["review"] = counts.get("review", 0) + 1
+        if payload.get("decision") == "manual_confirmed":
+            counts["manual_confirmed"] = counts.get("manual_confirmed", 0) + 1
+    counts["model_passed"] = counts.get("high_value", 0)
+    counts["evidence_insufficient"] = counts.get("review", 0)
+    counts["task_count"] = len(tasks)
     top_contents: list[LeadEvidence] = []
     by_content: dict[tuple[str, str], LeadEvidence] = {}
     for lead in leads:

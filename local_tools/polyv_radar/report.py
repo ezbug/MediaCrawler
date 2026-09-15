@@ -20,11 +20,19 @@ def render_report(
 ) -> str:
     leads = sorted(leads, key=lambda item: (-item.score, item.platform, item.content_id))
     top_contents = list(top_contents)
-    lines = [f"# POLYV 需求雷达日报：{run_id}", "", "## 运行状态", "", "| 平台 | 状态 | 内容数 | 评论数 |", "| --- | --- | ---: | ---: |"]
+    lines = [
+        f"# POLYV 需求雷达日报：{run_id}",
+        "",
+        "## 运行状态",
+        "",
+        "| 平台 | 状态 | 内容数 | 评论数 | 内容/分钟 | 评论/分钟 |",
+        "| --- | --- | ---: | ---: | ---: | ---: |",
+    ]
     for platform, status in platform_status.items():
         lines.append(
             f"| {_cell(platform)} | {_cell(status.get('status'))} | "
-            f"{status.get('contents', 0)} | {status.get('comments', 0)} |"
+            f"{status.get('contents', 0)} | {status.get('comments', 0)} | "
+            f"{status.get('contents_per_minute', 0):.2f} | {status.get('comments_per_minute', 0):.2f} |"
         )
     for platform, reason in failures.items():
         lines.append(f"- {_cell(platform)}：{_cell(reason)}")
@@ -39,11 +47,14 @@ def render_report(
                 "| --- | ---: |",
                 f"| 初筛内容 | {funnel_stats.get('contents', 0)} |",
                 f"| 初筛评论 | {funnel_stats.get('comments', 0)} |",
+                f"| 原始内容 | {funnel_stats.get('raw_contents', 0)} |",
+                f"| 原始评论 | {funnel_stats.get('raw_comments', 0)} |",
                 f"| 规则候选 | {funnel_stats.get('prefilter', 0)} |",
                 f"| 已调查主页 | {funnel_stats.get('profiles', 0)} |",
                 f"| 公开来源 | {funnel_stats.get('external_evidence', 0)} |",
-                f"| 模型高价值 | {funnel_stats.get('high_value', 0)} |",
-                f"| 待人工复核 | {funnel_stats.get('review', 0)} |",
+                f"| 模型通过 | {funnel_stats.get('model_passed', funnel_stats.get('high_value', 0))} |",
+                f"| 证据不足 | {funnel_stats.get('evidence_insufficient', funnel_stats.get('review', 0))} |",
+                f"| 人工确认高价值 | {funnel_stats.get('manual_confirmed', 0)} |",
             ]
         )
         query_stats = funnel_stats.get("query_stats", [])
@@ -53,13 +64,13 @@ def render_report(
                     "",
                     "### 查询命中统计",
                     "",
-                    "| 查询 | 内容 | 评论 | 候选 |",
-                    "| --- | ---: | ---: | ---: |",
+                    "| 查询 | 内容 | 评论 | 候选 | 候选率 |",
+                    "| --- | ---: | ---: | ---: | ---: |",
                 ]
             )
             for item in query_stats:
                 lines.append(
-                    f"| {_cell(item['keyword'])} | {item['contents']} | {item['comments']} | {item['leads']} |"
+                    f"| {_cell(item['keyword'])} | {item['contents']} | {item['comments']} | {item['leads']} | {item.get('candidate_rate', 0):.2%} |"
                 )
 
     threshold = int(funnel_stats.get("threshold", 4)) if funnel_stats else 4
@@ -76,6 +87,13 @@ def render_report(
         if lead.stage == "model_fallback"
         or lead.decision == "review"
     ]
+    demand_candidates = [
+        lead
+        for lead in leads
+        if lead.score >= threshold and lead.decision != "reject"
+    ]
+    model_passed = [lead for lead in leads if lead.stage == "model_reviewed" and lead.decision == "high_value"]
+    manual_confirmed = [lead for lead in leads if lead.decision == "manual_confirmed"]
     rejected_leads = [lead for lead in leads if lead.stage == "model_rejected" or lead.decision == "reject"]
 
     def append_lead_table(title: str, rows: list[LeadEvidence]) -> None:
@@ -97,7 +115,11 @@ def render_report(
                 f"{_cell(lead.identity_confidence)} | [原文]({_cell(lead.url)}) | {_cell(evidence)} |"
             )
 
+    append_lead_table(f"## 需求候选（评分 ≥{threshold}，不等同于高价值）", demand_candidates)
     append_lead_table(f"## 高价值潜客 TOP20（评分 ≥{threshold}）", high_value)
+    lines.extend(["", "> 上表只展示模型判定为高价值的记录；人工确认结果单独列出，不由模型自动写入。"])
+    append_lead_table("## 模型通过（待人工确认）", model_passed)
+    append_lead_table("## 人工确认高价值", manual_confirmed)
     append_lead_table(f"## 待复核候选（低于 {threshold} 分或模型要求复核）", review_candidates)
 
     lines.extend(

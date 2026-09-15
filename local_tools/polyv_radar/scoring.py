@@ -112,6 +112,7 @@ def score_purchase_evidence(
     profile: dict | None = None,
     external_evidence: Iterable[dict] = (),
     now: datetime | None = None,
+    recent_days: int = 90,
 ) -> PurchaseEvidenceScore:
     now = now or datetime.now(timezone.utc)
     quote = comment.text if comment else content.text
@@ -139,7 +140,7 @@ def score_purchase_evidence(
     business_scene = 2 if has_scene and event_type != "未分类" else (1 if has_scene else 0)
 
     published_at = comment.published_at if comment else content.published_at
-    recent = bool(published_at and now - timedelta(days=30) <= published_at <= now)
+    recent = bool(published_at and now - timedelta(days=max(1, recent_days)) <= published_at <= now)
     buyer_context = signal_text if comment else content_context
     buyer_lower = buyer_context.lower()
     project_hit = any(term.lower() in buyer_lower for term in PROJECT_TIMING_TERMS)
@@ -216,7 +217,7 @@ def score_text(
     published_at: datetime | None,
     now: datetime | None = None,
     category_hint: str | None = None,
-    recent_days: int = 30,
+    recent_days: int = 90,
 ) -> ScoreResult:
     text = text.strip()
     now = now or datetime.now(timezone.utc)
@@ -270,12 +271,13 @@ def score_lead(
     comment: CommentRecord | None,
     now: datetime | None = None,
     category_hint: str | None = None,
+    recent_days: int = 90,
 ) -> LeadEvidence:
     quote = comment.text if comment else content.text
     context = f"{content.title}\n{content.text}".strip()
     signal_text = quote.strip()
     inferred_category = classify_category(context, category_hint)
-    result = score_text(signal_text, comment.published_at if comment else content.published_at, now, inferred_category)
+    result = score_text(signal_text, comment.published_at if comment else content.published_at, now, inferred_category, recent_days)
     category_terms = CATEGORY_TERMS.get(inferred_category, ())
     has_business_scene = any(term.lower() in context.lower() or term.lower() in signal_text.lower() for term in category_terms)
     has_intent = any(

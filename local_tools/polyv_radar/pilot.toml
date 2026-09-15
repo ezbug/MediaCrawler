@@ -9,6 +9,7 @@ comments = true
 sub_comments = true
 task_timeout_seconds = 180
 min_lead_score = 4
+recent_days = 90
 collector_backend = "ego"
 platform_workers = 1
 

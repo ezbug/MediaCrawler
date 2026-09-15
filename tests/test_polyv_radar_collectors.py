@@ -3,10 +3,14 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from datetime import datetime, timedelta, timezone
 
 from local_tools.polyv_radar.config import RadarConfig, load_config
 from local_tools.polyv_radar.runner import build_crawl_command, collect
 from local_tools.polyv_radar.storage import RadarStore
+from local_tools.polyv_radar.adapters import normalize_comment, normalize_content
+from local_tools.polyv_radar.scoring import score_purchase_evidence
+from local_tools.polyv_radar.benchmark import _acceptance
 
 
 def test_native_command_batches_keywords_without_changing_limits() -> None:
@@ -111,3 +115,58 @@ def test_crawl_task_migration_is_additive(tmp_path: Path) -> None:
     assert store.count("crawl_tasks") == 1
     assert store.load_crawl_tasks("run-1")[0]["keyword"] == "测试"
     store.close()
+
+
+def test_comment_purchase_signal_remains_recent_for_90_days() -> None:
+    now = datetime(2026, 9, 15, tzinfo=timezone.utc)
+    content = normalize_content(
+        "dy",
+        {"aweme_id": "dy-1", "desc": "公司年会直播平台", "create_time": now.isoformat()},
+        "公司年会直播",
+    )
+    comment = normalize_comment(
+        "dy",
+        {
+            "comment_id": "c-1",
+            "aweme_id": "dy-1",
+            "content": "我们公司正在筹备年会直播，求平台报价",
+            "create_time": (now - timedelta(days=60)).isoformat(),
+        },
+    )
+
+    assert content is not None and comment is not None
+    result = score_purchase_evidence(content, comment, now=now, recent_days=90)
+    assert result.dimensions["project_timing"] == 2
+
+
+def test_comment_older_than_configured_recent_window_loses_project_bonus() -> None:
+    now = datetime(2026, 9, 15, tzinfo=timezone.utc)
+    content = normalize_content(
+        "dy",
+        {"aweme_id": "dy-1", "desc": "公司年会直播平台", "create_time": now.isoformat()},
+        "公司年会直播",
+    )
+    comment = normalize_comment(
+        "dy",
+        {
+            "comment_id": "c-1",
+            "aweme_id": "dy-1",
+            "content": "我们公司正在筹备年会直播，求平台报价",
+            "create_time": (now - timedelta(days=91)).isoformat(),
+        },
+    )
+
+    assert content is not None and comment is not None
+    result = score_purchase_evidence(content, comment, now=now, recent_days=90)
+    assert result.dimensions["project_timing"] == 1
+
+
+def test_benchmark_acceptance_requires_speed_coverage_and_auth_health() -> None:
+    ego = {"duration_seconds": 100, "contents": 10, "comments": 20, "failures": {}}
+    native = {"duration_seconds": 50, "contents": 8, "comments": 16, "failures": {}}
+
+    result = _acceptance(ego, native)
+
+    assert all(result.values())
+    assert _acceptance(ego, {**native, "duration_seconds": 61})["duration_le_60_percent"] is False
+    assert _acceptance(ego, {**native, "failures": {"dy:q": "需要登录"}})["no_new_auth_error"] is False

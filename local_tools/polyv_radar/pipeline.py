@@ -55,6 +55,7 @@ def build_prefilter_leads(
     now: datetime | None = None,
     min_score: int = 4,
     excluded_author_names: Iterable[str] = (),
+    recent_days: int = 90,
 ) -> list[LeadEvidence]:
     content_by_key = {(item.platform, item.content_id): item for item in contents}
     comments_by_content: dict[tuple[str, str], list[CommentRecord]] = defaultdict(list)
@@ -70,7 +71,7 @@ def build_prefilter_leads(
             author_name = (comment.author if comment else content.author).casefold()
             if any(token in author_name for token in excluded):
                 continue
-            result = score_purchase_evidence(item, comment, now=now)
+            result = score_purchase_evidence(item, comment, now=now, recent_days=recent_days)
             if result.score < min_score:
                 continue
             lead = _lead_from_score(item, comment, result)
@@ -142,6 +143,7 @@ def prefilter_store(config: RadarConfig, run_id: str, max_candidates: int = 50) 
         max_candidates=max_candidates,
         min_score=config.min_lead_score,
         excluded_author_names=config.excluded_author_names,
+        recent_days=config.recent_days,
     )
     store.save_leads(run_id, leads)
     path = config.data_root / "review" / f"{run_id}-prefilter.json"

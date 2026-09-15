@@ -19,6 +19,7 @@ class RadarConfig:
     sub_comments: bool = True
     task_timeout_seconds: int = 180
     min_lead_score: int = 4
+    recent_days: int = 90
     excluded_author_names: tuple[str, ...] = ()
     collector_backend: str = "native"
     platform_collectors: dict[str, str] = field(default_factory=dict)
@@ -64,6 +65,7 @@ def load_config(path: Path) -> RadarConfig:
         sub_comments=bool(run.get("sub_comments", True)),
         task_timeout_seconds=int(run.get("task_timeout_seconds", 180)),
         min_lead_score=int(run.get("min_lead_score", 4)),
+        recent_days=max(1, int(run.get("recent_days", 90))),
         excluded_author_names=tuple(str(item) for item in raw.get("filters", {}).get("excluded_author_names", [])),
         collector_backend=str(run.get("collector_backend", "ego")),
         platform_collectors={str(k): str(v) for k, v in run.get("platform_collectors", {}).items()},
