@@ -59,6 +59,11 @@ export function cardTitleFromText(value) {
   return (meaningful.join(" ") || lines[0] || "").trim();
 }
 
+export function isExpectedXhsNoteUrl(url, expectedId) {
+  const match = String(url || "").match(/\/(?:explore|search_result)\/([a-zA-Z0-9]+)/);
+  return Boolean(match && match[1] === String(expectedId || ""));
+}
+
 export function searchRelevance(keyword, text) {
   const normalized = normalizedSearchText(text);
   const parts = [...new Set(keywordParts(keyword))];

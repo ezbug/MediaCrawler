@@ -1,11 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { cardTitleFromText, filterSearchResults, searchRelevance } from '../local_tools/polyv_radar/ego_helpers.mjs';
+import { cardTitleFromText, filterSearchResults, isExpectedXhsNoteUrl, searchRelevance } from '../local_tools/polyv_radar/ego_helpers.mjs';
 
 test('extracts the title from a Douyin search card', () => {
   const title = cardTitleFromText('01:14\n57\n神鹏品牌全国经销商大会圆满召开\n@郑州三邦机电（周晓峰）\n3周前');
   assert.equal(title, '神鹏品牌全国经销商大会圆满召开');
+});
+
+test('rejects an XHS detail redirect to a different note', () => {
+  assert.equal(isExpectedXhsNoteUrl('https://www.xiaohongshu.com/explore/68d922490000000013009d19', '635e3e26000000001601bdac'), false);
+  assert.equal(isExpectedXhsNoteUrl('https://www.xiaohongshu.com/explore/635e3e26000000001601bdac', '635e3e26000000001601bdac'), true);
 });
 
 test('accepts business event results with selection intent', () => {

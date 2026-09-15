@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { filterSearchResults, loadUntilStable, profileIdFromUrl } from './ego_helpers.mjs';
+import { filterSearchResults, isExpectedXhsNoteUrl, loadUntilStable, profileIdFromUrl } from './ego_helpers.mjs';
 
 // Support env vars or CLI arguments
 const args = process.argv.slice(2);
@@ -81,11 +81,17 @@ for (let i = 0; i < targetNotes.length; i++) {
     await page.goto(n.url);
     await page.waitForLoadState({ timeout: 15000 }).catch(() => {});
     await new Promise(r => setTimeout(r, 3500));
+    await page.waitForSelector('#detail-title, #detail-desc', { timeout: 15000 }).catch(() => {});
+    const detailUrl = await page.url();
+    if (!isExpectedXhsNoteUrl(detailUrl, n.id)) {
+      console.error(`  -> Skipped redirected note ${n.id}; final URL: ${detailUrl}`);
+      continue;
+    }
     await loadUntilStable(page, '.parent-comment, .comment-item', maxComments);
 
     const pageData = await page.evaluate(() => {
-      const titleEl = document.querySelector('#detail-title, .title, [class*="note-title"]');
-      const descEl = document.querySelector('#detail-desc, [class*="desc"], [class*="note-text"]');
+      const titleEl = document.querySelector('#detail-title');
+      const descEl = document.querySelector('#detail-desc');
       const authorLink = document.querySelector('.author-container a, a[href*="/user/profile/"]');
       const authorEl = authorLink || document.querySelector('.author-container, .name, [class*="author"]');
       const tags = Array.from(document.querySelectorAll('a[href*="/tag/"], a[href*="/search/"]'))
@@ -137,12 +143,17 @@ for (let i = 0; i < targetNotes.length; i++) {
       };
     });
 
+    if (!pageData.title) {
+      console.error(`  -> Skipped note ${n.id}; detail title was not available.`);
+      continue;
+    }
+
     const contentRecord = {
       platform: "xhs",
       content_id: n.id,
       title: pageData.title || n.title || "小红书笔记",
       text: (pageData.desc || pageData.title || n.title),
-      url: `https://www.xiaohongshu.com/explore/${n.id}`,
+      url: detailUrl.split('?')[0],
       author: pageData.author || "小红书创作者",
       author_url: pageData.author_url || "",
       author_id: profileIdFromUrl(pageData.author_url, "xhs"),
