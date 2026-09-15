@@ -69,7 +69,7 @@ export function searchRelevance(keyword, text) {
 export function filterSearchResults(keyword, items) {
   return items
     .map((item) => {
-      const text = [item.title, item.rawSnippet, item.text].filter(Boolean).join(" ");
+      const text = item.searchText || [item.title, item.rawSnippet, item.text].filter(Boolean).join(" ");
       return { ...item, relevance: searchRelevance(keyword, text) };
     })
     .filter((item) => item.relevance.accepted)

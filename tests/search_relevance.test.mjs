@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { searchRelevance } from '../local_tools/polyv_radar/ego_helpers.mjs';
+import { filterSearchResults, searchRelevance } from '../local_tools/polyv_radar/ego_helpers.mjs';
 
 test('accepts business event results with selection intent', () => {
   const result = searchRelevance('企业直播平台 采购 服务商', '企业直播平台采购方案');
@@ -18,6 +18,13 @@ test('rejects unrelated noisy results', () => {
 test('rejects a generic capability result without an enterprise scene', () => {
   const result = searchRelevance('员工培训平台 选型 报价', '直播平台');
   assert.equal(result.accepted, false);
+});
+
+test('uses an explicit card search text instead of a mixed ancestor snippet', () => {
+  const results = filterSearchResults('企业年会直播 策划 平台', [
+    { title: '个人生活分享', searchText: '个人生活分享', rawSnippet: '企业年会直播平台策划' },
+  ]);
+  assert.equal(results.length, 0);
 });
 
 test('accepts overseas multilingual webinar events', () => {

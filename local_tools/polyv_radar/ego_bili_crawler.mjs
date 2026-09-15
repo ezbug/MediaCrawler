@@ -55,6 +55,7 @@ const candidateVideos = await page.evaluate(() => {
       bvid,
       url: `https://www.bilibili.com/video/${bvid}/`,
       title,
+      searchText: title,
       rawSnippet: snippet.slice(0, 500)
     });
   }

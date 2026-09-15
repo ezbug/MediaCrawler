@@ -53,6 +53,7 @@ const candidateVideos = await page.evaluate(() => {
       id,
       url: `https://www.douyin.com/video/${id}`,
       title: a.innerText.trim().replace(/\n+/g, " "),
+      searchText: a.innerText.trim().replace(/\n+/g, " "),
       rawSnippet: snippet.slice(0, 500)
     });
   }

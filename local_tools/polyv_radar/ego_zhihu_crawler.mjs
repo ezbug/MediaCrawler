@@ -50,6 +50,7 @@ const candidateItems = await page.evaluate(() => {
     list.push({
       url: href,
       title,
+      searchText: title,
       text,
       author
     });

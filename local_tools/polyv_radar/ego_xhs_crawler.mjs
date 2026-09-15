@@ -56,6 +56,7 @@ const candidateNotes = await page.evaluate(() => {
       id,
       url: href,
       title,
+      searchText: title,
       rawSnippet: snippet.slice(0, 500)
     });
   }
