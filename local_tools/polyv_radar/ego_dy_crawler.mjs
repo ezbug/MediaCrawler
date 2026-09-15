@@ -25,10 +25,13 @@ const page = task.page("p1");
 
 console.log(`[EgoCrawler] Searching Douyin for "${keyword}" (max ${maxContents} videos)...`);
 const searchUrl = `https://www.douyin.com/search/${encodeURIComponent(keyword)}?type=video`;
+await page.goto('https://www.douyin.com/');
+await page.waitForLoadState({ timeout: 15000 }).catch(() => {});
+await page.waitForTimeout(1500);
 await page.goto(searchUrl);
 await page.waitForLoadState({ timeout: 15000 }).catch(() => {});
 await page.waitForSelector('a[href*="/video/"]', { timeout: 20000 }).catch(() => {});
-await new Promise(r => setTimeout(r, 4000));
+await page.waitForTimeout(10000);
 
 // Extract search results
 const rawCandidateVideos = await page.evaluate(() => {

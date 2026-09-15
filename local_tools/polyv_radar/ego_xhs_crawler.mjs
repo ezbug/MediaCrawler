@@ -29,7 +29,7 @@ const searchUrl = `https://www.xiaohongshu.com/search_result?keyword=${encodeURI
 await page.goto(searchUrl);
 await page.waitForLoadState({ timeout: 15000 }).catch(() => {});
 await page.waitForSelector('a[href*="/search_result/"]', { timeout: 20000 }).catch(() => {});
-await new Promise(r => setTimeout(r, 4000));
+await page.waitForTimeout(10000);
 
 // Extract note links with xsec_token
 const candidateNotes = await page.evaluate(() => {

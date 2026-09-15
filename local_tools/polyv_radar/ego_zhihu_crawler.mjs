@@ -28,7 +28,7 @@ const searchUrl = `https://www.zhihu.com/search?type=content&q=${encodeURICompon
 await page.goto(searchUrl);
 await page.waitForLoadState({ timeout: 15000 }).catch(() => {});
 await page.waitForSelector('.SearchResult-Card, [class*="SearchResult-Card"], .Card, .ContentItem', { timeout: 20000 }).catch(() => {});
-await new Promise(r => setTimeout(r, 4000));
+await page.waitForTimeout(10000);
 
 const candidateItems = await page.evaluate(() => {
   const items = document.querySelectorAll('.SearchResult-Card, [class*="SearchResult-Card"], .Card, .ContentItem');

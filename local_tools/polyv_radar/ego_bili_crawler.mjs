@@ -28,7 +28,7 @@ const searchUrl = `https://search.bilibili.com/all?keyword=${encodeURIComponent(
 await page.goto(searchUrl);
 await page.waitForLoadState({ timeout: 15000 }).catch(() => {});
 await page.waitForSelector('a[href*="/video/BV"]', { timeout: 20000 }).catch(() => {});
-await new Promise(r => setTimeout(r, 4000));
+await page.waitForTimeout(10000);
 
 const candidateVideos = await page.evaluate(() => {
   const links = Array.from(document.querySelectorAll('a[href*="/video/BV"]'));
