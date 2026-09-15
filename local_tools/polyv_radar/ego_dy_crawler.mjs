@@ -31,7 +31,7 @@ await page.waitForSelector('a[href*="/video/"]', { timeout: 20000 }).catch(() =>
 await new Promise(r => setTimeout(r, 4000));
 
 // Extract search results
-const candidateVideos = await page.evaluate(() => {
+const rawCandidateVideos = await page.evaluate(() => {
   const results = [];
   const links = Array.from(document.querySelectorAll('a[href*="/video/"]'));
   for (const a of links) {
@@ -42,7 +42,6 @@ const candidateVideos = await page.evaluate(() => {
     if (results.some(r => r.id === id)) continue;
 
     const cardText = a.innerText || "";
-    const title = cardTitleFromText(cardText);
     let container = a.parentElement;
     let snippet = cardText;
     for (let i = 0; i < 5 && container; i++, container = container.parentElement) {
@@ -54,12 +53,22 @@ const candidateVideos = await page.evaluate(() => {
     results.push({
       id,
       url: `https://www.douyin.com/video/${id}`,
-      title: title || cardText.trim().replace(/\n+/g, " "),
-      searchText: title || cardText.trim().replace(/\n+/g, " "),
+      cardText,
       rawSnippet: snippet.slice(0, 500)
     });
   }
   return results;
+});
+
+const candidateVideos = rawCandidateVideos.map((video) => {
+  const title = cardTitleFromText(video.cardText);
+  return {
+    id: video.id,
+    url: video.url,
+    title: title || video.cardText.trim().replace(/\n+/g, " "),
+    searchText: title || video.cardText.trim().replace(/\n+/g, " "),
+    rawSnippet: video.rawSnippet,
+  };
 });
 
 const relevantVideos = filterSearchResults(keyword, candidateVideos);
