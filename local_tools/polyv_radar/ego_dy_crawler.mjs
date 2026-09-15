@@ -92,10 +92,11 @@ for (let i = 0; i < targetVideos.length; i++) {
     await page.goto(v.url);
     await page.waitForLoadState({ timeout: 15000 }).catch(() => {});
     await new Promise(r => setTimeout(r, 3500));
+    await page.waitForSelector('h1, [data-e2e="video-desc"]', { timeout: 15000 }).catch(() => {});
     await loadUntilStable(page, '[data-e2e="comment-item"]', maxComments);
 
     const pageData = await page.evaluate(() => {
-      const descEl = document.querySelector('h1, [data-e2e="video-desc"], div[class*="desc"], div[class*="title"]');
+      const descEl = document.querySelector('h1, [data-e2e="video-desc"]');
       const infoLinks = Array.from(document.querySelectorAll('[data-e2e="user-info"] a[href*="/user/"]'));
       const authorLink = infoLinks.find(link => (link.innerText || '').trim()) || infoLinks[0] || document.querySelector('a[href*="/user/"]:not([href*="/user/self"])');
       const authorEl = authorLink || document.querySelector('[data-e2e="user-info"] span, [class*="author"]');
