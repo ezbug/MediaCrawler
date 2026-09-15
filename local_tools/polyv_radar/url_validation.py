@@ -117,6 +117,7 @@ def validate_urls_with_ego(
     output_path = work_dir / "url-check-output.json"
     input_path.write_text(json.dumps({"urls": unique}, ensure_ascii=False), encoding="utf-8")
     script_path = repo_root / "local_tools" / "polyv_radar" / "ego_url_validator.mjs"
+    log = ""
     launcher = (
         f"process.env.POLYV_URL_INPUT = {json.dumps(str(input_path))};\n"
         f"process.env.POLYV_URL_OUTPUT = {json.dumps(str(output_path))};\n"
@@ -147,7 +148,7 @@ def validate_urls_with_ego(
     return {
         url: checked.get(url, {"url": url, "status": "error", "http_status": 0, "final_url": "", "reason": "Ego Lite未返回结果", "checked_at": datetime.now(timezone.utc).isoformat()})
         for url in unique
-    }, ""
+    }, log
 
 
 def dump_url_checks(path, checks: dict[str, dict]) -> None:
