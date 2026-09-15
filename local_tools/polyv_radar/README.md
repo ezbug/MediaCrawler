@@ -64,3 +64,11 @@ uv run python -m local_tools.polyv_radar benchmark \
   --keyword "员工线上培训 平台推荐" \
   --keyword "医学学术会议 直播平台"
 ```
+
+报告生成时会自动校验报告里的原文、主页和外部证据链接，并额外写出 `*-url-checks.json`。也可以只对已有批次重新生成带校验结果的报告：
+
+```bash
+uv run python -m local_tools.polyv_radar validate-urls \
+  --config local_tools/polyv_radar/pilot.toml \
+  --run-id <run-id>
+```

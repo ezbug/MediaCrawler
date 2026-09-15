@@ -11,6 +11,7 @@ from local_tools.polyv_radar.storage import RadarStore
 from local_tools.polyv_radar.adapters import normalize_comment, normalize_content
 from local_tools.polyv_radar.scoring import score_purchase_evidence
 from local_tools.polyv_radar.benchmark import _acceptance
+from local_tools.polyv_radar.url_validation import validate_url, validate_urls_with_ego
 
 
 def test_native_command_batches_keywords_without_changing_limits() -> None:
@@ -170,3 +171,32 @@ def test_benchmark_acceptance_requires_speed_coverage_and_auth_health() -> None:
     assert all(result.values())
     assert _acceptance(ego, {**native, "duration_seconds": 61})["duration_le_60_percent"] is False
     assert _acceptance(ego, {**native, "failures": {"dy:q": "需要登录"}})["no_new_auth_error"] is False
+
+
+def test_url_validation_rejects_non_http_and_local_targets() -> None:
+    assert validate_url("file:///tmp/report.md")["status"] == "invalid"
+    assert validate_url("http://127.0.0.1:8080/")["status"] == "invalid"
+
+
+def test_url_validation_uses_ego_lite_runner_and_persists_browser_results(tmp_path: Path) -> None:
+    calls = []
+
+    def fake_runner(command, **kwargs):
+        calls.append((command, kwargs))
+        output_path = tmp_path / "url-check-output.json"
+        output_path.write_text(
+            json.dumps({"results": [{"url": "https://example.com/item", "status": "ok", "http_status": 200, "final_url": "https://example.com/item", "reason": "页面可访问"}]}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    checks, log = validate_urls_with_ego(
+        ["https://example.com/item"],
+        tmp_path,
+        tmp_path,
+        runner=fake_runner,
+    )
+
+    assert not log
+    assert calls[0][0] == ["ego-browser", "nodejs"]
+    assert checks["https://example.com/item"]["status"] == "ok"

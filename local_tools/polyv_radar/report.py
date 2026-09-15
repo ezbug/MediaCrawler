@@ -17,6 +17,7 @@ def render_report(
     platform_status: dict,
     failures: dict[str, str],
     funnel_stats: dict | None = None,
+    url_checks: dict[str, dict] | None = None,
 ) -> str:
     leads = sorted(leads, key=lambda item: (-item.score, item.platform, item.content_id))
     top_contents = list(top_contents)
@@ -36,6 +37,34 @@ def render_report(
         )
     for platform, reason in failures.items():
         lines.append(f"- {_cell(platform)}：{_cell(reason)}")
+
+    if url_checks is not None:
+        lines.extend(
+            [
+                "",
+                "## 报告链接验证",
+                "",
+                "校验只判断公开网页是否可访问；需要登录、被限流或被平台拦截的链接单独标记，不当作已验证成功。",
+                "",
+                "| 链接 | 结果 | HTTP | 最终地址 | 说明 | 校验时间 |",
+                "| --- | --- | ---: | --- | --- | --- |",
+            ]
+        )
+        status_names = {
+            "ok": "可访问",
+            "not_found": "404/410",
+            "blocked": "需登录/被拦截",
+            "timeout": "超时",
+            "invalid": "无效链接",
+            "error": "网络错误",
+            "failed": "失败",
+        }
+        for url, result in url_checks.items():
+            lines.append(
+                f"| [{_cell(url)}]({_cell(url)}) | {status_names.get(result.get('status'), result.get('status', '未知'))} | "
+                f"{result.get('http_status', 0)} | {_cell(result.get('final_url', ''))} | "
+                f"{_cell(result.get('reason', ''))} | {_cell(result.get('checked_at', ''))} |"
+            )
 
     if funnel_stats:
         lines.extend(

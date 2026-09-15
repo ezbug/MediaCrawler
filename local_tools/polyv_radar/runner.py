@@ -15,6 +15,7 @@ from .models import CommentRecord, ContentRecord, LeadEvidence
 from .report import render_report, write_report
 from .scoring import score_lead
 from .storage import RadarStore
+from .url_validation import dump_url_checks, validate_urls_with_ego
 
 
 @dataclass
@@ -603,6 +604,16 @@ def report_store(config: RadarConfig, run_id: str, output_suffix: str = "") -> P
     counts["model_passed"] = counts.get("high_value", 0)
     counts["evidence_insufficient"] = counts.get("review", 0)
     counts["task_count"] = len(tasks)
+    report_urls = []
+    for lead in leads:
+        report_urls.extend([lead.url, lead.profile_url, *lead.evidence_urls])
+    url_checks, url_check_log = validate_urls_with_ego(
+        report_urls[:200],
+        Path(__file__).resolve().parents[2],
+        config.data_root / "url_checks" / run_id,
+    )
+    if url_check_log:
+        failures["url_validation"] = url_check_log
     top_contents: list[LeadEvidence] = []
     by_content: dict[tuple[str, str], LeadEvidence] = {}
     for lead in leads:
@@ -621,6 +632,7 @@ def report_store(config: RadarConfig, run_id: str, output_suffix: str = "") -> P
     )
     suffix = f"-{output_suffix.strip('-')}" if output_suffix.strip('-') else ""
     report_path = config.data_root / "reports" / f"{run_id}{suffix}.md"
-    write_report(report_path, render_report(run_id, leads, top_contents, platform_status, failures, counts))
+    write_report(report_path, render_report(run_id, leads, top_contents, platform_status, failures, counts, url_checks))
+    dump_url_checks(config.data_root / "reports" / f"{run_id}{suffix}-url-checks.json", url_checks)
     store.close()
     return report_path

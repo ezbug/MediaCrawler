@@ -75,6 +75,9 @@ def build_parser() -> argparse.ArgumentParser:
     benchmark_parser.add_argument("--repo-root", default=str(Path(__file__).resolve().parents[2]))
     benchmark_parser.add_argument("--platform", required=True, choices=("dy", "xhs", "bili", "zhihu"))
     benchmark_parser.add_argument("--keyword", action="append", help="覆盖默认基准关键词，可重复传入")
+    urls_parser = subparsers.add_parser("validate-urls")
+    urls_parser.add_argument("--config", required=True)
+    urls_parser.add_argument("--run-id", required=True)
     return parser
 
 
@@ -126,6 +129,13 @@ def main(argv: list[str] | None = None) -> int:
             args.keyword,
         )
         payload = result
+    elif args.command == "validate-urls":
+        report_path = report_store(config, args.run_id, "url-validated")
+        payload = {
+            "run_id": args.run_id,
+            "report_path": str(report_path),
+            "url_checks_path": str(report_path.with_name(f"{args.run_id}-url-validated-url-checks.json")),
+        }
     else:
         path = report_store(config, args.run_id, args.output_suffix)
         payload = {"run_id": args.run_id, "report_path": str(path)}
