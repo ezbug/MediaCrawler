@@ -72,3 +72,36 @@ uv run python -m local_tools.polyv_radar validate-urls \
   --config local_tools/polyv_radar/pilot.toml \
   --run-id <run-id>
 ```
+
+## 可核验潜客寻找
+
+`locate` 和 `hunt` 的页面访问、评论展开、主页调查与链接校验全部通过 Ego Lite TaskSpace 8 完成。默认只读，不发表评论或发送私信；评论没有平台直链时，报告会同时保留内容 URL、作者、完整原话和父评论关系。
+
+对已有批次执行评论定位和报告校验：
+
+```bash
+uv run python -m local_tools.polyv_radar locate \
+  --config local_tools/polyv_radar/pilot.toml \
+  --run-id <run-id> \
+  --taskspace 8
+```
+
+执行最多两轮的候选寻找，不足目标时自动增加长尾业务事件查询；`--run-id` 会先复用旧批次，不重复抓取第一轮：
+
+```bash
+uv run python -m local_tools.polyv_radar hunt \
+  --config local_tools/polyv_radar/pilot.toml \
+  --collector ego \
+  --taskspace 8 \
+  --target-leads 20 \
+  --max-candidates 80 \
+  --max-batches 2
+```
+
+最终交付文件位于数据目录的 `reports/`：
+
+- `<run-id>-verified-leads.md`
+- `<run-id>-verified-leads.jsonl`
+- `<run-id>-locator-checks.json`
+
+计入交付表的记录必须满足评分至少 4、企业场景及项目/选型证据成立、页面和原话可在 Ego Lite 中重新找到，并且同一用户或同一企业不重复。评论筛选窗口为 90 天；时间无法确认的评论不自动获得近期项目加分。

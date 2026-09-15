@@ -14,6 +14,7 @@ from local_tools.polyv_radar.locator import (
 from local_tools.polyv_radar.config import RadarConfig
 from local_tools.polyv_radar.models import CommentRecord, LeadEvidence
 from local_tools.polyv_radar.storage import RadarStore
+from local_tools.polyv_radar.report import render_verified_leads
 
 
 def test_comment_normalization_preserves_native_locator_fields() -> None:
@@ -265,3 +266,33 @@ def test_locate_store_writes_ego_result_back_to_the_same_lead(tmp_path: Path) ->
     assert saved.locator_method == "author_quote"
     assert store.load_comment_locators("run-1")[0]["status"] == "verified"
     store.close()
+
+
+def test_verified_report_contains_mixed_locator_fields() -> None:
+    lead = LeadEvidence(
+        platform="bili",
+        content_id="BV1abc",
+        comment_id="internal-comment",
+        url="https://www.bilibili.com/video/BV1abc/",
+        user="甲",
+        quote="公司下个月要做发布会直播，求平台报价",
+        category="企业直播",
+        solution="企业直播方向",
+        score=6,
+        dimensions={"business_scene": 2, "project_timing": 2, "platform_intent": 1, "delivery_inquiry": 1, "identity": 0},
+        source_type="reply",
+        native_comment_id="rpid-1",
+        parent_comment_id="rpid-root",
+        comment_url="https://www.bilibili.com/video/BV1abc/#replyrpid-1",
+        locator_method="direct_url",
+        locator_status="verified",
+        locator_verified_at="2026-09-15T00:00:00+00:00",
+        decision="review",
+    )
+
+    report = render_verified_leads("run-1", [lead])
+
+    assert "评论定位URL" in report
+    assert "#replyrpid-1" in report
+    assert "rpid-root" in report
+    assert "Ego验证状态" in report

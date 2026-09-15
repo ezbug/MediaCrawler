@@ -107,7 +107,9 @@ def candidate_bundle(store: RadarStore, run_id: str, leads: Iterable[LeadEvidenc
     bundle = []
     for lead in leads:
         profile = profiles.get((lead.platform, lead.author_id), {})
-        sources = [{"url": lead.url, "type": "content", "text": lead.quote}]
+        sources = [{"url": lead.url, "type": lead.source_type or "content", "text": lead.quote}]
+        if lead.comment_url and lead.comment_url != lead.url:
+            sources.append({"url": lead.comment_url, "type": "comment_locator", "text": lead.quote})
         if lead.profile_url:
             sources.append({"url": lead.profile_url, "type": "profile", "text": profile.get("bio", "")})
         for item in posts_by_author.get((lead.platform, lead.author_id), [])[:5]:

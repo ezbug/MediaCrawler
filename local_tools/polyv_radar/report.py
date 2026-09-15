@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Iterable
 
@@ -8,6 +9,67 @@ from .models import LeadEvidence
 
 def _cell(value: object) -> str:
     return str(value or "").replace("|", "\\|").replace("\n", " ").strip()
+
+
+def _link(label: object, url: object) -> str:
+    label = _cell(label)
+    url = _cell(url)
+    return f"[{label}]({url})" if url else label
+
+
+def render_verified_leads(run_id: str, leads: Iterable[LeadEvidence]) -> str:
+    rows = list(leads)
+    lines = [
+        f"# POLYV 可核验需求候选：{run_id}",
+        "",
+        f"共 {len(rows)} 条。仅包含评分达标、企业场景及项目/选型证据成立、并在 Ego Lite 中重新定位成功的记录；同一用户或同一企业只保留一条。",
+        "",
+        "| 平台 | 来源 | 内容标题 | 内容URL | 评论定位URL | 定位方式 | 评论ID | 父评论ID | 用户 | 用户主页 | 完整原话 | 发布时间 | 企业场景 | 需求证据 | 评分 | 身份置信度 | Ego验证状态 |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | --- | --- |",
+    ]
+    for lead in rows:
+        locator_url = lead.comment_url or (lead.url if lead.source_type in {"post", "answer", "content"} else "")
+        evidence = "; ".join(lead.evidence_sentences or lead.reasons)
+        verified = lead.locator_verified_at or "已验证"
+        lines.append(
+            f"| {_cell(lead.platform)} | {_cell(lead.source_type)} | {_cell(lead.content_title)} | "
+            f"{_link(lead.url, lead.url)} | {_link(locator_url, locator_url)} | {_cell(lead.locator_method)} | "
+            f"{_cell(lead.native_comment_id or lead.comment_id)} | {_cell(lead.parent_comment_id)} | {_cell(lead.user)} | "
+            f"{_link(lead.profile_url, lead.profile_url)} | {_cell(lead.quote)} | {_cell(lead.locator_verified_at or '未知')} | "
+            f"{_cell(lead.event_type or lead.category)} | {_cell(evidence)} | {lead.score} | {_cell(lead.identity_confidence)} | {_cell(verified)} |"
+        )
+    if not rows:
+        lines.extend(["", "当前批次没有满足全部交付条件的记录。"])
+    return "\n".join(lines) + "\n"
+
+
+def write_verified_lead_artifacts(
+    data_root: Path,
+    run_id: str,
+    leads: Iterable[LeadEvidence],
+    locator_checks: Iterable[dict],
+    url_checks: dict[str, dict] | None = None,
+) -> dict[str, Path]:
+    reports_root = data_root / "reports"
+    reports_root.mkdir(parents=True, exist_ok=True)
+    selected = list(leads)
+    markdown_path = reports_root / f"{run_id}-verified-leads.md"
+    jsonl_path = reports_root / f"{run_id}-verified-leads.jsonl"
+    locator_path = reports_root / f"{run_id}-locator-checks.json"
+    write_report(markdown_path, render_verified_leads(run_id, selected))
+    jsonl_path.write_text(
+        "".join(json.dumps(lead.to_dict(), ensure_ascii=False) + "\n" for lead in selected),
+        encoding="utf-8",
+    )
+    locator_path.write_text(
+        json.dumps(
+            {"run_id": run_id, "checks": list(locator_checks), "url_checks": url_checks or {}},
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return {"markdown": markdown_path, "jsonl": jsonl_path, "locators": locator_path}
 
 
 def render_report(
@@ -83,6 +145,8 @@ def render_report(
                 f"| 公开来源 | {funnel_stats.get('external_evidence', 0)} |",
                 f"| 模型通过 | {funnel_stats.get('model_passed', funnel_stats.get('high_value', 0))} |",
                 f"| 证据不足 | {funnel_stats.get('evidence_insufficient', funnel_stats.get('review', 0))} |",
+                f"| Ego Lite 定位通过 | {funnel_stats.get('locator_verified', 0)} |",
+                f"| 可核验需求候选 | {funnel_stats.get('deliverable', 0)} |",
                 f"| 人工确认高价值 | {funnel_stats.get('manual_confirmed', 0)} |",
             ]
         )
@@ -124,6 +188,33 @@ def render_report(
     model_passed = [lead for lead in leads if lead.stage == "model_reviewed" and lead.decision == "high_value"]
     manual_confirmed = [lead for lead in leads if lead.decision == "manual_confirmed"]
     rejected_leads = [lead for lead in leads if lead.stage == "model_rejected" or lead.decision == "reject"]
+
+    from .locator import select_deliverable_leads
+
+    deliverable = select_deliverable_leads(leads, 20, threshold)
+    lines.extend(
+        [
+            "",
+            "## 可核验需求候选（最多20条）",
+            "",
+            "该列表只包含评分、企业场景、项目/选型证据和 Ego Lite 页面定位均通过的记录；评论没有平台直链时，评论定位URL为内容页，需结合作者与完整原话定位。",
+            "",
+            "| 平台 | 来源 | 内容标题 | 内容URL | 评论定位URL | 定位方式 | 评论ID | 父评论ID | 用户 | 用户主页 | 完整原话 | 企业场景 | 需求证据 | 评分 | 身份 | Ego验证 |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | --- | --- |",
+        ]
+    )
+    for lead in deliverable:
+        locator_url = lead.comment_url or (lead.url if lead.source_type in {"post", "answer", "content"} else "")
+        evidence = "; ".join(lead.evidence_sentences or lead.reasons)
+        lines.append(
+            f"| {_cell(lead.platform)} | {_cell(lead.source_type)} | {_cell(lead.content_title)} | "
+            f"{_link(lead.url, lead.url)} | {_link(locator_url, locator_url)} | {_cell(lead.locator_method)} | "
+            f"{_cell(lead.native_comment_id or lead.comment_id)} | {_cell(lead.parent_comment_id)} | {_cell(lead.user)} | "
+            f"{_link(lead.profile_url, lead.profile_url)} | {_cell(lead.quote)} | {_cell(lead.event_type or lead.category)} | "
+            f"{_cell(evidence)} | {lead.score} | {_cell(lead.identity_confidence)} | {_cell(lead.locator_verified_at or '已验证')} |"
+        )
+    if not deliverable:
+        lines.append("| - | - | 当前没有满足全部核验条件的记录 | - | - | - | - | - | - | - | - | - | - | - | - | - |")
 
     def append_lead_table(title: str, rows: list[LeadEvidence]) -> None:
         lines.extend(

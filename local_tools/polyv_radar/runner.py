@@ -12,7 +12,7 @@ from typing import Callable, Iterable
 from .adapters import normalize_comment, normalize_content
 from .config import RadarConfig
 from .models import CommentRecord, ContentRecord, LeadEvidence
-from .report import render_report, write_report
+from .report import render_report, write_report, write_verified_lead_artifacts
 from .scoring import score_lead
 from .storage import RadarStore
 from .url_validation import dump_url_checks, validate_urls_with_ego
@@ -626,9 +626,13 @@ def report_store(config: RadarConfig, run_id: str, output_suffix: str = "") -> P
     counts["model_passed"] = counts.get("high_value", 0)
     counts["evidence_insufficient"] = counts.get("review", 0)
     counts["task_count"] = len(tasks)
+    from .locator import select_deliverable_leads
+
+    counts["locator_verified"] = sum(1 for lead in leads if lead.locator_status == "verified")
+    counts["deliverable"] = len(select_deliverable_leads(leads, 20, config.min_lead_score))
     report_urls = []
     for lead in leads:
-        report_urls.extend([lead.url, lead.profile_url, *lead.evidence_urls])
+        report_urls.extend([lead.url, lead.profile_url, lead.comment_url, *lead.evidence_urls])
     url_checks, url_check_log = validate_urls_with_ego(
         report_urls[:200],
         Path(__file__).resolve().parents[2],
@@ -656,5 +660,14 @@ def report_store(config: RadarConfig, run_id: str, output_suffix: str = "") -> P
     report_path = config.data_root / "reports" / f"{run_id}{suffix}.md"
     write_report(report_path, render_report(run_id, leads, top_contents, platform_status, failures, counts, url_checks))
     dump_url_checks(config.data_root / "reports" / f"{run_id}{suffix}-url-checks.json", url_checks)
+    locator_checks = store.load_comment_locators(run_id)
+    verified_leads = select_deliverable_leads(leads, 20, config.min_lead_score)
+    write_verified_lead_artifacts(
+        config.data_root,
+        run_id,
+        verified_leads,
+        locator_checks,
+        url_checks,
+    )
     store.close()
     return report_path

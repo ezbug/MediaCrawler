@@ -10,6 +10,8 @@ from .config import load_config
 from .runner import analyze_store, collect, ingest_existing_run, report_store
 from .pipeline import enrich_store, prefilter_store, review_store
 from .benchmark import run_benchmark
+from .hunt import run_hunt
+from .locator import locate_store
 
 
 def apply_collect_overrides(config, args):
@@ -78,6 +80,22 @@ def build_parser() -> argparse.ArgumentParser:
     urls_parser = subparsers.add_parser("validate-urls")
     urls_parser.add_argument("--config", required=True)
     urls_parser.add_argument("--run-id", required=True)
+    locate_parser = subparsers.add_parser("locate")
+    locate_parser.add_argument("--config", required=True)
+    locate_parser.add_argument("--repo-root", default=str(Path(__file__).resolve().parents[2]))
+    locate_parser.add_argument("--run-id", required=True)
+    locate_parser.add_argument("--taskspace", type=int, default=8)
+    locate_parser.add_argument("--max-candidates", type=int, default=80)
+    hunt_parser = subparsers.add_parser("hunt")
+    hunt_parser.add_argument("--config", required=True)
+    hunt_parser.add_argument("--repo-root", default=str(Path(__file__).resolve().parents[2]))
+    hunt_parser.add_argument("--collector", choices=("ego",), default="ego")
+    hunt_parser.add_argument("--taskspace", type=int, default=8)
+    hunt_parser.add_argument("--target-leads", type=int, default=20)
+    hunt_parser.add_argument("--max-candidates", type=int, default=80)
+    hunt_parser.add_argument("--max-batches", type=int, default=2)
+    hunt_parser.add_argument("--run-id")
+    hunt_parser.add_argument("--codex", default="codex")
     return parser
 
 
@@ -136,6 +154,33 @@ def main(argv: list[str] | None = None) -> int:
             "report_path": str(report_path),
             "url_checks_path": str(report_path.with_name(f"{args.run_id}-url-validated-url-checks.json")),
         }
+    elif args.command == "locate":
+        result = locate_store(
+            config,
+            Path(args.repo_root),
+            args.run_id,
+            max_candidates=args.max_candidates,
+            taskspace=args.taskspace,
+        )
+        report_path = report_store(config, args.run_id, "located")
+        payload = {
+            "run_id": args.run_id,
+            "report_path": str(report_path),
+            "locator_checks_path": str(config.data_root / "reports" / f"{args.run_id}-locator-checks.json"),
+            **result,
+        }
+    elif args.command == "hunt":
+        payload = run_hunt(
+            config,
+            Path(args.repo_root),
+            collector=args.collector,
+            taskspace=args.taskspace,
+            target_leads=args.target_leads,
+            max_candidates=args.max_candidates,
+            max_batches=args.max_batches,
+            run_id=args.run_id,
+            codex=args.codex,
+        )
     else:
         path = report_store(config, args.run_id, args.output_suffix)
         payload = {"run_id": args.run_id, "report_path": str(path)}
