@@ -81,8 +81,11 @@ export function searchRelevance(keyword, text) {
     "直播sdk", "直播api", "app接直播", "视频加密", "防录屏", "多语言直播", "webinar",
   ].includes(term)) || (normalized.includes("直播") && /sdk|api/.test(normalized));
   const technicalQueryHit = /sdk|api/.test(normalizedSearchText(keyword)) && /sdk|api/.test(normalized);
-  const strongBusinessHit = eventHit && sceneHit && (deliveryHit || intentHit || queryHits >= 2);
-  const technicalBusinessHit = technicalEventHit && (technicalQueryHit || queryHits >= 1);
+  const technicalQuery = /sdk|api|接口|app|应用/.test(normalizedSearchText(keyword));
+  const technicalTitle = /sdk|api|接口|接入|集成|app|应用/.test(normalized);
+  const technicalContextValid = !technicalQuery || technicalTitle;
+  const strongBusinessHit = eventHit && sceneHit && technicalContextValid && (deliveryHit || intentHit || queryHits >= 2);
+  const technicalBusinessHit = technicalEventHit && technicalContextValid && (technicalQueryHit || queryHits >= 1);
   const contextualPhoneNoise = noiseMatches.length === 1 && noiseMatches[0] === "手机" && eventHit && intentHit;
   const accepted = (strongBusinessHit || technicalBusinessHit) && (noiseMatches.length === 0 || contextualPhoneNoise);
   const score = (eventHit ? 3 : 0) + (sceneHit ? 2 : 0) + (intentHit ? 2 : 0) + Math.min(queryHits, 3) - (noiseMatches.length ? 5 : 0);

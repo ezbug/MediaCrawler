@@ -56,6 +56,11 @@ test('accepts a livestream SDK integration title', () => {
   assert.equal(result.accepted, true);
 });
 
+test('rejects a generic livestream tutorial for a technical query', () => {
+  const result = searchRelevance('公司APP接直播 API 报价', '直播间搭建全攻略：软硬件配置超详解');
+  assert.equal(result.accepted, false);
+});
+
 test('rejects a consumer product launch without an enterprise scene', () => {
   const result = searchRelevance('新品发布会直播 平台报价', '鸿蒙智行春季新品发布会价格');
   assert.equal(result.accepted, false);
