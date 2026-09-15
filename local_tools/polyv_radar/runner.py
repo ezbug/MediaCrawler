@@ -389,7 +389,13 @@ def collect(
     if mode == "ego":
         started = datetime.now(timezone.utc)
         results = run_ego_crawlers(run_id, config.platforms, config, repo_root, config.data_root)
-        result = ingest_existing_run(config, run_id)
+        finished = datetime.now(timezone.utc)
+        result = ingest_existing_run(
+            config,
+            run_id,
+            started_at=started.isoformat(),
+            finished_at=finished.isoformat(),
+        )
         store = RadarStore(result.store_path)
         store.initialize()
         for platform, success in results.items():
@@ -415,7 +421,12 @@ def collect(
     return result
 
 
-def ingest_existing_run(config: RadarConfig, run_id: str) -> CollectionResult:
+def ingest_existing_run(
+    config: RadarConfig,
+    run_id: str,
+    started_at: str | None = None,
+    finished_at: str | None = None,
+) -> CollectionResult:
     """Recover JSONL already written by an interrupted or timed-out collection."""
     raw_root = config.data_root / "raw" / run_id
     store_path = config.data_root / "radar.sqlite3"
@@ -447,9 +458,20 @@ def ingest_existing_run(config: RadarConfig, run_id: str) -> CollectionResult:
             status["status"] = "partial"
             failures[platform] = "任务被中断或未完成，已恢复已落盘数据"
         platform_status[platform] = status
+    existing_run = store.connection.execute(
+        "SELECT started_at, finished_at FROM runs WHERE run_id = ?", (run_id,)
+    ).fetchone()
     now = datetime.now(timezone.utc).isoformat()
+    preserved_started_at = existing_run["started_at"] if existing_run and existing_run["started_at"] else now
+    preserved_finished_at = existing_run["finished_at"] if existing_run and existing_run["finished_at"] else now
     final_status = "success" if all(item["status"] in {"success", "not_run"} for item in platform_status.values()) else "partial"
-    store.save_run(run_id, final_status, platform_status, now, now)
+    store.save_run(
+        run_id,
+        final_status,
+        platform_status,
+        started_at or preserved_started_at,
+        finished_at or preserved_finished_at,
+    )
     store.close()
     return CollectionResult(run_id, store_path, platform_status, failures)
 

@@ -79,6 +79,33 @@ def test_ingest_counts_comments_and_marks_complete_platform(tmp_path: Path) -> N
     assert result.platform_status["dy"] == {"status": "success", "contents": 1, "comments": 1, "tasks": 1}
 
 
+def test_ingest_preserves_existing_run_timing(tmp_path: Path) -> None:
+    store = RadarStore(tmp_path / "radar-data" / "radar.sqlite3")
+    store.initialize()
+    store.save_run(
+        "run-1",
+        "partial",
+        {"dy": {"status": "partial", "contents": 0, "comments": 0, "tasks": 1}},
+        "2026-09-15T01:00:00+00:00",
+        "2026-09-15T01:02:00+00:00",
+    )
+    store.close()
+
+    ingest_existing_run(
+        RadarConfig(data_root=tmp_path / "radar-data", platforms=["dy"], keywords={"企业培训": "企业培训"}),
+        "run-1",
+    )
+
+    store = RadarStore(tmp_path / "radar-data" / "radar.sqlite3")
+    store.initialize()
+    row = store.connection.execute(
+        "SELECT started_at, finished_at FROM runs WHERE run_id = ?", ("run-1",)
+    ).fetchone()
+    assert row["started_at"] == "2026-09-15T01:00:00+00:00"
+    assert row["finished_at"] == "2026-09-15T01:02:00+00:00"
+    store.close()
+
+
 def test_unrelated_comment_is_filtered_even_when_keyword_has_a_category_hint() -> None:
     content = _content("bili", "b-1", "AI编程课程实战", "企业培训")
     comment = normalize_comment(

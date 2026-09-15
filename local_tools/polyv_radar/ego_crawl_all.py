@@ -108,13 +108,19 @@ def main() -> int:
 
     run_id = args.run_id or datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
 
+    started_at = datetime.now(timezone.utc)
     if not args.skip_crawl:
         print(f"[*] Starting 4-platform ego lite crawl. Run ID: {run_id}")
         crawl_results = run_ego_crawlers(run_id, args.platforms, config, repo_root, config.data_root)
         print(f"[*] Crawl results: {json.dumps(crawl_results, ensure_ascii=False)}")
 
     print(f"\n[*] Ingesting crawled data into SQLite store ({config.data_root / 'radar.sqlite3'})...")
-    ingest_res = ingest_existing_run(config, run_id)
+    ingest_res = ingest_existing_run(
+        config,
+        run_id,
+        started_at=started_at.isoformat() if not args.skip_crawl else None,
+        finished_at=datetime.now(timezone.utc).isoformat() if not args.skip_crawl else None,
+    )
     print(f"[+] Ingested run {ingest_res.run_id}. Failures: {ingest_res.failures}")
 
     print(f"\n[*] Analyzing leads and scoring...")
