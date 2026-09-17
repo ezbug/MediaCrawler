@@ -4,12 +4,9 @@ const inputPath = process.env.POLYV_WEB_INPUT;
 const outputPath = process.env.POLYV_WEB_OUTPUT;
 const candidates = JSON.parse(await fs.readFile(inputPath, 'utf-8'));
 
-let task;
-try {
-  task = await takeOverTaskSpace(8);
-} catch (error) {
-  task = await taskSpace(8).catch(() => taskSpace('polyv public web verifier'));
-}
+const taskspaceId = Number(process.env.POLYV_TASKSPACE_ID);
+if (!Number.isInteger(taskspaceId) || taskspaceId <= 0) throw new Error('需要有效的 POLYV_TASKSPACE_ID');
+const task = await takeOverTaskSpace(taskspaceId);
 const page = task.page('p1');
 const evidence = [];
 
@@ -40,4 +37,3 @@ for (const candidate of candidates) {
 
 await fs.writeFile(outputPath, JSON.stringify({ evidence }, null, 2), 'utf-8');
 console.log(`[WebVerifier] saved ${evidence.length} public sources to ${outputPath}`);
-

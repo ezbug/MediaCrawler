@@ -56,7 +56,7 @@ def build_parser() -> argparse.ArgumentParser:
     collect_parser.add_argument("--max-contents", type=int)
     collect_parser.add_argument("--max-comments", type=int)
     collect_parser.add_argument("--task-timeout-seconds", type=int)
-    collect_parser.add_argument("--collector", choices=("native", "ego", "hybrid"))
+    collect_parser.add_argument("--collector", choices=("ego",))
     prefilter_parser = subparsers.choices["prefilter"]
     prefilter_parser.add_argument("--max-candidates", type=int, default=50)
     enrich_parser = subparsers.choices["enrich"]
@@ -71,7 +71,7 @@ def build_parser() -> argparse.ArgumentParser:
     pipeline_parser.add_argument("--skip-crawl", action="store_true")
     pipeline_parser.add_argument("--max-contents", type=int)
     pipeline_parser.add_argument("--max-comments", type=int)
-    pipeline_parser.add_argument("--collector", choices=("native", "ego", "hybrid"))
+    pipeline_parser.add_argument("--collector", choices=("ego",))
     benchmark_parser = subparsers.add_parser("benchmark")
     benchmark_parser.add_argument("--config", required=True)
     benchmark_parser.add_argument("--repo-root", default=str(Path(__file__).resolve().parents[2]))
@@ -140,13 +140,7 @@ def main(argv: list[str] | None = None) -> int:
         report_path = report_store(config, run_id, "pipeline")
         payload = {"run_id": run_id, "report_path": str(report_path), **review_result}
     elif args.command == "benchmark":
-        result = run_benchmark(
-            config,
-            Path(args.repo_root),
-            args.platform,
-            args.keyword,
-        )
-        payload = result
+        parser.error("benchmark 已停用：当前规则要求所有页面操作仅使用 Ego Lite。")
     elif args.command == "validate-urls":
         report_path = report_store(config, args.run_id, "url-validated")
         payload = {

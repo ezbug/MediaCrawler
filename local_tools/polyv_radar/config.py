@@ -21,7 +21,7 @@ class RadarConfig:
     min_lead_score: int = 4
     recent_days: int = 90
     excluded_author_names: tuple[str, ...] = ()
-    collector_backend: str = "native"
+    collector_backend: str = "ego"
     platform_collectors: dict[str, str] = field(default_factory=dict)
     platform_workers: int = 1
 
@@ -52,6 +52,16 @@ def load_config(path: Path) -> RadarConfig:
         plat_section = raw.get(f"keywords_{plat}", {})
         if plat_section:
             platform_keywords[plat] = {str(k): str(v) for k, v in plat_section.items()}
+    collector_backend = str(run.get("collector_backend", "ego"))
+    platform_collectors = {str(k): str(v) for k, v in run.get("platform_collectors", {}).items()}
+    invalid_collectors = sorted(
+        {value for value in (collector_backend, *platform_collectors.values()) if value != "ego"}
+    )
+    if invalid_collectors:
+        raise ValueError(
+            "POLYV 雷达的页面操作只能使用 Ego Lite collector=ego；"
+            f"不支持: {', '.join(invalid_collectors)}"
+        )
     return RadarConfig(
         data_root=Path(run.get("data_root", "polyv-radar-data")).expanduser(),
         platforms=[str(platform) for platform in run.get("platforms", ["dy", "xhs", "bili", "zhihu"])],
@@ -67,7 +77,7 @@ def load_config(path: Path) -> RadarConfig:
         min_lead_score=int(run.get("min_lead_score", 4)),
         recent_days=max(1, int(run.get("recent_days", 90))),
         excluded_author_names=tuple(str(item) for item in raw.get("filters", {}).get("excluded_author_names", [])),
-        collector_backend=str(run.get("collector_backend", "ego")),
-        platform_collectors={str(k): str(v) for k, v in run.get("platform_collectors", {}).items()},
+        collector_backend=collector_backend,
+        platform_collectors=platform_collectors,
         platform_workers=max(1, int(run.get("platform_workers", 1))),
     )

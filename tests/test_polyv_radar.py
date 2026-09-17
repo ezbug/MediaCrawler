@@ -6,6 +6,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from local_tools.polyv_radar.adapters import normalize_comment, normalize_content
 from local_tools.polyv_radar.cli import apply_collect_overrides
 from local_tools.polyv_radar.config import RadarConfig
@@ -191,7 +193,10 @@ def test_report_contains_top_lead_and_failure_status() -> None:
         failures={"xhs": "等待登录"},
     )
 
-    assert "高价值潜客 TOP20（评分 ≥4）" in report
+    assert "需求候选（评分 ≥4，不等同于高价值）" in report
+    assert "模型通过（待人工确认）" in report
+    assert "高价值潜客 TOP20" not in report
+    assert "高价值转化闭环实施方案" not in report
     assert "企业培训" in report
     assert "POLYV" in report
     assert "等待登录" in report
@@ -250,40 +255,14 @@ def test_analyze_records_creates_reviewable_lead() -> None:
     assert leads[0].category == "企业培训"
 
 
-def test_collect_continues_after_platform_failure(tmp_path: Path) -> None:
-    def fake_runner(command, **kwargs):
-        platform = command[command.index("--platform") + 1]
-        output_dir = Path(command[command.index("--save_data_path") + 1])
-        if platform == "xhs":
-            return SimpleNamespace(returncode=1, stdout="", stderr="需要登录")
-        jsonl_dir = output_dir / "dy" / "jsonl"
-        jsonl_dir.mkdir(parents=True)
-        (jsonl_dir / "search_contents.jsonl").write_text(
-            '{"aweme_id":"dy-1","desc":"员工培训","aweme_url":"https://www.douyin.com/video/dy-1"}\n',
-            encoding="utf-8",
-        )
-        (jsonl_dir / "search_comments.jsonl").write_text(
-            '{"comment_id":"c-1","aweme_id":"dy-1","content":"公司需要培训直播平台"}\n',
-            encoding="utf-8",
-        )
-        return SimpleNamespace(returncode=0, stdout="", stderr="")
-
-    from local_tools.polyv_radar.runner import collect
-
-    result = collect(
-        RadarConfig(
-            data_root=tmp_path / "radar-data",
-            platforms=["dy", "xhs"],
-            keywords={"企业培训": "员工培训"},
-        ),
-        tmp_path,
-        runner=fake_runner,
+def test_radar_config_defaults_to_ego_collection() -> None:
+    config = RadarConfig(
+        data_root=Path("/tmp/radar-data"),
+        platforms=["dy", "xhs"],
+        keywords={"企业培训": "员工培训"},
     )
 
-    assert result.platform_status["dy"]["contents"] == 1
-    assert result.platform_status["dy"]["comments"] == 1
-    assert result.platform_status["xhs"]["status"] == "partial"
-    assert result.failures["xhs:员工培训"] == "需要登录"
+    assert config.collector_backend == "ego"
 
 
 def test_ingest_recovers_partial_run(tmp_path: Path) -> None:
@@ -305,38 +284,19 @@ def test_ingest_recovers_partial_run(tmp_path: Path) -> None:
     assert result.platform_status["dy"]["status"] == "success"
 
 
-def test_collect_keeps_jsonl_when_task_times_out(tmp_path: Path) -> None:
-    def fake_runner(command, **kwargs):
-        assert kwargs["timeout"] == 7
-        output_dir = Path(command[command.index("--save_data_path") + 1])
-        jsonl_dir = output_dir / "douyin" / "jsonl"
-        jsonl_dir.mkdir(parents=True)
-        (jsonl_dir / "search_contents.jsonl").write_text(
-            '{"aweme_id":"dy-timeout","desc":"员工培训","aweme_url":"https://www.douyin.com/video/dy-timeout"}\n',
-            encoding="utf-8",
-        )
-        raise subprocess.TimeoutExpired(
-            command,
-            7,
-            output="部分输出".encode(),
-            stderr="等待超时".encode(),
-        )
-
+def test_collect_rejects_native_before_running_a_browser(tmp_path: Path) -> None:
     from local_tools.polyv_radar.runner import collect
 
-    result = collect(
-        RadarConfig(
-            data_root=tmp_path / "radar-data",
-            platforms=["dy"],
-            keywords={"企业培训": "员工培训"},
-            task_timeout_seconds=7,
-        ),
-        tmp_path,
-        runner=fake_runner,
-    )
-
-    assert result.platform_status["dy"]["contents"] == 1
-    assert "任务超时" in result.failures["dy:员工培训"]
+    with pytest.raises(ValueError, match="Ego Lite"):
+        collect(
+            RadarConfig(
+                data_root=tmp_path / "radar-data",
+                platforms=["dy"],
+                keywords={"企业培训": "员工培训"},
+                collector_backend="native",
+            ),
+            tmp_path,
+        )
 
 
 def test_collect_overrides_limit_a_run_to_selected_keyword_and_platform() -> None:

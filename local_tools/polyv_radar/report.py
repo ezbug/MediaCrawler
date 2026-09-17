@@ -167,13 +167,6 @@ def render_report(
                 )
 
     threshold = int(funnel_stats.get("threshold", 4)) if funnel_stats else 4
-    high_value = [
-        lead
-        for lead in leads
-        if lead.score >= threshold
-        and lead.stage == "model_reviewed"
-        and lead.decision == "high_value"
-    ]
     review_candidates = [
         lead
         for lead in leads
@@ -236,8 +229,6 @@ def render_report(
             )
 
     append_lead_table(f"## 需求候选（评分 ≥{threshold}，不等同于高价值）", demand_candidates)
-    append_lead_table(f"## 高价值潜客 TOP20（评分 ≥{threshold}）", high_value)
-    lines.extend(["", "> 上表只展示模型判定为高价值的记录；人工确认结果单独列出，不由模型自动写入。"])
     append_lead_table("## 模型通过（待人工确认）", model_passed)
     append_lead_table("## 人工确认高价值", manual_confirmed)
     append_lead_table(f"## 待复核候选（低于 {threshold} 分或模型要求复核）", review_candidates)
@@ -258,37 +249,6 @@ def render_report(
             f"{_cell(reason)} | [原文]({_cell(lead.url)}) |"
         )
 
-    lines.extend(["", "## 🎯 高价值转化闭环实施方案（公域回复 + 视频选题 + 私信 + 资料包）", ""])
-    from .conversion_engine import build_conversion_pack
-
-    for index, lead in enumerate(top_contents[:10], start=1):
-        pack = build_conversion_pack(lead)
-        lines.extend(
-            [
-                f"### {index}. [{_cell(lead.platform).upper()}] {_cell(lead.content_title or lead.category)} (意向分: {lead.score})",
-                f"- **目标链接**：[{_cell(lead.url)}]({_cell(lead.url)})",
-                f"- **目标用户/原话**：@{_cell(lead.user)}：\"{_cell(lead.quote)}\"",
-                f"- **匹配需求/方向**：{_cell(lead.category)} → {_cell(lead.solution)}",
-                "",
-                f"#### 1️⃣ 优先公域高价值回复（避坑建议，不硬推）：",
-                f"> {pack.reply_text}",
-                "",
-                f"#### 2️⃣ 承接短视频选题与黄金 3 秒 Hook（主页信任飞轮）：",
-                f"- **短视频选题**：**《{pack.video_topic}》**",
-                f"- **黄金 3 秒 Hook**：\"{pack.video_hook}\"",
-                "",
-                f"#### 3️⃣ 私信沟通开场白（诊断式切入，非群发）：",
-                f"> {pack.dm_opener}",
-                "",
-                f"#### 4️⃣ 推荐落地转化资料包：",
-                f"- **对标案例**：{pack.recommended_materials['case']}",
-                f"- **方案模板**：{pack.recommended_materials['template']}",
-                f"- **演示体验**：{pack.recommended_materials['demo']}",
-                "",
-                "---",
-                "",
-            ]
-        )
     return "\n".join(lines)
 
 

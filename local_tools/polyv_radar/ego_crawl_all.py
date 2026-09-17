@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from dataclasses import replace
@@ -67,6 +68,7 @@ def run_ego_crawlers(run_id: str, platforms: list[str], config, repo_root: Path,
                     text=True,
                     capture_output=True,
                     check=False,
+                    env=os.environ.copy(),
                     timeout=config.task_timeout_seconds,
                 )
                 print(res.stdout)

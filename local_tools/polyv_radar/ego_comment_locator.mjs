@@ -4,15 +4,11 @@ import path from 'node:path';
 const inputPath = process.env.POLYV_LOCATOR_INPUT;
 const outputPath = process.env.POLYV_LOCATOR_OUTPUT;
 const input = JSON.parse(await fs.readFile(inputPath, 'utf-8'));
-const taskspaceId = Number(process.env.POLYV_TASKSPACE_ID || 8);
+const taskspaceId = Number(process.env.POLYV_TASKSPACE_ID);
 const screenshotDir = process.env.POLYV_LOCATOR_SCREENSHOT_DIR || '';
 
-let task;
-try {
-  task = await takeOverTaskSpace(taskspaceId);
-} catch (error) {
-  task = await taskSpace(taskspaceId).catch(() => taskSpace('polyv comment locator'));
-}
+if (!Number.isInteger(taskspaceId) || taskspaceId <= 0) throw new Error('需要有效的 POLYV_TASKSPACE_ID');
+const task = await takeOverTaskSpace(taskspaceId);
 const page = task.page('p1');
 
 const normalize = (value) => String(value || '').toLowerCase().replace(/[\s\u3000]+/g, ' ').trim();

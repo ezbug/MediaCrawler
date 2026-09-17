@@ -357,66 +357,40 @@ def collect(
     collector: str | None = None,
     run_id: str | None = None,
 ) -> CollectionResult:
-    mode = collector or config.collector_backend
     run_id = run_id or datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     selected_modes = {
         platform: (collector or config.get_collector_for_platform(platform))
         for platform in config.platforms
     }
-    invalid = sorted({value for value in selected_modes.values() if value not in {"native", "ego", "hybrid"}})
+    invalid = sorted({value for value in selected_modes.values() if value != "ego"})
     if invalid:
-        raise ValueError(f"Unsupported collector backend: {', '.join(invalid)}")
-    if collector is None and len(set(selected_modes.values())) > 1:
-        combined_status: dict[str, dict] = {}
-        combined_failures: dict[str, str] = {}
-        store_path = config.data_root / "radar.sqlite3"
-        for platform, platform_mode in selected_modes.items():
-            platform_config = RadarConfig(**{**config.__dict__, "platforms": [platform]})
-            result = collect(platform_config, repo_root, runner=runner, collector=platform_mode, run_id=run_id)
-            combined_status.update(result.platform_status)
-            combined_failures.update(result.failures)
-        store = RadarStore(store_path)
-        store.initialize()
-        store.save_run(run_id, "success" if not combined_failures else "partial", combined_status, datetime.now(timezone.utc).isoformat(), datetime.now(timezone.utc).isoformat())
-        store.close()
-        return CollectionResult(run_id, store_path, combined_status, combined_failures)
-    mode = collector or next(iter(selected_modes.values()), config.collector_backend)
-    if mode == "native":
-        return _collect_native(config, repo_root, runner, run_id)
+        raise ValueError(
+            "POLYV 雷达的页面操作只能使用 Ego Lite collector=ego；"
+            f"不支持: {', '.join(invalid)}"
+        )
 
     from .ego_crawl_all import run_ego_crawlers
 
-    if mode == "ego":
-        started = datetime.now(timezone.utc)
-        results = run_ego_crawlers(run_id, config.platforms, config, repo_root, config.data_root)
-        finished = datetime.now(timezone.utc)
-        result = ingest_existing_run(
-            config,
-            run_id,
-            started_at=started.isoformat(),
-            finished_at=finished.isoformat(),
-        )
-        store = RadarStore(result.store_path)
-        store.initialize()
-        for platform, success in results.items():
-            for keyword in config.get_keywords_for_platform(platform).values():
-                store.save_crawl_task(_task_record(run_id, platform, keyword, "ego", started, datetime.now(timezone.utc), status="success" if success else "partial", error="" if success else "Ego任务失败"))
-        store.close()
-        return result
-
-    native_result = _collect_native(config, repo_root, runner, run_id)
-    failed_platforms = [platform for platform, value in native_result.platform_status.items() if value.get("status") == "partial"]
-    if not failed_platforms:
-        return native_result
-    fallback_config = RadarConfig(**{**config.__dict__, "platforms": failed_platforms})
-    results = run_ego_crawlers(run_id, failed_platforms, fallback_config, repo_root, config.data_root)
+    started = datetime.now(timezone.utc)
+    results = run_ego_crawlers(run_id, config.platforms, config, repo_root, config.data_root)
+    finished = datetime.now(timezone.utc)
     result = ingest_existing_run(config, run_id)
     store = RadarStore(result.store_path)
     store.initialize()
-    for platform in failed_platforms:
-        reason = next((value for key, value in native_result.failures.items() if key.startswith(f"{platform}:")), "原生采集失败")
+    for platform, success in results.items():
         for keyword in config.get_keywords_for_platform(platform).values():
-            store.save_crawl_task(_task_record(run_id, platform, keyword, "ego", datetime.now(timezone.utc), datetime.now(timezone.utc), status="success" if results.get(platform) else "partial", fallback_backend="ego", fallback_reason=reason, error="" if results.get(platform) else "Ego回退失败"))
+            store.save_crawl_task(
+                _task_record(
+                    run_id,
+                    platform,
+                    keyword,
+                    "ego",
+                    started,
+                    finished,
+                    status="success" if success else "partial",
+                    error="" if success else "Ego任务失败",
+                )
+            )
     store.close()
     return result
 

@@ -12,11 +12,21 @@ test("CLI defaults to dry-run and parses target fields", () => {
     "--url", "https://www.douyin.com/video/1",
     "--author", "用户",
     "--text", "测试回复",
+    "--taskspace", "8",
   ]);
 
   assert.equal(args.platform, "dy");
   assert.equal(args.submit, false);
   assert.equal(args.author, "用户");
+  assert.equal(args.taskspace, 8);
+});
+
+test("CLI requires an explicit Ego Lite TaskSpace", () => {
+  assert.throws(() => parseArgs([
+    "--platform", "dy",
+    "--url", "https://www.douyin.com/video/1",
+    "--text", "测试回复",
+  ]), /taskspace/);
 });
 
 test("duplicate replies are rejected by target and text key", () => {

@@ -10,16 +10,9 @@ const outputDir = process.env.OUTPUT_DIR || args[3] || `/Users/sexpistole111/Doc
 
 await fs.mkdir(outputDir, { recursive: true });
 
-let task;
-try {
-  task = await takeOverTaskSpace(8);
-} catch (e) {
-  try {
-    task = await taskSpace(8);
-  } catch (err) {
-    task = await taskSpace("bili ego scraper");
-  }
-}
+const taskspaceId = Number(process.env.POLYV_TASKSPACE_ID);
+if (!Number.isInteger(taskspaceId) || taskspaceId <= 0) throw new Error('需要有效的 POLYV_TASKSPACE_ID');
+const task = await takeOverTaskSpace(taskspaceId);
 
 const page = task.page("p1");
 
