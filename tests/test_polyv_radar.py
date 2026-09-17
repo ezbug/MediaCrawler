@@ -196,7 +196,8 @@ def test_report_contains_top_lead_and_failure_status() -> None:
     assert "需求候选（评分 ≥4，不等同于高价值）" in report
     assert "模型通过（待人工确认）" in report
     assert "高价值潜客 TOP20" not in report
-    assert "高价值转化闭环实施方案" not in report
+    assert "人工审核转化建议包（公域回复 + 内容选题 + 私信 + 资料）" in report
+    assert "不会自动评论、私信或发送资料" in report
     assert "企业培训" in report
     assert "POLYV" in report
     assert "等待登录" in report

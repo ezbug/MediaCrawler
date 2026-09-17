@@ -249,6 +249,44 @@ def render_report(
             f"{_cell(reason)} | [原文]({_cell(lead.url)}) |"
         )
 
+    lines.extend(
+        [
+            "",
+            "## 人工审核转化建议包（公域回复 + 内容选题 + 私信 + 资料）",
+            "",
+            "以下内容是针对候选原话生成的待审核草稿，用于帮助人工准备后续沟通；不会自动评论、私信或发送资料。涉及产品能力、客户案例和量化效果的表述须在发送前按已确认资料复核。",
+        ]
+    )
+    from .conversion_engine import build_conversion_pack
+
+    for index, lead in enumerate(top_contents[:10], start=1):
+        pack = build_conversion_pack(lead)
+        lines.extend(
+            [
+                "",
+                f"### 候选 {index}：{_cell(lead.category)} / {_cell(lead.user)}",
+                "",
+                f"- **目标链接**：{_link(lead.url, lead.url)}",
+                f"- **目标用户/原话**：@{_cell(lead.user)}：\"{_cell(lead.quote)}\"",
+                f"- **匹配需求/方向**：{_cell(lead.category)} -> {_cell(lead.solution)}",
+                "",
+                "#### 公域回复草稿",
+                f"> {pack.reply_text}",
+                "",
+                "#### 承接内容选题",
+                f"- **短视频选题**：{_cell(pack.video_topic)}",
+                f"- **开场 Hook**：\"{_cell(pack.video_hook)}\"",
+                "",
+                "#### 私信开场草稿",
+                f"> {pack.dm_opener}",
+                "",
+                "#### 推荐资料",
+                f"- **对标案例**：{_cell(pack.recommended_materials['case'])}",
+                f"- **方案模板**：{_cell(pack.recommended_materials['template'])}",
+                f"- **演示体验**：{_cell(pack.recommended_materials['demo'])}",
+            ]
+        )
+
     return "\n".join(lines)
 
 
