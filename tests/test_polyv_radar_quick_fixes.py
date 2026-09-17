@@ -164,7 +164,7 @@ def test_report_separates_high_value_and_review_candidates() -> None:
     assert "模型通过（待人工确认）" in report
     assert "高价值潜客 TOP20" not in report
     assert "人工审核转化建议包（公域回复 + 内容选题 + 私信 + 资料）" in report
-    assert "不会自动评论、私信或发送资料" in report
+    assert "dispatch --submit" in report
     assert "待复核候选（低于 4 分或模型要求复核）" in report
     assert "已过滤记录与原因" in report
     assert "无明确企业场景" in report

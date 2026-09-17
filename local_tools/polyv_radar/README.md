@@ -45,7 +45,22 @@ uv run python -m local_tools.polyv_radar ingest \
   --run-id <run-id>
 ```
 
-规则层只生成复核队列和回复草稿，不自动发表评论或联系用户。四个平台任务串行运行；平台登录失效、超时或非零退出会记录为部分失败，并保留已抓到的数据。
+规则层可生成回复队列。默认 `dispatch` 只执行 Dry-Run；传入 `--submit` 后，会通过指定的 Ego Lite TaskSpace 自动逐条发布公开回复。每条均由发送脚本执行目标作者匹配、截图、去重、30 秒冷却、每日上限和发布后原文复核；失败不会自动重试或改发到顶层评论框。四个平台任务串行运行；平台登录失效、超时或非零退出会记录为部分失败，并保留已抓到的数据。
+
+生成队列并自动发送公开回复：
+
+```bash
+uv run python -m local_tools.polyv_radar prepare-dispatch \
+  --config local_tools/polyv_radar/pilot.toml \
+  --run-id <run-id> --selection model
+
+uv run python -m local_tools.polyv_radar dispatch \
+  --config local_tools/polyv_radar/pilot.toml \
+  --queue /Users/sexpistole111/Documents/workplace/polyv-radar-data/dispatch/<run-id>-model.jsonl \
+  --taskspace <current-taskspace> --submit
+```
+
+`--selection manual` 只包含人工确认高价值记录；`--selection model` 包含模型复核通过且评论定位已验证的记录。当前自动发送范围仅为公开评论回复；私信开场和资料建议继续写入报告，供后续流程使用。
 
 原生和混合后端基准已停用，避免产生不在 Ego Lite 中的页面操作。
 

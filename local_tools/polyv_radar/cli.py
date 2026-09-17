@@ -12,6 +12,8 @@ from .pipeline import enrich_store, prefilter_store, review_store
 from .benchmark import run_benchmark
 from .hunt import run_hunt
 from .locator import locate_store
+from .dispatch import build_dispatch_queue, dispatch_queue, load_dispatch_queue, write_dispatch_queue, write_dispatch_results
+from .storage import RadarStore
 
 
 def apply_collect_overrides(config, args):
@@ -96,6 +98,19 @@ def build_parser() -> argparse.ArgumentParser:
     hunt_parser.add_argument("--max-batches", type=int, default=2)
     hunt_parser.add_argument("--run-id")
     hunt_parser.add_argument("--codex", default="codex")
+    prepare_dispatch_parser = subparsers.add_parser("prepare-dispatch")
+    prepare_dispatch_parser.add_argument("--config", required=True)
+    prepare_dispatch_parser.add_argument("--run-id", required=True)
+    prepare_dispatch_parser.add_argument("--selection", choices=("manual", "model"), default="manual")
+    prepare_dispatch_parser.add_argument("--output")
+    dispatch_parser = subparsers.add_parser("dispatch")
+    dispatch_parser.add_argument("--config", required=True)
+    dispatch_parser.add_argument("--queue", required=True)
+    dispatch_parser.add_argument("--taskspace", type=int, required=True)
+    dispatch_parser.add_argument("--submit", action="store_true", help="真实发送；省略时仅执行 Dry-Run")
+    dispatch_parser.add_argument("--max-sends", type=int, default=5)
+    dispatch_parser.add_argument("--cooldown-seconds", type=float, default=30)
+    dispatch_parser.add_argument("--output")
     return parser
 
 
@@ -175,6 +190,33 @@ def main(argv: list[str] | None = None) -> int:
             run_id=args.run_id,
             codex=args.codex,
         )
+    elif args.command == "prepare-dispatch":
+        store = RadarStore(config.data_root / "radar.sqlite3")
+        store.initialize()
+        items = build_dispatch_queue(store.load_leads(args.run_id), args.selection)
+        store.close()
+        output = Path(args.output) if args.output else config.data_root / "dispatch" / f"{args.run_id}-{args.selection}.jsonl"
+        write_dispatch_queue(output, items)
+        payload = {"run_id": args.run_id, "selection": args.selection, "queue_path": str(output), "count": len(items)}
+    elif args.command == "dispatch":
+        queue_path = Path(args.queue)
+        items = load_dispatch_queue(queue_path)
+        results = dispatch_queue(
+            items,
+            taskspace=args.taskspace,
+            submit=args.submit,
+            max_sends=args.max_sends,
+            cooldown_seconds=args.cooldown_seconds,
+        )
+        output = Path(args.output) if args.output else config.data_root / "dispatch" / f"dispatch-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.jsonl"
+        write_dispatch_results(output, results)
+        payload = {
+            "queue_path": str(queue_path),
+            "result_path": str(output),
+            "mode": "submit" if args.submit else "dry_run",
+            "submitted": sum(item["status"] == "submitted" for item in results),
+            "failed": sum(item["status"] == "failed" for item in results),
+        }
     else:
         path = report_store(config, args.run_id, args.output_suffix)
         payload = {"run_id": args.run_id, "report_path": str(path)}
