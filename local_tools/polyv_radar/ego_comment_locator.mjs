@@ -50,35 +50,39 @@ function extractStandardComment(node, platform) {
   };
 }
 
-function extractBiliComments() {
-  const host = document.querySelector('bili-comments');
-  const threads = Array.from(host?.shadowRoot?.querySelectorAll('bili-comment-thread-renderer') || []);
-  return threads.map((thread) => {
-    const comment = thread.shadowRoot?.querySelector('#comment');
-    if (!comment?.shadowRoot) return null;
-    const userInfo = comment.shadowRoot.querySelector('bili-comment-user-info');
-    const richText = comment.shadowRoot.querySelector('bili-rich-text');
-    const authorLink = userInfo?.shadowRoot?.querySelector('a[href*="space.bilibili.com"]');
-    const text = richText?.shadowRoot?.querySelector('#contents')?.innerText || richText?.innerText || '';
-    if (!text.trim()) return null;
-    const threadAttrs = attributes(thread);
-    const commentAttrs = attributes(comment);
-    const nativeCommentId = threadAttrs['data-rpid'] || threadAttrs['data-comment-id'] || commentAttrs['data-rpid'] || commentAttrs['data-comment-id'] || '';
-    const nativeParentId = threadAttrs['data-root'] || threadAttrs['data-parent-id'] || commentAttrs['data-root'] || commentAttrs['data-parent-id'] || '';
-    const commentLink = Array.from(comment.shadowRoot.querySelectorAll('a[href]')).find((anchor) => /reply|comment/i.test(anchor.getAttribute('href') || ''));
-    const publishedAtRaw = [...(comment.shadowRoot.innerText || '').split('\n').map((line) => line.trim()).filter(Boolean)].reverse().find((line) => timePattern.test(line)) || '';
-    return {
-      native_comment_id: nativeCommentId,
-      native_parent_id: nativeParentId,
-      parent_comment_id: nativeParentId,
-      comment_url: commentLink?.href || '',
-      source_type: nativeParentId ? 'reply' : 'comment',
-      author: authorLink?.innerText?.trim() || 'B站用户',
-      author_url: authorLink?.href || '',
-      text: text.trim(),
-      published_at_raw: publishedAtRaw,
-    };
-  }).filter(Boolean);
+async function extractBiliComments() {
+  return page.evaluate(() => {
+    const timePattern = /刚刚|刚才|今天|昨天|\d+\s*(秒|分钟|小时|天|周|月|个月|年)前|20\d{2}[-/.]\d{1,2}[-/.]\d{1,2}/;
+    const attributes = (node) => Object.fromEntries(Array.from(node?.attributes || []).map((attribute) => [attribute.name, attribute.value]));
+    const host = document.querySelector('bili-comments');
+    const threads = Array.from(host?.shadowRoot?.querySelectorAll('bili-comment-thread-renderer') || []);
+    return threads.map((thread) => {
+      const comment = thread.shadowRoot?.querySelector('#comment');
+      if (!comment?.shadowRoot) return null;
+      const userInfo = comment.shadowRoot.querySelector('bili-comment-user-info');
+      const richText = comment.shadowRoot.querySelector('bili-rich-text');
+      const authorLink = userInfo?.shadowRoot?.querySelector('a[href*="space.bilibili.com"]');
+      const text = richText?.shadowRoot?.querySelector('#contents')?.innerText || richText?.innerText || '';
+      if (!text.trim()) return null;
+      const threadAttrs = attributes(thread);
+      const commentAttrs = attributes(comment);
+      const nativeCommentId = threadAttrs['data-rpid'] || threadAttrs['data-comment-id'] || commentAttrs['data-rpid'] || commentAttrs['data-comment-id'] || '';
+      const nativeParentId = threadAttrs['data-root'] || threadAttrs['data-parent-id'] || commentAttrs['data-root'] || commentAttrs['data-parent-id'] || '';
+      const commentLink = Array.from(comment.shadowRoot.querySelectorAll('a[href]')).find((anchor) => /reply|comment/i.test(anchor.getAttribute('href') || ''));
+      const publishedAtRaw = [...(comment.shadowRoot.innerText || '').split('\n').map((line) => line.trim()).filter(Boolean)].reverse().find((line) => timePattern.test(line)) || '';
+      return {
+        native_comment_id: nativeCommentId,
+        native_parent_id: nativeParentId,
+        parent_comment_id: nativeParentId,
+        comment_url: commentLink?.href || '',
+        source_type: nativeParentId ? 'reply' : 'comment',
+        author: authorLink?.innerText?.trim() || 'B站用户',
+        author_url: authorLink?.href || '',
+        text: text.trim(),
+        published_at_raw: publishedAtRaw,
+      };
+    }).filter(Boolean);
+  });
 }
 
 async function readPage(platform) {
@@ -136,7 +140,7 @@ async function collectComments(platform, maxRounds = 10) {
     stable = count === previous ? stable + 1 : 0;
     previous = count;
   }
-  if (platform === 'bili') return extractBiliComments();
+  if (platform === 'bili') return await extractBiliComments();
   return (await readPage(platform)).comments;
 }
 
