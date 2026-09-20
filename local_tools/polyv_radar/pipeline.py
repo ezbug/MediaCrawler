@@ -135,6 +135,7 @@ def candidate_bundle(store: RadarStore, run_id: str, leads: Iterable[LeadEvidenc
                 "quote": lead.quote,
                 "content_title": lead.content_title,
                 "event_type": lead.event_type,
+                "rule_dimensions": dict(lead.dimensions),
                 "profile_url": lead.profile_url,
                 "profile": {
                     "display_name": profile.get("display_name", ""),

@@ -75,11 +75,17 @@ def parse_review_payload(payload: dict[str, Any], allowed_urls: set[str]) -> dic
 def enforce_review_gates(payload: dict[str, Any], candidate: dict[str, Any]) -> dict[str, Any]:
     normalized = dict(payload)
     dimensions = dict(payload["dimensions"])
+    rule_dimensions = candidate.get("rule_dimensions")
+    if isinstance(rule_dimensions, dict):
+        for name in DIMENSIONS:
+            try:
+                ceiling = max(0, min(2, int(rule_dimensions.get(name, 0))))
+            except (TypeError, ValueError):
+                ceiling = 0
+            dimensions[name] = min(dimensions[name], ceiling)
     profile_confidence = str(candidate.get("profile", {}).get("identity_confidence", "low"))
-    if profile_confidence == "low":
-        dimensions["identity"] = 0
-    elif profile_confidence == "medium":
-        dimensions["identity"] = min(dimensions["identity"], 1)
+    identity_ceiling = {"high": 2, "medium": 1, "low": 0}.get(profile_confidence, 0)
+    dimensions["identity"] = min(dimensions["identity"], identity_ceiling)
     normalized["dimensions"] = dimensions
     normalized["score"] = sum(dimensions.values())
     if normalized["decision"] == "high_value" and (

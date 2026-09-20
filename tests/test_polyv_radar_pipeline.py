@@ -357,6 +357,47 @@ def test_review_gate_demotes_high_score_without_business_evidence() -> None:
     assert gated["decision"] == "review"
 
 
+def test_review_gate_cannot_invent_recent_or_delivery_evidence() -> None:
+    payload = {
+        "score": 8,
+        "dimensions": {
+            "business_scene": 2,
+            "project_timing": 2,
+            "platform_intent": 2,
+            "delivery_inquiry": 2,
+            "identity": 2,
+        },
+        "event_type": "公司年会",
+        "identity_confidence": "high",
+        "evidence": [],
+        "decision": "high_value",
+        "reason": "模型原始判断",
+    }
+
+    gated = enforce_review_gates(
+        payload,
+        {
+            "rule_dimensions": {
+                "business_scene": 2,
+                "project_timing": 1,
+                "platform_intent": 1,
+                "delivery_inquiry": 0,
+                "identity": 0,
+            },
+            "profile": {"identity_confidence": "medium"},
+        },
+    )
+
+    assert gated["dimensions"] == {
+        "business_scene": 2,
+        "project_timing": 1,
+        "platform_intent": 1,
+        "delivery_inquiry": 0,
+        "identity": 0,
+    }
+    assert gated["score"] == 4
+
+
 def test_codex_review_runner_rejects_untrusted_source_urls() -> None:
     candidate = {
         "quote": "公司下个月需要培训平台",

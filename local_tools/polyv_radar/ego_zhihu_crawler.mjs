@@ -20,7 +20,9 @@ console.log(`[ZhihuCrawler] Searching Zhihu for "${keyword}" (max ${maxContents}
 const searchUrl = `https://www.zhihu.com/search?type=content&q=${encodeURIComponent(keyword)}`;
 await page.goto(searchUrl);
 await page.waitForLoadState({ timeout: 15000 }).catch(() => {});
-await waitForResults(page, '.SearchResult-Card, [class*="SearchResult-Card"], .Card, .ContentItem');
+// Zhihu renders empty result-card placeholders before the real search links arrive.
+// Wait for a content URL so the following extraction cannot race the result hydration.
+await waitForResults(page, 'a[href*="/question/"], a[href*="/answer/"], a[href*="/p/"]');
 
 const candidateItems = await page.evaluate(() => {
   const items = document.querySelectorAll('.SearchResult-Card, [class*="SearchResult-Card"], .Card, .ContentItem');
@@ -72,7 +74,12 @@ for (let i = 0; i < targetItems.length; i++) {
     const pageData = await page.evaluate(() => {
       const titleEl = document.querySelector('h1, .QuestionHeader-title');
       const richTextEl = document.querySelector('.RichContent-inner, .RichText, .Post-RichText');
-      const authorLink = document.querySelector('a[href*="/people/"]');
+      const authorLinks = Array.from(document.querySelectorAll('a[href*="/people/"]'));
+      const authorLink = authorLinks.find((link) => {
+        const href = link.getAttribute('href') || '';
+        const text = (link.innerText || '').trim();
+        return text && !/\/people\/[^/?#]+\/(answers|posts|followers|following|questions|collections)(?:[/?#]|$)/.test(href);
+      }) || authorLinks.find((link) => (link.innerText || '').trim());
       const authorEl = authorLink || document.querySelector('.AuthorInfo-name');
       const tags = Array.from(document.querySelectorAll('.QuestionHeader-topics .Tag, a[href*="/topic/"]')).map(a => a.innerText.trim());
 
