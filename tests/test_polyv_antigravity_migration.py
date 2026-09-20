@@ -100,6 +100,32 @@ def test_legacy_lead_cannot_skip_reverification(tmp_path: Path) -> None:
         approve_lead(config, "run-1", "LEAD-1", url_checker=lambda _: {"status": "ok"})
 
 
+def test_approval_can_use_ego_url_check(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    config = RadarConfig(data_root=tmp_path / "data", platforms=["zhihu"], keywords={})
+    store = RadarStore(config.data_root / "radar.sqlite3")
+    store.initialize()
+    lead = LeadEvidence(
+        platform="zhihu", content_id="article-1", comment_id="", url="https://zhuanlan.zhihu.com/p/1",
+        comment_url="https://zhuanlan.zhihu.com/p/1", user="知乎答主", quote="企业培训平台选型",
+        category="企业培训", solution="企业培训", score=7,
+        stage="model_reviewed", decision="high_value", locator_status="verified",
+    )
+    store.save_leads("run-ego", [lead])
+    store.close()
+
+    calls = []
+
+    def fake_ego_check(urls, repo_root, work_dir, taskspace=None, **_):
+        calls.append((urls, repo_root, work_dir, taskspace))
+        return ({lead.url: {"url": lead.url, "status": "ok", "http_status": 403, "reason": "Ego Lite页面可访问"}}, "")
+
+    monkeypatch.setattr("local_tools.polyv_radar.approval.validate_urls_with_ego", fake_ego_check)
+    result = approve_lead(config, "run-ego", "article-1", repo_root=tmp_path, taskspace=8)
+
+    assert result["status"] == "approved"
+    assert calls and calls[0][3] == 8
+
+
 def test_status_machine_rejects_skipping_approval() -> None:
     assert transition("model_reviewed", "approved").new == "approved"
     with pytest.raises(ValueError):

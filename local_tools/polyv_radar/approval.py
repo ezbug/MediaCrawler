@@ -7,7 +7,7 @@ from .conversion_engine import build_conversion_pack
 from .models import LeadEvidence
 from .status import transition
 from .storage import RadarStore
-from .url_validation import validate_url
+from .url_validation import validate_url, validate_urls_with_ego
 
 
 def _matches_lead(lead: LeadEvidence, lead_id: str) -> bool:
@@ -27,6 +27,8 @@ def approve_lead(
     approved_by: str = "user",
     draft_text: str = "",
     url_checker=validate_url,
+    repo_root: Path | None = None,
+    taskspace: int | None = None,
 ) -> dict:
     store = RadarStore(config.data_root / "radar.sqlite3")
     store.initialize()
@@ -38,7 +40,23 @@ def approve_lead(
     if lead.locator_status != "verified":
         store.close()
         raise ValueError("只有 locator_status=verified 的记录才允许审批")
-    url_check = url_checker(lead.url)
+    if taskspace is not None:
+        if taskspace <= 0:
+            store.close()
+            raise ValueError("审批使用 Ego Lite URL 校验时，TaskSpace 必须为正整数")
+        checks, log = validate_urls_with_ego(
+            [lead.url],
+            repo_root or Path.cwd(),
+            config.data_root / "url-checks" / run_id,
+            taskspace=taskspace,
+        )
+        url_check = checks.get(lead.url, {
+            "url": lead.url,
+            "status": "error",
+            "reason": log or "Ego Lite未返回URL校验结果",
+        })
+    else:
+        url_check = url_checker(lead.url)
     if url_check.get("status") != "ok":
         store.close()
         raise ValueError(f"内容URL未通过可访问性验证: {url_check.get('reason', 'unknown')}")

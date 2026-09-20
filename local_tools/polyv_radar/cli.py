@@ -129,6 +129,8 @@ def build_parser() -> argparse.ArgumentParser:
     approve_parser.add_argument("--lead-id", required=True)
     approve_parser.add_argument("--approved-by", default="user")
     approve_parser.add_argument("--draft-text", default="")
+    approve_parser.add_argument("--repo-root", default=str(Path(__file__).resolve().parents[2]))
+    approve_parser.add_argument("--taskspace", type=int, help="使用同一 Ego Lite TaskSpace 校验内容URL")
     daily_parser = subparsers.add_parser("daily")
     daily_parser.add_argument("--config", required=True)
     daily_parser.add_argument("--repo-root", default=str(Path(__file__).resolve().parents[2]))
@@ -224,7 +226,15 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "import-antigravity":
         payload = import_antigravity(Path(args.source), config.data_root, args.session_id)
     elif args.command == "approve":
-        payload = approve_lead(config, args.run_id, args.lead_id, approved_by=args.approved_by, draft_text=args.draft_text)
+        payload = approve_lead(
+            config,
+            args.run_id,
+            args.lead_id,
+            approved_by=args.approved_by,
+            draft_text=args.draft_text,
+            repo_root=Path(args.repo_root),
+            taskspace=args.taskspace,
+        )
     elif args.command == "daily":
         payload = run_daily(
             config,
