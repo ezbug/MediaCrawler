@@ -54,6 +54,7 @@ def build_parser() -> argparse.ArgumentParser:
             sub.add_argument("--run-id", required=True)
         if name == "report":
             sub.add_argument("--output-suffix", default="", help="报告文件名后缀，例如 fixed")
+            sub.add_argument("--taskspace", type=int, required=True)
     collect_parser = subparsers.choices["collect"]
     collect_parser.add_argument("--repo-root", default=str(Path(__file__).resolve().parents[2]))
     collect_parser.add_argument("--platform", action="append", help="只运行指定平台，可重复传入")
@@ -88,6 +89,7 @@ def build_parser() -> argparse.ArgumentParser:
     urls_parser = subparsers.add_parser("validate-urls")
     urls_parser.add_argument("--config", required=True)
     urls_parser.add_argument("--run-id", required=True)
+    urls_parser.add_argument("--taskspace", type=int, required=True)
     locate_parser = subparsers.add_parser("locate")
     locate_parser.add_argument("--config", required=True)
     locate_parser.add_argument("--repo-root", default=str(Path(__file__).resolve().parents[2]))
@@ -181,12 +183,12 @@ def main(argv: list[str] | None = None) -> int:
             parser.error("pipeline 进行主页/公开背景调查时必须提供 --taskspace")
         enrich_store(config, Path(args.repo_root), run_id, taskspace=args.taskspace)
         review_result = review_store(config, run_id, codex=args.codex)
-        report_path = report_store(config, run_id, "pipeline")
+        report_path = report_store(config, run_id, "pipeline", taskspace=args.taskspace)
         payload = {"run_id": run_id, "report_path": str(report_path), **review_result}
     elif args.command == "benchmark":
         parser.error("benchmark 已停用：当前规则要求所有页面操作仅使用 Ego Lite。")
     elif args.command == "validate-urls":
-        report_path = report_store(config, args.run_id, "url-validated")
+        report_path = report_store(config, args.run_id, "url-validated", taskspace=args.taskspace)
         payload = {
             "run_id": args.run_id,
             "report_path": str(report_path),
@@ -200,7 +202,7 @@ def main(argv: list[str] | None = None) -> int:
             max_candidates=args.max_candidates,
             taskspace=args.taskspace,
         )
-        report_path = report_store(config, args.run_id, "located")
+        report_path = report_store(config, args.run_id, "located", taskspace=args.taskspace)
         payload = {
             "run_id": args.run_id,
             "report_path": str(report_path),
@@ -262,7 +264,7 @@ def main(argv: list[str] | None = None) -> int:
             "failed": sum(item["status"] == "failed" for item in results),
         }
     else:
-        path = report_store(config, args.run_id, args.output_suffix)
+        path = report_store(config, args.run_id, args.output_suffix, taskspace=args.taskspace)
         payload = {"run_id": args.run_id, "report_path": str(path)}
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0

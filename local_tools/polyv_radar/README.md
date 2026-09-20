@@ -35,7 +35,8 @@ uv run python -m local_tools.polyv_radar analyze \
 
 uv run python -m local_tools.polyv_radar report \
   --config local_tools/polyv_radar/pilot.toml \
-  --run-id <run-id>
+  --run-id <run-id> \
+  --taskspace <current-taskspace>
 ```
 
 如果任务被手动中断或单个关键词超过 `pilot.toml` 中的 `task_timeout_seconds`，先恢复已经写入的 JSONL，再执行分析：
@@ -70,7 +71,8 @@ uv run python -m local_tools.polyv_radar dispatch \
 ```bash
 uv run python -m local_tools.polyv_radar validate-urls \
   --config local_tools/polyv_radar/pilot.toml \
-  --run-id <run-id>
+  --run-id <run-id> \
+  --taskspace <current-taskspace>
 ```
 
 ## 可核验潜客寻找

@@ -70,7 +70,7 @@ def run_daily(
     stages["enrich"] = enrich_store(config, repo_root, current_run_id, taskspace=taskspace)
     stages["review"] = review_store(config, current_run_id, codex=codex)
     stages["locate"] = locate_store(config, repo_root, current_run_id, max_candidates=max_candidates, taskspace=taskspace)
-    report_path = report_store(config, current_run_id, "daily")
+    report_path = report_store(config, current_run_id, "daily", taskspace=taskspace)
 
     store = RadarStore(config.data_root / "radar.sqlite3")
     store.initialize()

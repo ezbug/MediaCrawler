@@ -519,7 +519,7 @@ def analyze_store(config: RadarConfig, run_id: str, now: datetime | None = None)
     return leads
 
 
-def report_store(config: RadarConfig, run_id: str, output_suffix: str = "") -> Path:
+def report_store(config: RadarConfig, run_id: str, output_suffix: str = "", taskspace: int | None = None) -> Path:
     store = RadarStore(config.data_root / "radar.sqlite3")
     store.initialize()
     leads = store.load_leads(run_id)
@@ -645,6 +645,7 @@ def report_store(config: RadarConfig, run_id: str, output_suffix: str = "") -> P
         report_urls[:200],
         Path(__file__).resolve().parents[2],
         config.data_root / "url_checks" / run_id,
+        taskspace=taskspace,
     )
     if url_check_log:
         failures["url_validation"] = url_check_log

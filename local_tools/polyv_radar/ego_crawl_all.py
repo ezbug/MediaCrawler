@@ -135,7 +135,7 @@ def main() -> int:
     print(f"[+] Identified {len(leads)} high-intent leads.")
 
     print(f"\n[*] Generating 4-in-1 conversion report with public replies, video topics, DM openers & cases...")
-    report_path = report_store(config, run_id)
+    report_path = report_store(config, run_id, taskspace=args.taskspace)
     print(f"\n==================================================")
     print(f"[✓] SUCCESS! Report generated at:\n{report_path}")
     print(f"==================================================")

@@ -73,7 +73,7 @@ def _process_run(
     enrichment = enrich_store(config, repo_root, run_id, taskspace=taskspace)
     review = review_store(config, run_id, codex=codex)
     locator = locate_store(config, repo_root, run_id, max_candidates, taskspace)
-    report_path = report_store(config, run_id, f"hunt-{run_id.split('-')[-1] or 'wave'}")
+    report_path = report_store(config, run_id, f"hunt-{run_id.split('-')[-1] or 'wave'}", taskspace=taskspace)
     return {
         "run_id": run_id,
         "enrichment": enrichment,
