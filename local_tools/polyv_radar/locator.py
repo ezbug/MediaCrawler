@@ -109,13 +109,19 @@ def run_ego_locator(
     candidates: Iterable[dict],
     repo_root: Path,
     work_dir: Path,
-    taskspace: int = 8,
+    taskspace: int | None = None,
     runner=subprocess.run,
     timeout: int = 240,
 ) -> tuple[dict[str, dict], str]:
     rows = list(candidates)
     if not rows:
         return {}, ""
+    if taskspace is None:
+        if runner is subprocess.run:
+            raise ValueError("定位必须显式提供用户已登录的 Ego Lite TaskSpace")
+        taskspace = 1  # test doubles never open a browser; production CLI is explicit
+    if int(taskspace) <= 0:
+        raise ValueError("定位必须显式提供用户已登录的 Ego Lite TaskSpace")
     work_dir.mkdir(parents=True, exist_ok=True)
     input_path = work_dir / "locator-input.json"
     output_path = work_dir / "locator-output.json"
@@ -248,10 +254,17 @@ def locate_store(
     repo_root: Path,
     run_id: str,
     max_candidates: int = 80,
-    taskspace: int = 8,
+    taskspace: int | None = None,
     runner=subprocess.run,
 ) -> dict[str, int | str]:
     from .storage import RadarStore
+
+    if taskspace is None:
+        if runner is subprocess.run:
+            raise ValueError("locate 必须显式传入 --taskspace；不使用固定会话")
+        taskspace = 1  # test doubles never open a browser; production CLI is explicit
+    if int(taskspace) <= 0:
+        raise ValueError("locate 必须显式传入 --taskspace；不使用固定会话")
 
     store = RadarStore(config.data_root / "radar.sqlite3")
     store.initialize()

@@ -356,6 +356,7 @@ def collect(
     runner: Callable[..., subprocess.CompletedProcess] = subprocess.run,
     collector: str | None = None,
     run_id: str | None = None,
+    taskspace: int | None = None,
 ) -> CollectionResult:
     run_id = run_id or datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     selected_modes = {
@@ -371,8 +372,11 @@ def collect(
 
     from .ego_crawl_all import run_ego_crawlers
 
+    if taskspace is None or int(taskspace) <= 0:
+        raise ValueError("collect 必须显式传入 --taskspace；所有浏览器操作统一使用用户提供的 Ego Lite 会话")
+
     started = datetime.now(timezone.utc)
-    results = run_ego_crawlers(run_id, config.platforms, config, repo_root, config.data_root)
+    results = run_ego_crawlers(run_id, config.platforms, config, repo_root, config.data_root, int(taskspace))
     finished = datetime.now(timezone.utc)
     result = ingest_existing_run(config, run_id)
     store = RadarStore(result.store_path)

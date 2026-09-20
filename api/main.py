@@ -33,6 +33,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
 from .routers import crawler_router, data_router, websocket_router
+from local_tools.polyv_radar.storage import RadarStore
 
 # Project root directory (used for running subprocesses like uv run main.py)
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -188,6 +189,54 @@ async def get_config_options():
     }
 
 
+@app.get("/api/radar/summary")
+async def radar_summary(run_id: str | None = None):
+    """Read-only local POLYV radar summary; never sends or mutates browser state."""
+    data_root = Path(os.environ.get("POLYV_RADAR_DATA_ROOT", "/Users/sexpistole111/Documents/workplace/polyv-radar-data"))
+    store = RadarStore(data_root / "radar.sqlite3")
+    store.initialize()
+    selected_run = run_id or ""
+    if not selected_run:
+        row = store.connection.execute("SELECT run_id FROM runs ORDER BY started_at DESC LIMIT 1").fetchone()
+        selected_run = str(row[0]) if row else ""
+    leads = store.load_leads(selected_run) if selected_run else []
+    queue = store.load_outreach_queue(selected_run)
+    attempts = store.connection.execute(
+        "SELECT status, COUNT(*) AS count FROM outreach_attempts WHERE run_id = ? GROUP BY status",
+        (selected_run,),
+    ).fetchall()
+    result = {
+        "run_id": selected_run,
+        "leads": len(leads),
+        "demand_candidates": sum(item.score >= 4 and item.decision != "reject" for item in leads),
+        "locator_verified": sum(item.locator_status == "verified" for item in leads),
+        "approved_queue": len([item for item in queue if item.get("lead_status") in {"approved", "queued"}]),
+        "attempts": {str(row["status"]): int(row["count"]) for row in attempts},
+    }
+    store.close()
+    return result
+
+
+@app.get("/api/radar/leads")
+async def radar_leads(run_id: str, limit: int = 100):
+    data_root = Path(os.environ.get("POLYV_RADAR_DATA_ROOT", "/Users/sexpistole111/Documents/workplace/polyv-radar-data"))
+    store = RadarStore(data_root / "radar.sqlite3")
+    store.initialize()
+    rows = [lead.to_dict() for lead in store.load_leads(run_id)[: max(1, min(limit, 500))]]
+    store.close()
+    return {"run_id": run_id, "leads": rows}
+
+
+@app.get("/api/radar/queue")
+async def radar_queue(run_id: str | None = None):
+    data_root = Path(os.environ.get("POLYV_RADAR_DATA_ROOT", "/Users/sexpistole111/Documents/workplace/polyv-radar-data"))
+    store = RadarStore(data_root / "radar.sqlite3")
+    store.initialize()
+    rows = store.load_outreach_queue(run_id or "")
+    store.close()
+    return {"queue": rows}
+
+
 # Mount static resources - must be placed after all routes
 if os.path.exists(WEBUI_DIR):
     assets_dir = os.path.join(WEBUI_DIR, "assets")
@@ -202,4 +251,4 @@ if os.path.exists(WEBUI_DIR):
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8080)
+    uvicorn.run(app, host="127.0.0.1", port=8080)

@@ -14,6 +14,9 @@ from .hunt import run_hunt
 from .locator import locate_store
 from .dispatch import build_dispatch_queue, dispatch_queue, load_dispatch_queue, write_dispatch_queue, write_dispatch_results
 from .storage import RadarStore
+from .antigravity_import import import_antigravity
+from .approval import approve_lead
+from .daily import run_daily
 
 
 def apply_collect_overrides(config, args):
@@ -59,6 +62,7 @@ def build_parser() -> argparse.ArgumentParser:
     collect_parser.add_argument("--max-comments", type=int)
     collect_parser.add_argument("--task-timeout-seconds", type=int)
     collect_parser.add_argument("--collector", choices=("ego",))
+    collect_parser.add_argument("--taskspace", type=int, required=True, help="用户已登录的 Ego Lite TaskSpace")
     prefilter_parser = subparsers.choices["prefilter"]
     prefilter_parser.add_argument("--max-candidates", type=int, default=50)
     enrich_parser = subparsers.choices["enrich"]
@@ -74,6 +78,7 @@ def build_parser() -> argparse.ArgumentParser:
     pipeline_parser.add_argument("--max-contents", type=int)
     pipeline_parser.add_argument("--max-comments", type=int)
     pipeline_parser.add_argument("--collector", choices=("ego",))
+    pipeline_parser.add_argument("--taskspace", type=int, help="采集和定位时使用的用户 Ego Lite TaskSpace")
     benchmark_parser = subparsers.add_parser("benchmark")
     benchmark_parser.add_argument("--config", required=True)
     benchmark_parser.add_argument("--repo-root", default=str(Path(__file__).resolve().parents[2]))
@@ -86,13 +91,13 @@ def build_parser() -> argparse.ArgumentParser:
     locate_parser.add_argument("--config", required=True)
     locate_parser.add_argument("--repo-root", default=str(Path(__file__).resolve().parents[2]))
     locate_parser.add_argument("--run-id", required=True)
-    locate_parser.add_argument("--taskspace", type=int, default=8)
+    locate_parser.add_argument("--taskspace", type=int, required=True)
     locate_parser.add_argument("--max-candidates", type=int, default=80)
     hunt_parser = subparsers.add_parser("hunt")
     hunt_parser.add_argument("--config", required=True)
     hunt_parser.add_argument("--repo-root", default=str(Path(__file__).resolve().parents[2]))
     hunt_parser.add_argument("--collector", choices=("ego",), default="ego")
-    hunt_parser.add_argument("--taskspace", type=int, default=8)
+    hunt_parser.add_argument("--taskspace", type=int, required=True)
     hunt_parser.add_argument("--target-leads", type=int, default=20)
     hunt_parser.add_argument("--max-candidates", type=int, default=80)
     hunt_parser.add_argument("--max-batches", type=int, default=2)
@@ -111,6 +116,25 @@ def build_parser() -> argparse.ArgumentParser:
     dispatch_parser.add_argument("--max-sends", type=int, default=5)
     dispatch_parser.add_argument("--cooldown-seconds", type=float, default=30)
     dispatch_parser.add_argument("--output")
+    import_parser = subparsers.add_parser("import-antigravity")
+    import_parser.add_argument("--config", required=True)
+    import_parser.add_argument("--source", required=True)
+    import_parser.add_argument("--session-id", required=True)
+    approve_parser = subparsers.add_parser("approve")
+    approve_parser.add_argument("--config", required=True)
+    approve_parser.add_argument("--run-id", required=True)
+    approve_parser.add_argument("--lead-id", required=True)
+    approve_parser.add_argument("--approved-by", default="user")
+    approve_parser.add_argument("--draft-text", default="")
+    daily_parser = subparsers.add_parser("daily")
+    daily_parser.add_argument("--config", required=True)
+    daily_parser.add_argument("--repo-root", default=str(Path(__file__).resolve().parents[2]))
+    daily_parser.add_argument("--taskspace", type=int, required=True)
+    daily_parser.add_argument("--run-id")
+    daily_parser.add_argument("--skip-crawl", action="store_true")
+    daily_parser.add_argument("--submit-approved", action="store_true", help="仅发送已人工批准且已定位/验链的公开楼中楼")
+    daily_parser.add_argument("--max-candidates", type=int, default=50)
+    daily_parser.add_argument("--codex", default="codex")
     return parser
 
 
@@ -119,7 +143,7 @@ def main(argv: list[str] | None = None) -> int:
     config = load_config(Path(args.config))
     if args.command == "collect":
         config = apply_collect_overrides(config, args)
-        result = collect(config, Path(args.repo_root), collector=args.collector)
+        result = collect(config, Path(args.repo_root), collector=args.collector, taskspace=args.taskspace)
         payload = {"run_id": result.run_id, "store_path": str(result.store_path), "failures": result.failures}
     elif args.command == "ingest":
         result = ingest_existing_run(config, args.run_id)
@@ -146,7 +170,9 @@ def main(argv: list[str] | None = None) -> int:
                 updates["max_comments"] = args.max_comments
             config = replace(config, **updates)
         if not args.skip_crawl:
-            collect(config, Path(args.repo_root), collector=args.collector, run_id=run_id)
+            if args.taskspace is None:
+                parser.error("pipeline 进行采集时必须提供 --taskspace")
+            collect(config, Path(args.repo_root), collector=args.collector, run_id=run_id, taskspace=args.taskspace)
         else:
             ingest_existing_run(config, run_id)
         prefilter_store(config, run_id, args.max_candidates)
@@ -189,6 +215,21 @@ def main(argv: list[str] | None = None) -> int:
             max_batches=args.max_batches,
             run_id=args.run_id,
             codex=args.codex,
+        )
+    elif args.command == "import-antigravity":
+        payload = import_antigravity(Path(args.source), config.data_root, args.session_id)
+    elif args.command == "approve":
+        payload = approve_lead(config, args.run_id, args.lead_id, approved_by=args.approved_by, draft_text=args.draft_text)
+    elif args.command == "daily":
+        payload = run_daily(
+            config,
+            Path(args.repo_root),
+            taskspace=args.taskspace,
+            submit_approved=args.submit_approved,
+            run_id=args.run_id,
+            skip_crawl=args.skip_crawl,
+            codex=args.codex,
+            max_candidates=args.max_candidates,
         )
     elif args.command == "prepare-dispatch":
         store = RadarStore(config.data_root / "radar.sqlite3")

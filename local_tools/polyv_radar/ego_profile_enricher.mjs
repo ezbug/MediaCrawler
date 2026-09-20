@@ -7,7 +7,7 @@ const candidates = JSON.parse(await fs.readFile(inputPath, 'utf-8'));
 
 const taskspaceId = Number(process.env.POLYV_TASKSPACE_ID);
 if (!Number.isInteger(taskspaceId) || taskspaceId <= 0) throw new Error('需要有效的 POLYV_TASKSPACE_ID');
-const task = await takeOverTaskSpace(taskspaceId);
+const task = await taskSpace(taskspaceId);
 const page = task.page('p1');
 const profiles = [];
 

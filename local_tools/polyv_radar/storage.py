@@ -201,6 +201,72 @@ class RadarStore:
                 verified_at TEXT NOT NULL DEFAULT '',
                 PRIMARY KEY (run_id, platform, content_id, comment_id)
             );
+            CREATE TABLE IF NOT EXISTS legacy_imports (
+                import_id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                source_path TEXT NOT NULL,
+                destination_path TEXT NOT NULL,
+                manifest_path TEXT NOT NULL,
+                row_count INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'started',
+                imported_at TEXT NOT NULL,
+                error TEXT NOT NULL DEFAULT ''
+            );
+            CREATE TABLE IF NOT EXISTS lead_status_events (
+                event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id TEXT NOT NULL,
+                platform TEXT NOT NULL,
+                content_id TEXT NOT NULL,
+                comment_id TEXT NOT NULL DEFAULT '',
+                from_status TEXT NOT NULL DEFAULT '',
+                to_status TEXT NOT NULL,
+                actor TEXT NOT NULL DEFAULT 'system',
+                reason TEXT NOT NULL DEFAULT '',
+                metadata TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS outreach_queue (
+                queue_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id TEXT NOT NULL,
+                platform TEXT NOT NULL,
+                content_id TEXT NOT NULL,
+                comment_id TEXT NOT NULL DEFAULT '',
+                lead_status TEXT NOT NULL DEFAULT 'approved',
+                target_url TEXT NOT NULL DEFAULT '',
+                target_author TEXT NOT NULL DEFAULT '',
+                draft_text TEXT NOT NULL DEFAULT '',
+                locator_status TEXT NOT NULL DEFAULT '',
+                url_status TEXT NOT NULL DEFAULT '',
+                approved_by TEXT NOT NULL DEFAULT '',
+                approved_at TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(run_id, platform, content_id, comment_id)
+            );
+            CREATE TABLE IF NOT EXISTS outreach_attempts (
+                attempt_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                queue_id INTEGER NOT NULL,
+                run_id TEXT NOT NULL,
+                platform TEXT NOT NULL,
+                mode TEXT NOT NULL DEFAULT 'dry_run',
+                status TEXT NOT NULL,
+                structured_result TEXT NOT NULL DEFAULT '{}',
+                screenshot_path TEXT NOT NULL DEFAULT '',
+                error TEXT NOT NULL DEFAULT '',
+                attempted_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS interaction_events (
+                interaction_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id TEXT NOT NULL,
+                platform TEXT NOT NULL,
+                source_url TEXT NOT NULL DEFAULT '',
+                author TEXT NOT NULL DEFAULT '',
+                event_type TEXT NOT NULL DEFAULT '',
+                quote TEXT NOT NULL DEFAULT '',
+                observed_at TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'observed',
+                metadata TEXT NOT NULL DEFAULT '{}'
+            );
             """
         )
         self._migrate_legacy_columns()
@@ -601,6 +667,150 @@ class RadarStore:
             )
         self.connection.commit()
 
+    def save_legacy_import(self, payload: dict) -> None:
+        self.connection.execute(
+            """INSERT OR REPLACE INTO legacy_imports
+               (import_id, session_id, source_path, destination_path, manifest_path,
+                row_count, status, imported_at, error)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                payload.get("import_id", ""), payload.get("session_id", ""),
+                payload.get("source_path", ""), payload.get("destination_path", ""),
+                payload.get("manifest_path", ""), int(payload.get("row_count", 0) or 0),
+                payload.get("status", "started"), payload.get("imported_at", ""), payload.get("error", ""),
+            ),
+        )
+        self.connection.commit()
+
+    def add_status_event(
+        self,
+        run_id: str,
+        platform: str,
+        content_id: str,
+        comment_id: str,
+        to_status: str,
+        from_status: str = "",
+        actor: str = "system",
+        reason: str = "",
+        metadata: dict | None = None,
+    ) -> None:
+        self.connection.execute(
+            """INSERT INTO lead_status_events
+               (run_id, platform, content_id, comment_id, from_status, to_status,
+                actor, reason, metadata, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                run_id, platform, content_id, comment_id, from_status, to_status,
+                actor, reason, json.dumps(metadata or {}, ensure_ascii=False),
+                datetime.now().astimezone().isoformat(),
+            ),
+        )
+        self.connection.commit()
+
+    def load_status_events(self, run_id: str, platform: str = "", content_id: str = "") -> list[dict]:
+        query = "SELECT * FROM lead_status_events WHERE run_id = ?"
+        params: list[str] = [run_id]
+        if platform:
+            query += " AND platform = ?"
+            params.append(platform)
+        if content_id:
+            query += " AND content_id = ?"
+            params.append(content_id)
+        query += " ORDER BY event_id"
+        return [dict(row) for row in self.connection.execute(query, params).fetchall()]
+
+    def queue_outreach(self, payload: dict) -> int:
+        now = datetime.now().astimezone().isoformat()
+        self.connection.execute(
+            """INSERT INTO outreach_queue
+               (run_id, platform, content_id, comment_id, lead_status, target_url,
+                target_author, draft_text, locator_status, url_status, approved_by,
+                approved_at, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(run_id, platform, content_id, comment_id) DO UPDATE SET
+                lead_status=excluded.lead_status, target_url=excluded.target_url,
+                target_author=excluded.target_author, draft_text=excluded.draft_text,
+                locator_status=excluded.locator_status, url_status=excluded.url_status,
+                approved_by=excluded.approved_by, approved_at=excluded.approved_at,
+                updated_at=excluded.updated_at""",
+            (
+                payload.get("run_id", ""), payload.get("platform", ""), payload.get("content_id", ""),
+                payload.get("comment_id", ""), payload.get("lead_status", "approved"),
+                payload.get("target_url", ""), payload.get("target_author", ""), payload.get("draft_text", ""),
+                payload.get("locator_status", ""), payload.get("url_status", ""),
+                payload.get("approved_by", ""), payload.get("approved_at", ""),
+                payload.get("created_at", now), payload.get("updated_at", now),
+            ),
+        )
+        row = self.connection.execute(
+            """SELECT queue_id FROM outreach_queue
+               WHERE run_id = ? AND platform = ? AND content_id = ? AND comment_id = ?""",
+            (payload.get("run_id", ""), payload.get("platform", ""), payload.get("content_id", ""), payload.get("comment_id", "")),
+        ).fetchone()
+        self.connection.commit()
+        return int(row[0])
+
+    def load_outreach_queue(self, run_id: str = "", statuses: Iterable[str] = ()) -> list[dict]:
+        query = "SELECT * FROM outreach_queue WHERE 1=1"
+        params: list[str] = []
+        if run_id:
+            query += " AND run_id = ?"
+            params.append(run_id)
+        status_values = [str(item) for item in statuses if str(item)]
+        if status_values:
+            placeholders = ",".join("?" for _ in status_values)
+            query += f" AND lead_status IN ({placeholders})"
+            params.extend(status_values)
+        query += " ORDER BY queue_id"
+        return [dict(row) for row in self.connection.execute(query, params).fetchall()]
+
+    def update_outreach_queue_status(self, queue_id: int, status: str) -> None:
+        self.connection.execute(
+            "UPDATE outreach_queue SET lead_status = ?, updated_at = ? WHERE queue_id = ?",
+            (status, datetime.now().astimezone().isoformat(), int(queue_id)),
+        )
+        self.connection.commit()
+
+    def save_outreach_attempt(self, payload: dict) -> int:
+        self.connection.execute(
+            """INSERT INTO outreach_attempts
+               (queue_id, run_id, platform, mode, status, structured_result,
+                screenshot_path, error, attempted_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                int(payload.get("queue_id", 0) or 0), payload.get("run_id", ""), payload.get("platform", ""),
+                payload.get("mode", "dry_run"), payload.get("status", "failed"),
+                json.dumps(payload.get("structured_result", {}), ensure_ascii=False),
+                payload.get("screenshot_path", ""), payload.get("error", ""),
+                payload.get("attempted_at", datetime.now().astimezone().isoformat()),
+            ),
+        )
+        attempt_id = int(self.connection.execute("SELECT last_insert_rowid()").fetchone()[0])
+        self.connection.commit()
+        return attempt_id
+
+    def count_verified_attempts_today(self, day: str) -> int:
+        return int(self.connection.execute(
+            "SELECT COUNT(*) FROM outreach_attempts WHERE status = 'submitted_verified' AND attempted_at LIKE ?",
+            (f"{day}%",),
+        ).fetchone()[0])
+
+    def save_interaction_event(self, payload: dict) -> int:
+        self.connection.execute(
+            """INSERT INTO interaction_events
+               (run_id, platform, source_url, author, event_type, quote, observed_at, status, metadata)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                payload.get("run_id", ""), payload.get("platform", ""), payload.get("source_url", ""),
+                payload.get("author", ""), payload.get("event_type", ""), payload.get("quote", ""),
+                payload.get("observed_at", datetime.now().astimezone().isoformat()), payload.get("status", "observed"),
+                json.dumps(payload.get("metadata", {}), ensure_ascii=False),
+            ),
+        )
+        interaction_id = int(self.connection.execute("SELECT last_insert_rowid()").fetchone()[0])
+        self.connection.commit()
+        return interaction_id
+
     def load_profiles(self, run_id: str) -> list[dict]:
         rows = self.connection.execute("SELECT * FROM profiles WHERE run_id = ?", (run_id,)).fetchall()
         return [dict(row) | {"source_urls": json.loads(row["source_urls"] or "[]")} for row in rows]
@@ -614,7 +824,7 @@ class RadarStore:
         return [dict(row) for row in rows]
 
     def count(self, table: str) -> int:
-        if table not in {"contents", "comments", "leads", "runs", "crawl_tasks", "profiles", "profile_posts", "external_evidence", "lead_assessments", "comment_locators"}:
+        if table not in {"contents", "comments", "leads", "runs", "crawl_tasks", "profiles", "profile_posts", "external_evidence", "lead_assessments", "comment_locators", "legacy_imports", "lead_status_events", "outreach_queue", "outreach_attempts", "interaction_events"}:
             raise ValueError(f"Unsupported table: {table}")
         return int(self.connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
 

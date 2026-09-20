@@ -35,7 +35,9 @@ def build_ego_launcher(script_path: Path, keyword: str, max_contents: int, max_c
     )
 
 
-def run_ego_crawlers(run_id: str, platforms: list[str], config, repo_root: Path, data_root: Path) -> dict[str, bool]:
+def run_ego_crawlers(run_id: str, platforms: list[str], config, repo_root: Path, data_root: Path, taskspace: int) -> dict[str, bool]:
+    if not isinstance(taskspace, int) or taskspace <= 0:
+        raise ValueError("必须显式提供用户已登录的 Ego Lite TaskSpace；不创建或接管新会话")
     results = {}
     tools_dir = repo_root / "local_tools" / "polyv_radar"
     raw_dir = data_root / "raw" / run_id
@@ -62,13 +64,15 @@ def run_ego_crawlers(run_id: str, platforms: list[str], config, repo_root: Path,
 
             runner_script = build_ego_launcher(script_path, keyword, config.max_contents, config.max_comments, out_dir)
             try:
+                env = os.environ.copy()
+                env["POLYV_TASKSPACE_ID"] = str(taskspace)
                 res = subprocess.run(
                     ["ego-browser", "nodejs"],
                     input=runner_script,
                     text=True,
                     capture_output=True,
                     check=False,
-                    env=os.environ.copy(),
+                    env=env,
                     timeout=config.task_timeout_seconds,
                 )
                 print(res.stdout)
@@ -95,6 +99,7 @@ def main() -> int:
     parser.add_argument("--skip-crawl", action="store_true", help="Skip crawling and only run ingest/analyze/report")
     parser.add_argument("--max-contents", type=int, default=None)
     parser.add_argument("--max-comments", type=int, default=None)
+    parser.add_argument("--taskspace", type=int, required=True, help="用户已登录的 Ego Lite TaskSpace")
     args = parser.parse_args()
 
     repo_root = Path(__file__).resolve().parents[2]
@@ -113,7 +118,7 @@ def main() -> int:
     started_at = datetime.now(timezone.utc)
     if not args.skip_crawl:
         print(f"[*] Starting 4-platform ego lite crawl. Run ID: {run_id}")
-        crawl_results = run_ego_crawlers(run_id, args.platforms, config, repo_root, config.data_root)
+        crawl_results = run_ego_crawlers(run_id, args.platforms, config, repo_root, config.data_root, args.taskspace)
         print(f"[*] Crawl results: {json.dumps(crawl_results, ensure_ascii=False)}")
 
     print(f"\n[*] Ingesting crawled data into SQLite store ({config.data_root / 'radar.sqlite3'})...")

@@ -8,7 +8,8 @@
 
 ```bash
 POLYV_TASKSPACE_ID=<current-taskspace> uv run python -m local_tools.polyv_radar collect \
-  --config local_tools/polyv_radar/pilot.toml
+  --config local_tools/polyv_radar/pilot.toml \
+  --taskspace <current-taskspace>
 ```
 
 浏览器会话必须由用户提供；TaskSpace 不存在、登录失效或页面受限时，任务会停止并记录状态，不会新建备用浏览器空间。
@@ -74,7 +75,7 @@ uv run python -m local_tools.polyv_radar validate-urls \
 
 ## 可核验潜客寻找
 
-`locate` 和 `hunt` 的页面访问、评论展开、主页调查与链接校验全部通过 Ego Lite TaskSpace 8 完成。默认只读，不发表评论或发送私信；评论没有平台直链时，报告会同时保留内容 URL、作者、完整原话和父评论关系。
+`locate` 和 `hunt` 的页面访问、评论展开、主页调查与链接校验全部通过用户显式提供的 Ego Lite TaskSpace 完成，不固定会话编号。默认只读，不发表评论或发送私信；评论没有平台直链时，报告会同时保留内容 URL、作者、完整原话和父评论关系。
 
 对已有批次执行评论定位和报告校验：
 
@@ -82,7 +83,7 @@ uv run python -m local_tools.polyv_radar validate-urls \
 uv run python -m local_tools.polyv_radar locate \
   --config local_tools/polyv_radar/pilot.toml \
   --run-id <run-id> \
-  --taskspace 8
+  --taskspace <current-taskspace>
 ```
 
 执行最多两轮的候选寻找，不足目标时自动增加长尾业务事件查询；`--run-id` 会先复用旧批次，不重复抓取第一轮：
@@ -91,11 +92,30 @@ uv run python -m local_tools.polyv_radar locate \
 uv run python -m local_tools.polyv_radar hunt \
   --config local_tools/polyv_radar/pilot.toml \
   --collector ego \
-  --taskspace 8 \
+  --taskspace <current-taskspace> \
   --target-leads 20 \
   --max-candidates 80 \
   --max-batches 2
 ```
+
+历史接管与每日任务：
+
+```bash
+uv run python -m local_tools.polyv_radar import-antigravity \
+  --config local_tools/polyv_radar/pilot.toml \
+  --source "/Users/sexpistole111/Documents/GOODS/polyv寻客爬虫" \
+  --session-id fef7c447-4c3d-4177-b1a5-10a55d3307da
+
+uv run python -m local_tools.polyv_radar approve \
+  --config local_tools/polyv_radar/pilot.toml \
+  --run-id <run-id> --lead-id <lead-id>
+
+uv run python -m local_tools.polyv_radar daily \
+  --config local_tools/polyv_radar/pilot.toml \
+  --taskspace <current-taskspace>
+```
+
+历史 `pushed`、截图和 OCR 标记统一按 `legacy_unverified` 导入，未重新定位和重新找到发布文本前不会进入发送成功状态。真实发送必须同时显式传入 `--submit` 和用户当前 TaskSpace，私信始终只生成草稿。
 
 最终交付文件位于数据目录的 `reports/`：
 

@@ -67,7 +67,7 @@ def _process_run(
     if skip_crawl:
         ingest_existing_run(config, run_id)
     else:
-        collect(config, repo_root, collector=collector, run_id=run_id)
+        collect(config, repo_root, collector=collector, run_id=run_id, taskspace=taskspace)
     analyze_store(config, run_id)
     prefilter_store(config, run_id, max_candidates)
     enrichment = enrich_store(config, repo_root, run_id)
@@ -117,7 +117,7 @@ def run_hunt(
     config: RadarConfig,
     repo_root: Path,
     collector: str = "ego",
-    taskspace: int = 8,
+    taskspace: int | None = None,
     target_leads: int = 20,
     max_candidates: int = 80,
     max_batches: int = 2,
@@ -126,6 +126,8 @@ def run_hunt(
 ) -> dict:
     if collector != "ego":
         raise ValueError("hunt 为保护登录态，当前只允许使用 Ego Lite collector=ego")
+    if taskspace is None or int(taskspace) <= 0:
+        raise ValueError("hunt 必须显式传入 --taskspace；不使用固定会话")
     target_leads = max(0, int(target_leads))
     max_candidates = max(1, int(max_candidates))
     max_batches = max(1, min(2, int(max_batches)))
