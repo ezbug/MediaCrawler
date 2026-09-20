@@ -14,6 +14,16 @@ POLYV_TASKSPACE_ID=<current-taskspace> uv run python -m local_tools.polyv_radar 
 
 浏览器会话必须由用户提供；TaskSpace 不存在、登录失效或页面受限时，任务会停止并记录状态，不会新建备用浏览器空间。
 
+采集按平台批处理：每个平台只启动一次 Ego Lite Node 进程，复用同一个 TaskSpace 的 `p1` 页面顺序处理该平台关键词。每个关键词前后保存页面 Snapshot，运行记录和可复用流程候选写入：
+
+```text
+polyv-radar-data/workflow-runs/<run-id>/workflow-run.json
+polyv-radar-data/workflow-runs/<run-id>/workflow-candidate.json
+polyv-radar-data/workflow-runs/<run-id>/snapshots/
+```
+
+`workflow-candidate.json` 只代表待人工审查的流程候选，不会自动修改 Skill 或执行外联。批量 DOM、Shadow DOM 和评论树操作仍在同一 TaskSpace 内通过 `ego-browser` 的 `page.evaluate()` 完成。
+
 只测试一个平台和关键词时，可以覆盖配置文件中的范围和数量：
 
 ```bash

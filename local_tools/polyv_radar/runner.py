@@ -16,6 +16,7 @@ from .report import render_report, write_report, write_verified_lead_artifacts
 from .scoring import score_lead
 from .storage import RadarStore
 from .url_validation import dump_url_checks, validate_urls_with_ego
+from .workflow import load_workflow_run
 
 
 @dataclass
@@ -381,20 +382,45 @@ def collect(
     result = ingest_existing_run(config, run_id)
     store = RadarStore(result.store_path)
     store.initialize()
-    for platform, success in results.items():
-        for keyword in config.get_keywords_for_platform(platform).values():
+    workflow = load_workflow_run(config.data_root, run_id)
+    workflow_tasks = [
+        task
+        for platform in (workflow or {}).get("platforms", [])
+        for task in platform.get("tasks", [])
+        if isinstance(task, dict)
+    ]
+    if workflow_tasks:
+        for task in workflow_tasks:
+            task_started = datetime.fromisoformat(str(task["started_at"]))
+            task_finished = datetime.fromisoformat(str(task["finished_at"]))
             store.save_crawl_task(
                 _task_record(
                     run_id,
-                    platform,
-                    keyword,
+                    str(task.get("platform", "")),
+                    str(task.get("keyword", "")),
                     "ego",
-                    started,
-                    finished,
-                    status="success" if success else "partial",
-                    error="" if success else "Ego任务失败",
+                    task_started,
+                    task_finished,
+                    task,
+                    "success" if task.get("status") == "success" else "partial",
+                    str(task.get("error", "")),
                 )
             )
+    else:
+        for platform, success in results.items():
+            for keyword in config.get_keywords_for_platform(platform).values():
+                store.save_crawl_task(
+                    _task_record(
+                        run_id,
+                        platform,
+                        keyword,
+                        "ego",
+                        started,
+                        finished,
+                        status="success" if success else "partial",
+                        error="" if success else "Ego任务失败",
+                    )
+                )
     store.close()
     return result
 

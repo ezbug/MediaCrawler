@@ -13,12 +13,13 @@ from local_tools.polyv_radar.enrichment import (
     classify_identity_confidence,
     extract_company_role,
 )
-from local_tools.polyv_radar.ego_crawl_all import build_ego_launcher
+from local_tools.polyv_radar.ego_crawl_all import build_ego_batch_launcher, build_ego_launcher, run_ego_crawlers
 from local_tools.polyv_radar.models import LeadEvidence, ProfilePost, ProfileSnapshot
 from local_tools.polyv_radar.pipeline import candidate_bundle
 from local_tools.polyv_radar.review import enforce_review_gates, parse_review_payload, review_schema, run_codex_review
 from local_tools.polyv_radar.scoring import score_purchase_evidence
 from local_tools.polyv_radar.storage import RadarStore
+from local_tools.polyv_radar.workflow import load_workflow_run
 
 
 def _content(text: str = "企业培训与经销商大会"):
@@ -396,3 +397,51 @@ def test_ego_launcher_uses_configured_collection_limits(tmp_path: Path) -> None:
     assert '"经销商大会"' in launcher
     assert '"15"' in launcher
     assert '"30"' in launcher
+
+
+def test_ego_batch_launcher_reuses_one_taskspace_and_batches_keywords(tmp_path: Path) -> None:
+    launcher = build_ego_batch_launcher(
+        Path("local_tools/polyv_radar/ego_dy_crawler.mjs"),
+        ["公司年会直播", "员工线上培训"],
+        15,
+        30,
+        tmp_path / "dy",
+        23,
+        tmp_path / "snapshots",
+    )
+
+    assert "POLYV_TASKSPACE_ID" in launcher
+    assert "POLYV_BATCH_KEYWORDS" in launcher
+    assert "公司年会直播" in launcher and "员工线上培训" in launcher
+    assert "ego_platform_batch.mjs" in launcher
+    assert "POLYV_BATCH_RESULT_PATH" in launcher
+    assert '"15"' in launcher and '"30"' in launcher
+
+
+def test_ego_collection_launches_one_process_per_platform_and_persists_workflow(tmp_path: Path, monkeypatch) -> None:
+    calls: list[dict] = []
+
+    def fake_run(command, **kwargs):
+        calls.append({"command": command, "input": kwargs.get("input", "")})
+        return subprocess.CompletedProcess(command, 0, "batch-complete", "")
+
+    monkeypatch.setattr("local_tools.polyv_radar.ego_crawl_all.subprocess.run", fake_run)
+    config = load_config(Path("local_tools/polyv_radar/pilot.toml"))
+    config = config.__class__(
+        data_root=tmp_path / "data",
+        platforms=["dy"],
+        keywords={"年会": "公司年会直播", "培训": "员工线上培训"},
+        max_contents=2,
+        max_comments=3,
+    )
+
+    result = run_ego_crawlers("workflow-run", ["dy"], config, Path.cwd(), config.data_root, 23)
+
+    assert result == {"dy": True}
+    assert len(calls) == 1
+    assert "POLYV_BATCH_KEYWORDS" in calls[0]["input"]
+    workflow = load_workflow_run(config.data_root, "workflow-run")
+    assert workflow is not None
+    assert workflow["mode"] == "ego_snapshot_batch"
+    assert workflow["platforms"][0]["keywords"] == ["公司年会直播", "员工线上培训"]
+    assert (config.data_root / "workflow-runs" / "workflow-run" / "workflow-candidate.json").is_file()
