@@ -67,7 +67,7 @@ def run_daily(
         stages["collect"] = collect(config, repo_root, collector="ego", run_id=current_run_id, taskspace=taskspace).platform_status
     stages["analyze"] = {"count": len(analyze_store(config, current_run_id))}
     stages["prefilter"] = {"count": len(prefilter_store(config, current_run_id, max_candidates))}
-    stages["enrich"] = enrich_store(config, repo_root, current_run_id)
+    stages["enrich"] = enrich_store(config, repo_root, current_run_id, taskspace=taskspace)
     stages["review"] = review_store(config, current_run_id, codex=codex)
     stages["locate"] = locate_store(config, repo_root, current_run_id, max_candidates=max_candidates, taskspace=taskspace)
     report_path = report_store(config, current_run_id, "daily")

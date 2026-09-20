@@ -70,7 +70,7 @@ def _process_run(
         collect(config, repo_root, collector=collector, run_id=run_id, taskspace=taskspace)
     analyze_store(config, run_id)
     prefilter_store(config, run_id, max_candidates)
-    enrichment = enrich_store(config, repo_root, run_id)
+    enrichment = enrich_store(config, repo_root, run_id, taskspace=taskspace)
     review = review_store(config, run_id, codex=codex)
     locator = locate_store(config, repo_root, run_id, max_candidates, taskspace)
     report_path = report_store(config, run_id, f"hunt-{run_id.split('-')[-1] or 'wave'}")

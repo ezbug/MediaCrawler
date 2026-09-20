@@ -168,12 +168,12 @@ def prefilter_store(config: RadarConfig, run_id: str, max_candidates: int = 50) 
     return leads
 
 
-def enrich_store(config: RadarConfig, repo_root: Path, run_id: str) -> dict:
+def enrich_store(config: RadarConfig, repo_root: Path, run_id: str, taskspace: int | None = None) -> dict:
     store = RadarStore(config.data_root / "radar.sqlite3")
     store.initialize()
     leads = store.load_leads(run_id)
     store.close()
-    return run_profile_enrichment(config, repo_root, run_id, choose_enrichment_candidates(leads))
+    return run_profile_enrichment(config, repo_root, run_id, choose_enrichment_candidates(leads), taskspace=taskspace)
 
 
 def review_store(

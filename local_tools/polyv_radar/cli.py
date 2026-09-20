@@ -67,6 +67,7 @@ def build_parser() -> argparse.ArgumentParser:
     prefilter_parser.add_argument("--max-candidates", type=int, default=50)
     enrich_parser = subparsers.choices["enrich"]
     enrich_parser.add_argument("--repo-root", default=str(Path(__file__).resolve().parents[2]))
+    enrich_parser.add_argument("--taskspace", type=int, required=True)
     review_parser = subparsers.choices["review"]
     review_parser.add_argument("--codex", default="codex")
     pipeline_parser = subparsers.choices["pipeline"]
@@ -155,7 +156,7 @@ def main(argv: list[str] | None = None) -> int:
         leads = prefilter_store(config, args.run_id, args.max_candidates)
         payload = {"run_id": args.run_id, "prefilter_count": len(leads)}
     elif args.command == "enrich":
-        result = enrich_store(config, Path(args.repo_root), args.run_id)
+        result = enrich_store(config, Path(args.repo_root), args.run_id, taskspace=args.taskspace)
         payload = {"run_id": args.run_id, **result}
     elif args.command == "review":
         result = review_store(config, args.run_id, codex=args.codex)
@@ -176,7 +177,9 @@ def main(argv: list[str] | None = None) -> int:
         else:
             ingest_existing_run(config, run_id)
         prefilter_store(config, run_id, args.max_candidates)
-        enrich_store(config, Path(args.repo_root), run_id)
+        if args.taskspace is None:
+            parser.error("pipeline 进行主页/公开背景调查时必须提供 --taskspace")
+        enrich_store(config, Path(args.repo_root), run_id, taskspace=args.taskspace)
         review_result = review_store(config, run_id, codex=args.codex)
         report_path = report_store(config, run_id, "pipeline")
         payload = {"run_id": run_id, "report_path": str(report_path), **review_result}
