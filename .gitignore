@@ -184,3 +184,6 @@ debug_tools
 
 database/*.db
 .omx/
+
+# Local Codex worktrees
+.worktrees/
