@@ -13,7 +13,7 @@ from .adapters import normalize_comment, normalize_content
 from .config import RadarConfig
 from .models import CommentRecord, ContentRecord, LeadEvidence
 from .report import render_report, write_report, write_verified_lead_artifacts
-from .scoring import score_lead
+from .scoring import has_content_demand_signal, score_lead
 from .storage import RadarStore
 from .url_validation import dump_url_checks, validate_urls_with_ego
 from .workflow import load_workflow_run
@@ -496,18 +496,17 @@ def analyze_records(
     leads_by_key: dict[tuple[str, str, str, str], LeadEvidence] = {}
     for key, content in content_by_key.items():
         related_comments = comments_by_content.get(key, [])
-        if related_comments:
-            for comment in related_comments:
-                category_hint = category_by_keyword.get(comment.source_keyword)
-                lead = score_lead(content, comment, now, category_hint, recent_days)
-                if lead.score >= min_score:
-                    key = (lead.platform, lead.content_id, _text_key(lead.user), _text_key(lead.quote))
-                    existing = leads_by_key.get(key)
-                    if existing is None or lead.score > existing.score:
-                        leads_by_key[key] = lead
-        else:
-            category_hint = category_by_keyword.get(content.source_keywords[0]) if content.source_keywords else None
-            lead = score_lead(content, None, now, category_hint, recent_days)
+        # A post can itself be the demand signal, but generic content must not
+        # become a lead merely because it has comments.
+        records = []
+        if has_content_demand_signal(content):
+            records.append((content, None))
+        records.extend((content, comment) for comment in related_comments)
+        for item, comment in records:
+            category_hint = category_by_keyword.get(
+                comment.source_keyword if comment else (content.source_keywords[0] if content.source_keywords else "")
+            )
+            lead = score_lead(item, comment, now, category_hint, recent_days)
             if lead.score >= min_score:
                 key = (lead.platform, lead.content_id, _text_key(lead.user), _text_key(lead.quote))
                 existing = leads_by_key.get(key)

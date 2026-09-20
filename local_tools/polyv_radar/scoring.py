@@ -44,7 +44,7 @@ DELIVERY_INQUIRY_TERMS = (
 
 
 CATEGORY_TERMS = {
-    "企业直播": ("企业直播", "发布会直播", "万人直播", "直播卡顿", "直播平台推荐", "线上活动直播", "活动直播", "直播选型", "发布会转线上", "大并发直播选型", "线上研讨会", "线上研讨会推荐", "线上研讨会方案", "Webinar", "低延迟互动直播", "线上峰会策划"),
+    "企业直播": ("企业直播", "发布会直播", "新品发布会", "公司年会", "年会直播", "万人直播", "直播卡顿", "直播平台推荐", "线上活动直播", "活动直播", "直播选型", "发布会转线上", "大并发直播选型", "线上研讨会", "线上研讨会推荐", "线上研讨会方案", "Webinar", "低延迟互动直播", "线上峰会策划", "行业峰会", "行业大会", "医学会议", "学术会议", "线上招商", "招商会", "订货会", "巡展", "路演", "合作伙伴大会", "经销商大会"),
     "私域直播": ("私域直播", "微信直播", "企微直播", "公众号直播", "私域搭建", "私域运营直播", "私域裂变", "私域直播引流", "私域直播SOP", "小程序公众号直播"),
     "视频点播": ("视频点播", "点播系统", "企业点播", "点播平台", "点播播放器", "视频托管", "私有化点播"),
     "企业培训": ("企业培训", "企业内训", "员工培训", "经销商培训", "线上培训", "企业大学", "培训平台", "微课培训", "培训直播", "课程培训", "员工培训痛点", "门店与经销商", "企业内训系统搭建", "企业培训体系", "客户培训数字化", "经销商线上培训", "内训平台选型", "经销商培训难题", "在线教育系统源码"),
@@ -66,11 +66,19 @@ SOLUTIONS = {
     "未分类": "直播与视频平台能力方向",
 }
 
-EXPLICIT_NEED = ("我们公司", "我司", "公司需要", "企业需要", "正在找", "需要一个", "需要做", "想找", "老板让我", "求推荐", "哪家平台", "用什么系统", "怎么选平台")
-PROJECT_TERMS = ("项目", "上线", "准备", "正在做", "筹备", "落地", "启动", "实施", "采购", "老板让我")
-INQUIRY_TERMS = ("多少钱", "价格", "费用", "方案", "平台推荐", "推荐一下", "能不能支持", "怎么选", "有没有做过", "好用吗", "怎么收费", "试用")
+EXPLICIT_NEED = ("我们公司", "我司", "公司需要", "企业需要", "正在找", "需要一个", "需要做", "想找", "老板让我", "求推荐", "哪家平台", "用什么系统", "怎么选平台", "征集")
+PROJECT_TERMS = ("项目", "上线", "准备", "正在做", "筹备", "落地", "启动", "实施", "采购", "老板让我", "征集", "年会", "发布会", "大会")
+INQUIRY_TERMS = ("多少钱", "价格", "费用", "方案", "平台推荐", "推荐一下", "能不能支持", "怎么选", "有没有做过", "好用吗", "怎么收费", "试用", "供应商", "服务商", "选型", "采购", "报价")
 ROLE_TERMS = ("公司", "企业", "老板", "负责人", "总监", "经理", "HR", "人事", "运营", "技术", "采购", "IT")
 AD_TERMS = ("我们提供", "加微信", "私信我", "招商加盟", "招商代理", "招代理", "代理加盟", "源码", "代运营", "同行", "厂家", "欢迎咨询", "出各种", "诚信接单")
+
+# A content-level lead is only useful when the post itself asks for a
+# solution, supplier, price, or selection help. Generic educational content
+# must remain context for comment scoring rather than becoming a lead.
+CONTENT_DEMAND_TERMS = (
+    "征集", "求推荐", "求方案", "供应商", "服务商", "采购", "报价", "多少钱",
+    "选型", "平台推荐", "怎么选", "招标", "有没有做过", "需要平台", "需要系统",
+)
 
 # Hard negative terms to filter out non-B2B discussions (entertainment, gaming, personal streaming, medical, casual chat)
 NEGATIVE_TERMS = (
@@ -81,6 +89,11 @@ NEGATIVE_TERMS = (
     "王者荣耀", "kpl", "折叠屏", "手机", "测评", "数码", "打游戏", "动漫", "游戏",
     "离职", "辞职", "工资只有", "打工人", "破防", "领导恶心", "摆烂", "躺平"
 )
+
+
+def has_content_demand_signal(content: ContentRecord) -> bool:
+    text = f"{content.title}\n{content.text}".casefold()
+    return any(term.casefold() in text for term in CONTENT_DEMAND_TERMS)
 
 
 @dataclass
@@ -279,6 +292,9 @@ def score_lead(
     category_hint: str | None = None,
     recent_days: int = 90,
 ) -> LeadEvidence:
+    now = now or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
     quote = comment.text if comment else content.text
     context = f"{content.title}\n{content.text}".strip()
     signal_text = quote.strip()
@@ -297,6 +313,37 @@ def score_lead(
             reasons=["过滤：缺少明确的视频业务场景或采购/项目意图"],
             evidence_sentences=result.evidence_sentences,
         )
+    normalized_signal = signal_text.casefold()
+    recent = bool(
+        (comment.published_at if comment else content.published_at)
+        and now
+        and now - timedelta(days=max(1, recent_days))
+        <= (comment.published_at if comment else content.published_at)
+        <= now
+    )
+    dimensions = {
+        "business_scene": 2 if has_business_scene else 0,
+        "project_timing": 2 if recent and any(term.casefold() in normalized_signal for term in PROJECT_TERMS) else (1 if any(term.casefold() in normalized_signal for term in PROJECT_TERMS) else 0),
+        "platform_intent": 2 if any(term.casefold() in normalized_signal for term in ("求推荐", "供应商", "服务商", "选型", "采购", "报价", "多少钱", "征集")) else (1 if any(term.casefold() in normalized_signal for term in INQUIRY_TERMS) else 0),
+        "delivery_inquiry": 2 if any(term.casefold() in normalized_signal for term in ("报价", "多少钱", "部署", "私有化", "接口", "SDK", "API", "交付", "实施周期")) else (1 if any(term.casefold() in normalized_signal for term in DELIVERY_INQUIRY_TERMS) else 0),
+        "identity": 0,
+    }
+    if comment:
+        source_type = comment.source_type or "comment"
+        profile_url = comment.author_url or content.creator_url or content.author_url
+        author_id = comment.author_id
+    elif content.platform == "zhihu" and "/answer/" in content.url:
+        source_type = "answer"
+        profile_url = content.creator_url or content.author_url
+        author_id = content.author_id
+    elif content.platform == "zhihu" and "/p/" in content.url:
+        source_type = "post"
+        profile_url = content.creator_url or content.author_url
+        author_id = content.author_id
+    else:
+        source_type = "content"
+        profile_url = content.creator_url or content.author_url
+        author_id = content.author_id
     return LeadEvidence(
         platform=content.platform,
         content_id=content.content_id,
@@ -311,4 +358,13 @@ def score_lead(
         evidence_sentences=result.evidence_sentences,
         outreach="公开答疑，并明确说明POLYV身份",
         content_title=content.title,
+        event_type=classify_event(context),
+        profile_url=profile_url,
+        author_url=profile_url,
+        author_id=author_id,
+        dimensions=dimensions,
+        source_type=source_type,
+        comment_url=comment.comment_url if comment else "",
+        parent_comment_id=comment.parent_comment_id if comment else "",
+        native_comment_id=comment.native_comment_id if comment else "",
     )

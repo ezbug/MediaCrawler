@@ -120,6 +120,44 @@ def test_unrelated_comment_is_filtered_even_when_keyword_has_a_category_hint() -
     ) == []
 
 
+def test_content_demand_is_kept_when_the_post_has_comments() -> None:
+    content = normalize_content(
+        "xhs",
+        {
+            "note_id": "xhs-event-1",
+            "title": "征集全流程年会直播供应商",
+            "desc": "征集全流程年会直播供应商",
+            "note_url": "https://www.xiaohongshu.com/explore/xhs-event-1",
+            "author": "红尘无味",
+            "user_id": "buyer-1",
+            "time": 1788000000,
+        },
+        "企业年会直播 策划 平台",
+    )
+    comment = normalize_comment(
+        "xhs",
+        {
+            "comment_id": "comment-1",
+            "note_id": "xhs-event-1",
+            "content": "来了，直播技术全案供应商",
+            "nickname": "服务商账号",
+        },
+        source_keyword="企业年会直播 策划 平台",
+    )
+    assert content is not None and comment is not None
+
+    leads = analyze_records([content], [comment], now=datetime(2026, 9, 14, tzinfo=timezone.utc))
+
+    assert any(
+        lead.comment_id == ""
+        and lead.user == "红尘无味"
+        and lead.source_type == "content"
+        and lead.author_id == "buyer-1"
+        and lead.event_type == "公司年会"
+        for lead in leads
+    )
+
+
 def test_semantically_duplicate_comments_are_returned_once() -> None:
     content = _content("dy", "dy-1", "企业培训直播方案", "企业培训")
     first = normalize_comment(

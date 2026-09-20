@@ -11,7 +11,7 @@ from .enrichment import choose_enrichment_candidates, run_profile_enrichment
 from .locator import lead_exclusion_reason
 from .models import CommentRecord, ContentRecord, LeadAssessment, LeadEvidence
 from .review import run_codex_review
-from .scoring import SOLUTIONS, classify_category, score_purchase_evidence
+from .scoring import SOLUTIONS, classify_category, has_content_demand_signal, score_purchase_evidence
 from .storage import RadarStore
 
 
@@ -79,7 +79,12 @@ def build_prefilter_leads(
     excluded = tuple(item.casefold() for item in excluded_author_names if item)
     for key, content in content_by_key.items():
         related = comments_by_content.get(key, [])
-        records = [(content, comment) for comment in related] or [(content, None)]
+        # Keep a post-level candidate only when the post contains a direct
+        # demand signal; ordinary posts remain context for comment scoring.
+        records = []
+        if has_content_demand_signal(content):
+            records.append((content, None))
+        records.extend((content, comment) for comment in related)
         for item, comment in records:
             author_name = (comment.author if comment else content.author).casefold()
             if any(token in author_name for token in excluded):
