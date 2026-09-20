@@ -634,6 +634,8 @@ def report_store(config: RadarConfig, run_id: str, output_suffix: str = "", task
     counts["model_passed"] = counts.get("high_value", 0)
     counts["evidence_insufficient"] = counts.get("review", 0)
     counts["task_count"] = len(tasks)
+    counts["status_events_raw"] = store.count_status_events(run_id, distinct=False)
+    counts["status_events_distinct"] = store.count_status_events(run_id, distinct=True)
     from .locator import select_deliverable_leads
 
     counts["locator_verified"] = sum(1 for lead in leads if lead.locator_status == "verified")

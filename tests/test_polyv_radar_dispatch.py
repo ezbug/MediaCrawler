@@ -62,3 +62,24 @@ def test_dispatch_queue_file_requires_target_author(tmp_path: Path) -> None:
     valid = tmp_path / "valid.jsonl"
     write_dispatch_queue(valid, [DispatchItem("dy", "https://example.test", "用户", "回复")])
     assert load_dispatch_queue(valid)[0].author == "用户"
+
+
+def test_dispatch_exit_zero_without_structured_success_is_unverified() -> None:
+    item = DispatchItem("dy", "https://www.douyin.com/video/unverified", "目标用户", "回复内容")
+    results = dispatch_queue(
+        [item], taskspace=12, submit=True, cooldown_seconds=0,
+        runner=lambda command, **_: subprocess.CompletedProcess(command, 0, "done", ""),
+    )
+    assert results[0]["status"] == "submitted_unverified"
+    assert results[0]["lead_status"] == "submitted_unverified"
+
+
+def test_dispatch_enforces_global_five_item_limit() -> None:
+    items = [DispatchItem("dy", f"https://www.douyin.com/video/{index}", f"用户{index}", "回复") for index in range(6)]
+    calls: list[list[str]] = []
+    results = dispatch_queue(
+        items, taskspace=12, submit=False, max_sends=5,
+        runner=lambda command, **_: calls.append(command) or subprocess.CompletedProcess(command, 0, "ok", ""),
+    )
+    assert len(calls) == 5
+    assert len(results) == 5

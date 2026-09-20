@@ -46,16 +46,18 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _copy_safe_assets(source: Path, destination: Path) -> list[dict[str, str]]:
+def _copy_safe_assets(source: Path, destination: Path) -> list[dict[str, object]]:
     destination.mkdir(parents=True, exist_ok=True)
-    copied: list[dict[str, str]] = []
+    copied: list[dict[str, object]] = []
     for name in SAFE_FILES:
         source_file = source / name
         if not source_file.is_file():
             continue
         target = destination / name
-        shutil.copy2(source_file, target)
-        copied.append({"source": str(source_file), "destination": str(target), "sha256": _sha256(target)})
+        reused = target.is_file() and _sha256(target) == _sha256(source_file)
+        if not reused:
+            shutil.copy2(source_file, target)
+        copied.append({"source": str(source_file), "destination": str(target), "sha256": _sha256(target), "reused": reused})
     screenshot_source = source / "screenshots"
     screenshot_destination = destination / "screenshots"
     if screenshot_source.is_dir():
@@ -63,8 +65,10 @@ def _copy_safe_assets(source: Path, destination: Path) -> list[dict[str, str]]:
             relative = source_file.relative_to(screenshot_source)
             target = screenshot_destination / relative
             target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source_file, target)
-            copied.append({"source": str(source_file), "destination": str(target), "sha256": _sha256(target)})
+            reused = target.is_file() and _sha256(target) == _sha256(source_file)
+            if not reused:
+                shutil.copy2(source_file, target)
+            copied.append({"source": str(source_file), "destination": str(target), "sha256": _sha256(target), "reused": reused})
     return copied
 
 
@@ -229,6 +233,7 @@ def import_antigravity(
         "run_id": run_id,
         "rows": len(rows),
         "stage_counts": counts,
+        "distinct_status_events": len(imported_leads),
         "manifest_path": str(manifest_path),
         "submitted_verified": 0,
     }

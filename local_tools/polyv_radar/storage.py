@@ -223,6 +223,7 @@ class RadarStore:
                 actor TEXT NOT NULL DEFAULT 'system',
                 reason TEXT NOT NULL DEFAULT '',
                 metadata TEXT NOT NULL DEFAULT '{}',
+                event_key TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS outreach_queue (
@@ -289,12 +290,48 @@ class RadarStore:
                 "source_type": "TEXT NOT NULL DEFAULT 'comment'",
                 "published_at_raw": "TEXT NOT NULL DEFAULT ''",
             },
+            "lead_status_events": {
+                "event_key": "TEXT NOT NULL DEFAULT ''",
+            },
         }
         for table, columns in migrations.items():
             present = {row[1] for row in self.connection.execute(f"PRAGMA table_info({table})")}
             for name, definition in columns.items():
                 if name not in present:
                     self.connection.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
+        self._backfill_status_event_keys()
+
+    def _backfill_status_event_keys(self) -> None:
+        rows = self.connection.execute(
+            "SELECT event_id, run_id, platform, content_id, comment_id, to_status, metadata FROM lead_status_events WHERE event_key = ''"
+        ).fetchall()
+        for row in rows:
+            try:
+                metadata = json.loads(row["metadata"] or "{}")
+            except json.JSONDecodeError:
+                metadata = {}
+            legacy_id = str(metadata.get("legacy_id", ""))
+            event_key = self._status_event_key(
+                row["run_id"], row["platform"], row["content_id"], row["comment_id"], row["to_status"], legacy_id
+            )
+            self.connection.execute(
+                "UPDATE lead_status_events SET event_key = ? WHERE event_id = ?",
+                (event_key, row["event_id"]),
+            )
+        self.connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_lead_status_events_event_key ON lead_status_events(event_key)"
+        )
+
+    @staticmethod
+    def _status_event_key(
+        run_id: str,
+        platform: str,
+        content_id: str,
+        comment_id: str,
+        to_status: str,
+        legacy_id: str = "",
+    ) -> str:
+        return "|".join(str(value or "") for value in (run_id, platform, content_id, comment_id, to_status, legacy_id))
 
     def upsert_content(self, item: ContentRecord, run_id: str | None = None) -> bool:
         now = datetime.now().astimezone().isoformat()
@@ -694,14 +731,24 @@ class RadarStore:
         reason: str = "",
         metadata: dict | None = None,
     ) -> None:
+        metadata = metadata or {}
+        event_key = self._status_event_key(
+            run_id, platform, content_id, comment_id, to_status, str(metadata.get("legacy_id", ""))
+        )
+        existing = self.connection.execute(
+            "SELECT 1 FROM lead_status_events WHERE event_key = ? LIMIT 1",
+            (event_key,),
+        ).fetchone()
+        if existing:
+            return
         self.connection.execute(
             """INSERT INTO lead_status_events
                (run_id, platform, content_id, comment_id, from_status, to_status,
-                actor, reason, metadata, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                actor, reason, metadata, event_key, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 run_id, platform, content_id, comment_id, from_status, to_status,
-                actor, reason, json.dumps(metadata or {}, ensure_ascii=False),
+                actor, reason, json.dumps(metadata, ensure_ascii=False), event_key,
                 datetime.now().astimezone().isoformat(),
             ),
         )
@@ -718,6 +765,14 @@ class RadarStore:
             params.append(content_id)
         query += " ORDER BY event_id"
         return [dict(row) for row in self.connection.execute(query, params).fetchall()]
+
+    def count_status_events(self, run_id: str, distinct: bool = True) -> int:
+        if distinct:
+            query = """SELECT COUNT(DISTINCT CASE WHEN event_key != '' THEN event_key ELSE CAST(event_id AS TEXT) END)
+                       FROM lead_status_events WHERE run_id = ?"""
+        else:
+            query = "SELECT COUNT(*) FROM lead_status_events WHERE run_id = ?"
+        return int(self.connection.execute(query, (run_id,)).fetchone()[0])
 
     def queue_outreach(self, payload: dict) -> int:
         now = datetime.now().astimezone().isoformat()

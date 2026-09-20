@@ -211,6 +211,8 @@ async def radar_summary(run_id: str | None = None):
         "demand_candidates": sum(item.score >= 4 and item.decision != "reject" for item in leads),
         "locator_verified": sum(item.locator_status == "verified" for item in leads),
         "approved_queue": len([item for item in queue if item.get("lead_status") in {"approved", "queued"}]),
+        "status_events_raw": store.count_status_events(selected_run, distinct=False) if selected_run else 0,
+        "status_events_distinct": store.count_status_events(selected_run, distinct=True) if selected_run else 0,
         "attempts": {str(row["status"]): int(row["count"]) for row in attempts},
     }
     store.close()

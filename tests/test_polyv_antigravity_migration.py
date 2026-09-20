@@ -54,6 +54,15 @@ def test_import_maps_legacy_status_and_excludes_env(tmp_path: Path) -> None:
     assert len(store.load_status_events("legacy-antigravity-session-1")) == 2
     store.close()
 
+    second = import_antigravity(source, tmp_path / "data", "session-1")
+    assert second["rows"] == 2
+    store = RadarStore(tmp_path / "data" / "radar.sqlite3")
+    store.initialize()
+    assert store.count("leads") == 2
+    assert store.count_status_events("legacy-antigravity-session-1", distinct=True) == 2
+    assert store.count_status_events("legacy-antigravity-session-1", distinct=False) == 2
+    store.close()
+
 
 def test_approval_requires_locator_and_url_and_creates_queue(tmp_path: Path) -> None:
     config = RadarConfig(data_root=tmp_path / "data", platforms=["dy"], keywords={})

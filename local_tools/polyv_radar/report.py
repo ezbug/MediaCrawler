@@ -148,6 +148,8 @@ def render_report(
                 f"| Ego Lite 定位通过 | {funnel_stats.get('locator_verified', 0)} |",
                 f"| 可核验需求候选 | {funnel_stats.get('deliverable', 0)} |",
                 f"| 人工确认高价值 | {funnel_stats.get('manual_confirmed', 0)} |",
+                f"| 状态事件原始行 | {funnel_stats.get('status_events_raw', 0)} |",
+                f"| 状态事件去重后 | {funnel_stats.get('status_events_distinct', 0)} |",
             ]
         )
         query_stats = funnel_stats.get("query_stats", [])
