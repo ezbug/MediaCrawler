@@ -101,4 +101,34 @@ export const envApi = {
   check: () => api.get<EnvCheckResult>('/env/check'),
 }
 
+export interface RadarSummary {
+  run_id: string
+  leads: number
+  demand_candidates: number
+  locator_verified: number
+  approved_queue: number
+  status_events_raw: number
+  status_events_distinct: number
+  attempts: Record<string, number>
+}
+
+export interface RadarLead {
+  platform: string
+  user: string
+  quote: string
+  score: number
+  stage: string
+  decision: string
+  url: string
+  comment_url?: string
+  locator_status: string
+  event_type?: string
+  identity_confidence?: string
+}
+
+export const radarApi = {
+  getSummary: (runId?: string) => api.get<RadarSummary>('/radar/summary', { params: runId ? { run_id: runId } : {} }),
+  getLeads: (runId: string, limit = 20) => api.get<{ run_id: string; leads: RadarLead[] }>('/radar/leads', { params: { run_id: runId, limit } }),
+}
+
 export default api
