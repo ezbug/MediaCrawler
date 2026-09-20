@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .conversion_engine import build_conversion_pack
+from .locator import is_deliverable_lead
 from .models import LeadEvidence
 from .status import transition
 from .storage import RadarStore
@@ -40,6 +41,13 @@ def approve_lead(
     if lead.locator_status != "verified":
         store.close()
         raise ValueError("只有 locator_status=verified 的记录才允许审批")
+    old_stage = lead.stage or "discovered"
+    if old_stage == "legacy_unverified":
+        store.close()
+        raise ValueError("历史未验证记录必须先重新完成证据核验和模型复核，不能直接审批")
+    if not is_deliverable_lead(lead, config.min_lead_score):
+        store.close()
+        raise ValueError("线索未通过最终证据门槛：需有真实作者、企业场景和项目/选型证据")
     if taskspace is not None:
         if taskspace <= 0:
             store.close()
@@ -60,10 +68,6 @@ def approve_lead(
     if url_check.get("status") != "ok":
         store.close()
         raise ValueError(f"内容URL未通过可访问性验证: {url_check.get('reason', 'unknown')}")
-    old_stage = lead.stage or "discovered"
-    if old_stage == "legacy_unverified":
-        store.close()
-        raise ValueError("历史未验证记录必须先重新完成证据核验和模型复核，不能直接审批")
     transition(old_stage, "approved", "人工审批且定位、URL均已验证")
     text = draft_text.strip() or build_conversion_pack(lead).reply_text
     approved = LeadEvidence(

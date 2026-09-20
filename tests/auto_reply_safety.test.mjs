@@ -5,6 +5,7 @@ import {
   parseArgs,
   isDuplicateReply,
   assertReplyRateLimit,
+  matchesZhihuTarget,
 } from "/Users/sexpistole111/.codex/skills/polyv-lead-auto-reply/scripts/auto_reply.mjs";
 
 test("CLI defaults to dry-run and parses target fields", () => {
@@ -20,6 +21,17 @@ test("CLI defaults to dry-run and parses target fields", () => {
   assert.equal(args.submit, false);
   assert.equal(args.author, "用户");
   assert.equal(args.taskspace, 8);
+});
+
+test("知乎目标匹配同时要求作者和原文", () => {
+  assert.equal(matchesZhihuTarget("作者 起风了\n中小企业培训数字化选型", {
+    author: "起风了",
+    quote: "中小企业培训数字化选型",
+  }), true);
+  assert.equal(matchesZhihuTarget("作者 起风了\n另一篇文章", {
+    author: "起风了",
+    quote: "中小企业培训数字化选型",
+  }), false);
 });
 
 test("CLI requires an explicit Ego Lite TaskSpace", () => {

@@ -176,3 +176,14 @@ export function parseDisplayedTime(value, now = new Date()) {
   }[unit];
   return milliseconds ? new Date(base.getTime() - amount * milliseconds) : null;
 }
+
+export function extractPublishedTimeText(value) {
+  const lines = String(value || '')
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const absolute = /20\d{2}[-/.]\d{1,2}[-/.]\d{1,2}(?:\s+\d{1,2}:\d{2})?/;
+  const explicit = lines.find((line) => /(?:发表于|发布于|更新于|编辑于)/.test(line) && absolute.test(line));
+  if (explicit) return explicit;
+  return lines.find((line) => absolute.test(line) || /刚刚|刚才|今天|昨天|\d+\s*(秒|分钟|小时|天|周|月|个月|年)前/.test(line)) || '';
+}

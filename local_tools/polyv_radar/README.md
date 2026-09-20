@@ -120,14 +120,15 @@ uv run python -m local_tools.polyv_radar import-antigravity \
 
 uv run python -m local_tools.polyv_radar approve \
   --config local_tools/polyv_radar/pilot.toml \
-  --run-id <run-id> --lead-id <lead-id>
+  --run-id <run-id> --lead-id <lead-id> \
+  --taskspace <current-taskspace>
 
 uv run python -m local_tools.polyv_radar daily \
   --config local_tools/polyv_radar/pilot.toml \
   --taskspace <current-taskspace>
 ```
 
-历史 `pushed`、截图和 OCR 标记统一按 `legacy_unverified` 导入，未重新定位和重新找到发布文本前不会进入发送成功状态。真实发送必须同时显式传入 `--submit` 和用户当前 TaskSpace，私信始终只生成草稿。
+审批会再次通过同一 Ego Lite TaskSpace 验证内容页面；普通 HTTP `403` 不等同于页面失效。作者为平台泛化占位名、内容超过 90 天、或攻略/选型文章缺少第一人称项目证据时，不会进入发送队列。真实发送必须同时显式传入 `--submit` 和用户当前 TaskSpace，私信始终只生成草稿。
 
 最终交付文件位于数据目录的 `reports/`：
 

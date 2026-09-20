@@ -31,18 +31,26 @@ def _preflight() -> dict:
 
 def _approved_items(store: RadarStore, run_id: str) -> tuple[list[dict], list[DispatchItem]]:
     rows = store.load_outreach_queue(run_id, statuses=("approved", "queued"))
-    items = [
-        DispatchItem(
-            platform=str(row["platform"]),
-            url=str(row["target_url"]),
-            author=str(row["target_author"]),
-            text=str(row["draft_text"]),
-            content_id=str(row["content_id"]),
-            comment_id=str(row["comment_id"]),
+    leads = {
+        (lead.platform, lead.content_id, lead.comment_id): lead
+        for lead in store.load_leads(run_id)
+    }
+    items = []
+    for row in rows:
+        if not row.get("target_url") or not row.get("target_author") or not row.get("draft_text"):
+            continue
+        lead = leads.get((str(row["platform"]), str(row["content_id"]), str(row["comment_id"])))
+        items.append(
+            DispatchItem(
+                platform=str(row["platform"]),
+                url=str(row["target_url"]),
+                author=str(row["target_author"]),
+                text=str(row["draft_text"]),
+                content_id=str(row["content_id"]),
+                comment_id=str(row["comment_id"]),
+                quote=lead.quote if lead else "",
+            )
         )
-        for row in rows
-        if row.get("target_url") and row.get("target_author") and row.get("draft_text")
-    ]
     return rows, items
 
 

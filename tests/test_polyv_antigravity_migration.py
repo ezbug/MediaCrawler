@@ -71,7 +71,8 @@ def test_approval_requires_locator_and_url_and_creates_queue(tmp_path: Path) -> 
     lead = LeadEvidence(
         platform="dy", content_id="v1", comment_id="c1", url="https://www.douyin.com/video/1",
         user="用户甲", quote="公司正在找平台报价", category="企业直播", solution="企业直播",
-        score=6, stage="model_reviewed", decision="high_value", locator_status="verified",
+        score=6, dimensions={"business_scene": 2, "project_timing": 2, "platform_intent": 2},
+        stage="model_reviewed", decision="high_value", locator_status="verified",
     )
     store.save_leads("run-1", [lead])
     store.close()
@@ -106,8 +107,10 @@ def test_approval_can_use_ego_url_check(tmp_path: Path, monkeypatch: pytest.Monk
     store.initialize()
     lead = LeadEvidence(
         platform="zhihu", content_id="article-1", comment_id="", url="https://zhuanlan.zhihu.com/p/1",
-        comment_url="https://zhuanlan.zhihu.com/p/1", user="知乎答主", quote="企业培训平台选型",
+        comment_url="https://zhuanlan.zhihu.com/p/1", user="起风了", quote="我们公司需要企业培训平台",
         category="企业培训", solution="企业培训", score=7,
+        content_title="企业培训需求",
+        dimensions={"business_scene": 2, "project_timing": 2, "platform_intent": 2},
         stage="model_reviewed", decision="high_value", locator_status="verified",
     )
     store.save_leads("run-ego", [lead])

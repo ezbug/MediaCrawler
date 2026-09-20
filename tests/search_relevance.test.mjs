@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { cardTitleFromText, filterSearchResults, isExpectedXhsNoteUrl, parseDisplayedTime, searchRelevance } from '../local_tools/polyv_radar/ego_helpers.mjs';
+import { cardTitleFromText, extractPublishedTimeText, filterSearchResults, isExpectedXhsNoteUrl, parseDisplayedTime, searchRelevance } from '../local_tools/polyv_radar/ego_helpers.mjs';
 
 test('extracts the title from a Douyin search card', () => {
   const title = cardTitleFromText('01:14\n57\n神鹏品牌全国经销商大会圆满召开\n@郑州三邦机电（周晓峰）\n3周前');
@@ -76,4 +76,11 @@ test('parses displayed relative comment time instead of crawl time', () => {
   assert.equal(parseDisplayedTime('60天前·北京', now).toISOString(), '2026-07-17T12:00:00.000Z');
   assert.equal(parseDisplayedTime('91天前', now).toISOString(), '2026-06-16T12:00:00.000Z');
   assert.equal(parseDisplayedTime('未知时间', now), null);
+});
+
+test('extracts an explicit page publication or edit date', () => {
+  assert.equal(
+    extractPublishedTimeText('编辑于 2026-04-13 09:38\n企业培训平台选型'),
+    '编辑于 2026-04-13 09:38',
+  );
 });

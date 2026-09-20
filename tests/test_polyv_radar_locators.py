@@ -341,6 +341,27 @@ def test_vendor_and_editorial_accounts_do_not_enter_delivery_list() -> None:
     assert not is_deliverable_lead(lead)
 
 
+def test_generic_zhihu_author_and_editorial_selection_article_do_not_enter_delivery_list() -> None:
+    lead = LeadEvidence(
+        platform="zhihu",
+        content_id="p-2",
+        comment_id="",
+        url="https://zhuanlan.zhihu.com/p/2",
+        user="知乎答主",
+        quote="中小企业培训数字化选型，别再交智商税了",
+        content_title="中小企业培训数字化选型，别再交智商税了",
+        category="企业培训",
+        solution="企业培训方向",
+        score=7,
+        dimensions={"business_scene": 2, "project_timing": 2, "platform_intent": 2, "delivery_inquiry": 0, "identity": 1},
+        source_type="post",
+        locator_status="verified",
+        decision="high_value",
+    )
+
+    assert not is_deliverable_lead(lead)
+
+
 def test_long_tail_wave_does_not_repeat_first_wave_queries() -> None:
     config = RadarConfig(
         data_root=Path("/tmp/polyv-radar-test"),

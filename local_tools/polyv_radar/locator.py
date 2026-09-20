@@ -21,6 +21,7 @@ BUYER_SIGNAL_TERMS = (
     "正在做", "需要", "想找", "用什么", "哪家", "能不能支持",
 )
 EDITORIAL_TERMS = ("攻略", "指南", "避坑", "解析", "案例", "经验分享", "保姆级", "干货")
+GENERIC_AUTHOR_NAMES = ("知乎答主", "知乎用户", "B站创作者", "B站用户", "抖音创作者", "小红书用户")
 
 
 def normalize_locator_text(value: str) -> str:
@@ -206,6 +207,8 @@ def is_deliverable_lead(lead, min_score: int = 4) -> bool:
 
 
 def lead_exclusion_reason(lead) -> str:
+    if normalize_locator_text(lead.user) in {normalize_locator_text(item) for item in GENERIC_AUTHOR_NAMES}:
+        return "作者是平台泛化占位名，无法完成身份核验"
     profile_text = " ".join(
         str(value or "")
         for value in (lead.user, lead.company, lead.role, lead.profile_bio)
@@ -218,8 +221,9 @@ def lead_exclusion_reason(lead) -> str:
     has_buyer_signal = any(term.casefold() in signal_text for term in BUYER_SIGNAL_TERMS)
     if not has_buyer_signal:
         return "原文缺少第一人称需求或明确采购/项目询问"
+    editorial_terms = (*EDITORIAL_TERMS, "选型", "评测", "推荐")
     if lead.source_type in {"post", "answer", "content"} and any(
-        term.casefold() in signal_text for term in EDITORIAL_TERMS
+        term.casefold() in signal_text for term in editorial_terms
     ) and not any(term.casefold() in str(lead.quote or "").casefold() for term in ("我们公司", "我司", "公司要", "公司需要", "企业要", "企业需要")):
         return "内容为攻略、指南或案例型发布，缺少第一人称项目需求"
     return ""

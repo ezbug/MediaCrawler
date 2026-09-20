@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { filterSearchResults, loadUntilStable, parseDisplayedTime, profileIdFromUrl, waitForResults } from './ego_helpers.mjs';
+import { extractPublishedTimeText, filterSearchResults, loadUntilStable, parseDisplayedTime, profileIdFromUrl, waitForResults } from './ego_helpers.mjs';
 
 const args = process.argv.slice(2);
 const keyword = process.env.KEYWORD || args[0] || "员工培训";
@@ -112,25 +112,28 @@ for (let i = 0; i < targetItems.length; i++) {
         author: authorEl ? authorEl.innerText.trim() : "",
         author_url: authorLink?.href || "",
         tags,
-        comments: parsedComments
+        comments: parsedComments,
+        bodyText: document.body?.innerText || "",
       };
     });
 
     const matchId = item.url.match(/\/(?:question\/\d+\/answer|p|question)\/(\d+)/);
     const contentId = matchId ? matchId[1] : `zh_${i}_${Date.now()}`;
 
+    const publishedAtRaw = extractPublishedTimeText(pageData.bodyText);
     const contentRecord = {
       platform: "zhihu",
       content_id: contentId,
       title: pageData.title || item.title || "知乎问答",
       text: (pageData.text || item.text || item.title).slice(0, 1500),
       url: item.url,
-      author: pageData.author || item.author || "知乎答主",
+      author: pageData.author || item.author || "",
       author_url: pageData.author_url || "",
       author_id: profileIdFromUrl(pageData.author_url, "zhihu"),
       tags: pageData.tags,
       source_keyword: keyword,
-      create_time: new Date().toISOString()
+      published_at_raw: publishedAtRaw,
+      create_time: parseDisplayedTime(publishedAtRaw)?.toISOString() || ""
     };
     contents.push(contentRecord);
 

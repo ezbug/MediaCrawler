@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Callable, Iterable
 
 from .conversion_engine import build_conversion_pack
+from .locator import is_deliverable_lead
 from .models import LeadEvidence
 
 
@@ -25,6 +26,7 @@ class DispatchItem:
     text: str
     content_id: str = ""
     comment_id: str = ""
+    quote: str = ""
 
     def to_dict(self) -> dict[str, str]:
         return {
@@ -34,6 +36,7 @@ class DispatchItem:
             "text": self.text,
             "content_id": self.content_id,
             "comment_id": self.comment_id,
+            "quote": self.quote,
         }
 
 
@@ -45,6 +48,7 @@ def _item_from_dict(value: dict) -> DispatchItem:
         text=str(value.get("text", "")).strip(),
         content_id=str(value.get("content_id", "")).strip(),
         comment_id=str(value.get("comment_id", "")).strip(),
+        quote=str(value.get("quote", "")).strip(),
     )
     if item.platform not in SUPPORTED_PLATFORMS:
         raise ValueError(f"不支持的平台：{item.platform or '空值'}")
@@ -79,6 +83,8 @@ def build_dispatch_queue(leads: Iterable[LeadEvidence], selection: str = "manual
         )
         if not accepted or lead.locator_status != "verified" or not lead.user or not lead.url:
             continue
+        if selection == "model" and not is_deliverable_lead(lead):
+            continue
         key = (lead.platform, lead.url, lead.user)
         if key in seen:
             continue
@@ -91,6 +97,7 @@ def build_dispatch_queue(leads: Iterable[LeadEvidence], selection: str = "manual
                 text=build_conversion_pack(lead).reply_text,
                 content_id=lead.content_id,
                 comment_id=lead.comment_id,
+                quote=lead.quote,
             )
         )
     return result
@@ -115,6 +122,8 @@ def build_dispatch_command(item: DispatchItem, taskspace: int, submit: bool) -> 
         "--author", item.author,
         "--text", item.text,
     ]
+    if item.quote:
+        command.extend(["--quote", item.quote])
     if submit:
         command.append("--submit")
     return command
@@ -173,10 +182,6 @@ def dispatch_queue(
         try:
             completed = runner(command, text=True, capture_output=True, check=False, timeout=180)
             structured = _read_structured_result(history_size, item)
-            # The old unit-test runner uses a literal "ok" sentinel. Real runs
-            # must have a reply_history record with verified=true.
-            if structured is None and submit and completed.returncode == 0 and (completed.stdout or "").strip() == "ok":
-                structured = {"verified": True, "submitted": True, "test_sentinel": True}
             if not submit:
                 status = "dry_run" if completed.returncode == 0 and (structured is None or structured.get("draft_verified", True)) else "failed"
             elif completed.returncode != 0:
@@ -187,11 +192,10 @@ def dispatch_queue(
                 status = "submitted_unverified"
             else:
                 status = "submitted_unverified"
-            output_status = "submitted" if structured and structured.get("test_sentinel") else status
             result = {
                 **item.to_dict(),
                 "mode": "submit" if submit else "dry_run",
-                "status": output_status,
+                "status": status,
                 "lead_status": status,
                 "returncode": completed.returncode,
                 "structured_result": structured or {},

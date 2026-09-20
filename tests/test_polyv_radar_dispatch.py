@@ -23,6 +23,13 @@ def _lead(**updates) -> LeadEvidence:
         url="https://www.douyin.com/video/1", user="目标用户", quote="我们公司正在找培训平台",
         category="企业培训", solution="企业培训", score=8,
         stage="model_reviewed", decision="high_value", locator_status="verified",
+        source_type="comment",
+        dimensions={
+            "business_scene": 2,
+            "project_timing": 2,
+            "platform_intent": 2,
+            "delivery_inquiry": 1,
+        },
     )
     for key, value in updates.items():
         setattr(lead, key, value)
@@ -38,6 +45,21 @@ def test_build_dispatch_queue_selects_verified_reviewed_leads_only() -> None:
     assert len(build_dispatch_queue([manual, model, skipped], "model")) == 1
 
 
+def test_model_dispatch_rejects_generic_author_editorial_content() -> None:
+    blocked = _lead(
+        platform="zhihu",
+        content_id="article-1",
+        comment_id="",
+        user="知乎答主",
+        quote="中小企业培训数字化选型，别再交智商税了",
+        content_title="中小企业培训数字化选型，别再交智商税了",
+        source_type="post",
+        dimensions={"business_scene": 2, "project_timing": 2, "platform_intent": 2, "identity": 1},
+    )
+
+    assert build_dispatch_queue([blocked], "model") == []
+
+
 def test_dispatch_queue_uses_ego_wrapper_and_explicit_submit() -> None:
     item = DispatchItem("dy", "https://www.douyin.com/video/1", "目标用户", "测试回复")
     command = build_dispatch_command(item, taskspace=12, submit=True)
@@ -47,10 +69,24 @@ def test_dispatch_queue_uses_ego_wrapper_and_explicit_submit() -> None:
     calls: list[list[str]] = []
     results = dispatch_queue(
         [item], taskspace=12, submit=True, cooldown_seconds=0,
-        runner=lambda command, **_: calls.append(command) or subprocess.CompletedProcess(command, 0, "ok", ""),
+        runner=lambda command, **_: calls.append(command) or subprocess.CompletedProcess(command, 0, "done", ""),
     )
     assert calls == [command]
-    assert results[0]["status"] == "submitted"
+    assert results[0]["status"] == "submitted_unverified"
+
+
+def test_dispatch_queue_preserves_target_quote_for_zhihu_matching() -> None:
+    item = DispatchItem(
+        "zhihu",
+        "https://zhuanlan.zhihu.com/p/1",
+        "起风了",
+        "测试回复",
+        quote="中小企业培训数字化选型",
+    )
+    command = build_dispatch_command(item, taskspace=8, submit=True)
+
+    assert "--quote" in command
+    assert "中小企业培训数字化选型" in command
 
 
 def test_dispatch_queue_file_requires_target_author(tmp_path: Path) -> None:
