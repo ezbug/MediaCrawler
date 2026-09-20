@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import {
   parseArgs,
   isDuplicateReply,
@@ -27,6 +28,15 @@ test("CLI requires an explicit Ego Lite TaskSpace", () => {
     "--url", "https://www.douyin.com/video/1",
     "--text", "测试回复",
   ]), /taskspace/);
+});
+
+test("auto-reply reuses the provided TaskSpace without takeover", async () => {
+  const source = await readFile(
+    "/Users/sexpistole111/.codex/skills/polyv-lead-auto-reply/scripts/auto_reply.mjs",
+    "utf8",
+  );
+  assert.match(source, /taskSpace\(taskspace\)/);
+  assert.doesNotMatch(source, /takeOverTaskSpace/);
 });
 
 test("duplicate replies are rejected by target and text key", () => {
