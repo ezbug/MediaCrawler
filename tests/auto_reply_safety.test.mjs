@@ -67,7 +67,7 @@ test("duplicate replies are rejected by target and text key", () => {
   }), true);
 });
 
-test("rate limit enforces cooldown and daily cap", () => {
+test("rate limit enforces cooldown while allowing an explicit optional cap", () => {
   const now = new Date("2026-09-14T12:00:00.000Z");
   const recent = [{ timestamp: "2026-09-14T11:59:45.000Z", platform: "dy" }];
   assert.throws(() => assertReplyRateLimit(recent, "dy", now), /30秒/);
@@ -76,5 +76,6 @@ test("rate limit enforces cooldown and daily cap", () => {
     timestamp: `2026-09-14T0${index}:00:00.000Z`,
     platform: "dy",
   }));
-  assert.throws(() => assertReplyRateLimit(daily, "dy", now), /每日最多5条/);
+  assert.doesNotThrow(() => assertReplyRateLimit(daily, "dy", now));
+  assert.throws(() => assertReplyRateLimit(daily, "dy", now, { dailyLimit: 5 }), /每日最多5条/);
 });

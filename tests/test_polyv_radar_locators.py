@@ -198,6 +198,30 @@ def test_ego_locator_runner_uses_ego_browser_only(tmp_path: Path) -> None:
     assert results["run-1:dy:video-1:comment-1"]["status"] == "verified"
 
 
+def test_ego_locator_runner_keeps_partial_results_on_process_failure(tmp_path: Path) -> None:
+    def failed_runner(command, **kwargs):
+        (tmp_path / "locator-output.json").write_text(
+            '{"results":[{"run_id":"run-1","platform":"dy","content_id":"video-1",'
+            '"comment_id":"comment-1","status":"not_found","reason":"页面中未找到对应作者和原话"}]}',
+            encoding="utf-8",
+        )
+        return type("Completed", (), {"returncode": 1, "stdout": "", "stderr": "browser stopped"})()
+
+    results, log = run_ego_locator(
+        [
+            {"run_id": "run-1", "platform": "dy", "content_id": "video-1", "comment_id": "comment-1"},
+            {"run_id": "run-1", "platform": "dy", "content_id": "video-2", "comment_id": "comment-2"},
+        ],
+        tmp_path,
+        tmp_path,
+        runner=failed_runner,
+    )
+
+    assert "browser stopped" in log
+    assert results["run-1:dy:video-1:comment-1"]["status"] == "not_found"
+    assert results["run-1:dy:video-2:comment-2"]["status"] == "error"
+
+
 def test_deliverable_leads_require_verified_locator_and_unique_user() -> None:
     def lead(index: int, author_id: str, status: str = "verified") -> LeadEvidence:
         return LeadEvidence(
@@ -244,7 +268,20 @@ def test_locate_store_writes_ego_result_back_to_the_same_lead(tmp_path: Path) ->
         decision="review",
         author_id="author-1",
     )
-    store.save_leads("run-1", [candidate])
+    preserved = LeadEvidence(
+        platform="dy",
+        content_id="video-2",
+        comment_id="comment-2",
+        url="https://www.douyin.com/video/video-2",
+        user="乙",
+        quote="普通技术讨论",
+        category="未分类",
+        solution="视频云方向",
+        score=0,
+        decision="reject",
+        locator_status="pending",
+    )
+    store.save_leads("run-1", [candidate, preserved])
     store.close()
 
     def fake_runner(command, **kwargs):
@@ -263,9 +300,11 @@ def test_locate_store_writes_ego_result_back_to_the_same_lead(tmp_path: Path) ->
     assert result["verified"] == 1
     store = RadarStore(config.data_root / "radar.sqlite3")
     store.initialize()
-    saved = store.load_leads("run-1")[0]
-    assert saved.locator_status == "verified"
-    assert saved.locator_method == "author_quote"
+    saved = store.load_leads("run-1")
+    updated = next(lead for lead in saved if lead.comment_id == "comment-1")
+    assert updated.locator_status == "verified"
+    assert updated.locator_method == "author_quote"
+    assert any(lead.comment_id == "comment-2" and lead.decision == "reject" for lead in saved)
     assert store.load_comment_locators("run-1")[0]["status"] == "verified"
     store.close()
 

@@ -162,16 +162,17 @@ def dispatch_queue(
     items: Iterable[DispatchItem],
     taskspace: int,
     submit: bool = False,
-    max_sends: int = 5,
+    max_sends: int | None = None,
     cooldown_seconds: float = 30,
     runner: Callable[..., subprocess.CompletedProcess] = subprocess.run,
     sleeper: Callable[[float], None] = time.sleep,
 ) -> list[dict]:
-    if max_sends <= 0:
+    if max_sends is not None and max_sends <= 0:
         raise ValueError("max_sends 必须大于 0")
     results: list[dict] = []
     last_sent_at: dict[str, float] = {}
-    for item in list(items)[:max_sends]:
+    selected_items = list(items) if max_sends is None else list(items)[:max_sends]
+    for item in selected_items:
         previous = last_sent_at.get(item.platform)
         if submit and previous is not None:
             wait_for = cooldown_seconds - (time.monotonic() - previous)

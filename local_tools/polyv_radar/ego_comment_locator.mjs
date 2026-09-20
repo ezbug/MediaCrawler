@@ -172,7 +172,13 @@ function matchComment(comments, candidate) {
   return { status: 'not_found', reason: '页面中未找到对应作者和原话' };
 }
 
+await fs.mkdir(path.dirname(outputPath), { recursive: true });
 const results = [];
+const pageCache = new Map();
+
+async function writePartialResults() {
+  await fs.writeFile(outputPath, JSON.stringify({ results }, null, 2), 'utf-8');
+}
 for (const candidate of input.candidates || []) {
   const result = {
     ...candidate,
@@ -183,16 +189,46 @@ for (const candidate of input.candidates || []) {
     matched_author: '',
     matched_quote: '',
     reason: '',
+    reply_evidence_status: 'not_checked',
+    reply_evidence_reason: '',
     verified_at: new Date().toISOString(),
     screenshot_path: '',
   };
   try {
-    await page.goto(candidate.content_url);
-    await page.waitForLoadState({ timeout: 15000 }).catch(() => {});
-    await page.waitForTimeout(700);
-    result.final_url = await page.url();
-    const initialState = await readPage(candidate.platform);
-    const [pageStatus, pageReason] = classifyPage(initialState, result.final_url);
+    const cacheKey = `${candidate.platform}\n${candidate.content_url}`;
+    let pageState = pageCache.get(cacheKey);
+    if (!pageState) {
+      await page.goto(candidate.content_url, { timeout: 30000 });
+      await page.waitForLoadState({ timeout: 15000 }).catch(() => {});
+      await page.waitForTimeout(700);
+      const finalUrl = await page.url();
+      const initialState = await readPage(candidate.platform);
+      const [pageStatus, pageReason] = classifyPage(initialState, finalUrl);
+      pageState = { finalUrl, initialState, pageStatus, pageReason, comments: [], commentsCollected: false };
+      if (pageStatus === 'ok' && !['post', 'answer', 'content'].includes(candidate.source_type)) {
+        pageState.comments = await collectComments(candidate.platform, 10);
+        pageState.commentsCollected = true;
+      }
+      pageCache.set(cacheKey, pageState);
+    }
+    if (pageState.pageStatus === 'ok' && !pageState.commentsCollected && !['post', 'answer', 'content'].includes(candidate.source_type)) {
+      pageState.comments = await collectComments(candidate.platform, 10);
+      pageState.commentsCollected = true;
+    }
+    result.final_url = pageState.finalUrl;
+    const { initialState, pageStatus, pageReason } = pageState;
+    const expectedReply = normalize(candidate.reply_text);
+    if (expectedReply) {
+      const replyFound = normalize(initialState.body).includes(expectedReply)
+        || pageState.comments.some((comment) => normalize(comment.text) === expectedReply);
+      result.reply_evidence_status = replyFound ? 'text_found' : 'text_not_found';
+      result.reply_evidence_reason = replyFound
+        ? '页面可读内容中找到完整自动回复文本'
+        : '页面可读内容和已加载评论中未找到完整自动回复文本';
+    } else {
+      result.reply_evidence_status = 'no_reply_text';
+      result.reply_evidence_reason = '候选没有可核验的自动回复文本';
+    }
     if (pageStatus !== 'ok') {
       result.status = pageStatus;
       result.reason = pageReason;
@@ -211,8 +247,7 @@ for (const candidate of input.candidates || []) {
         result.reason = '内容页面和原文片段可访问';
       }
     } else {
-      const comments = await collectComments(candidate.platform, 10);
-      const match = matchComment(comments, candidate);
+      const match = matchComment(pageState.comments, candidate);
       result.status = match.status;
       result.locator_method = match.method || '';
       result.matched_author = match.comment?.author || '';
@@ -232,8 +267,8 @@ for (const candidate of input.candidates || []) {
     try { result.final_url = await page.url(); } catch (_) {}
   }
   results.push(result);
+  await writePartialResults();
 }
 
-await fs.mkdir(path.dirname(outputPath), { recursive: true });
-await fs.writeFile(outputPath, JSON.stringify({ results }, null, 2), 'utf-8');
+await writePartialResults();
 console.log(`[CommentLocator] checked ${results.length} candidates in Ego Lite TaskSpace ${taskspaceId}`);

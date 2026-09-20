@@ -92,6 +92,11 @@ def render_report(
         "| --- | --- | ---: | ---: | ---: | ---: |",
     ]
     for platform, status in platform_status.items():
+        if not isinstance(status, dict):
+            lines.append(
+                f"| {_cell(platform)} | {_cell(status)} | - | - | - | - |"
+            )
+            continue
         lines.append(
             f"| {_cell(platform)} | {_cell(status.get('status'))} | "
             f"{status.get('contents', 0)} | {status.get('comments', 0)} | "

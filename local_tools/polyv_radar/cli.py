@@ -17,6 +17,7 @@ from .storage import RadarStore
 from .antigravity_import import import_antigravity
 from .approval import approve_lead
 from .daily import run_daily
+from .cleaning import clean_store
 
 
 def apply_collect_overrides(config, args):
@@ -96,6 +97,11 @@ def build_parser() -> argparse.ArgumentParser:
     locate_parser.add_argument("--run-id", required=True)
     locate_parser.add_argument("--taskspace", type=int, required=True)
     locate_parser.add_argument("--max-candidates", type=int, default=80)
+    clean_parser = subparsers.add_parser("clean")
+    clean_parser.add_argument("--config", required=True)
+    clean_parser.add_argument("--run-id", required=True)
+    clean_parser.add_argument("--reply-evidence")
+    clean_parser.add_argument("--output-suffix", default="send-cleaned")
     hunt_parser = subparsers.add_parser("hunt")
     hunt_parser.add_argument("--config", required=True)
     hunt_parser.add_argument("--repo-root", default=str(Path(__file__).resolve().parents[2]))
@@ -116,7 +122,7 @@ def build_parser() -> argparse.ArgumentParser:
     dispatch_parser.add_argument("--queue", required=True)
     dispatch_parser.add_argument("--taskspace", type=int, required=True)
     dispatch_parser.add_argument("--submit", action="store_true", help="真实发送；省略时仅执行 Dry-Run")
-    dispatch_parser.add_argument("--max-sends", type=int, default=5)
+    dispatch_parser.add_argument("--max-sends", type=int, default=0, help="最多发送条数；0表示不设任务条数上限")
     dispatch_parser.add_argument("--cooldown-seconds", type=float, default=30)
     dispatch_parser.add_argument("--output")
     import_parser = subparsers.add_parser("import-antigravity")
@@ -211,6 +217,13 @@ def main(argv: list[str] | None = None) -> int:
             "locator_checks_path": str(config.data_root / "reports" / f"{args.run_id}-locator-checks.json"),
             **result,
         }
+    elif args.command == "clean":
+        payload = clean_store(
+            config,
+            args.run_id,
+            reply_evidence_path=Path(args.reply_evidence) if args.reply_evidence else None,
+            output_suffix=args.output_suffix,
+        )
     elif args.command == "hunt":
         payload = run_hunt(
             config,
@@ -261,7 +274,7 @@ def main(argv: list[str] | None = None) -> int:
             items,
             taskspace=args.taskspace,
             submit=args.submit,
-            max_sends=args.max_sends,
+            max_sends=None if args.max_sends == 0 else args.max_sends,
             cooldown_seconds=args.cooldown_seconds,
         )
         output = Path(args.output) if args.output else config.data_root / "dispatch" / f"dispatch-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.jsonl"

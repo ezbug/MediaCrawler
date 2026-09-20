@@ -89,6 +89,15 @@ uv run python -m local_tools.polyv_radar validate-urls \
 
 `locate` 和 `hunt` 的页面访问、评论展开、主页调查与链接校验全部通过用户显式提供的 Ego Lite TaskSpace 完成，不固定会话编号。默认只读，不发表评论或发送私信；评论没有平台直链时，报告会同时保留内容 URL、作者、完整原话和父评论关系。
 
+对历史自动回复批次，可使用 `clean` 生成逐条发送证据账本。它只把当前回复历史中同时满足 live、submitted、verified 且截图存在的记录标为已验证发送；旧 `pushed`、旧截图和旧日志会单独保留为未验证证据。
+
+```bash
+uv run python -m local_tools.polyv_radar clean \
+  --config local_tools/polyv_radar/pilot.toml \
+  --run-id <run-id> \
+  --reply-evidence <reply-evidence.json>
+```
+
 对已有批次执行评论定位和报告校验：
 
 ```bash

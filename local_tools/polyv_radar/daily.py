@@ -85,7 +85,7 @@ def run_daily(
     queue_rows, items = _approved_items(store, current_run_id)
     dispatch_results: list[dict] = []
     if submit_approved and items:
-        dispatch_results = dispatch_queue(items, taskspace=taskspace, submit=True, max_sends=5, cooldown_seconds=30)
+        dispatch_results = dispatch_queue(items, taskspace=taskspace, submit=True, max_sends=None, cooldown_seconds=30)
         for row, result in zip(queue_rows, dispatch_results):
             status = str(result.get("lead_status", result.get("status", "failed")))
             if status == "submitted_verified":

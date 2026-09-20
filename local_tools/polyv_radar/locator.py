@@ -106,6 +106,39 @@ def _lead_candidate_key(run_id: str, lead) -> str:
     return _candidate_key({"run_id": run_id, **lead.to_dict()})
 
 
+def _read_locator_results(output_path: Path) -> tuple[list[dict], str]:
+    if not output_path.exists():
+        return [], ""
+    try:
+        payload = json.loads(output_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return [], f"Ego Lite定位结果解析失败: {exc}"
+    results = payload.get("results", [])
+    if not isinstance(results, list):
+        return [], "Ego Lite定位结果格式无效"
+    return [item for item in results if isinstance(item, dict)], ""
+
+
+def _merge_locator_results(
+    rows: list[dict], checked_rows: list[dict], reason: str = ""
+) -> tuple[dict[str, dict], str]:
+    checked = {_candidate_key(item): item for item in checked_rows}
+    fallback_reason = reason or "Ego Lite未返回该候选结果"
+    merged = {
+        _candidate_key(row): checked.get(
+            _candidate_key(row),
+            {
+                **row,
+                "status": "error",
+                "reason": fallback_reason,
+                "verified_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        for row in rows
+    }
+    return merged, reason
+
+
 def run_ego_locator(
     candidates: Iterable[dict],
     repo_root: Path,
@@ -144,48 +177,22 @@ def run_ego_locator(
             timeout=timeout,
             cwd=repo_root,
         )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        log = str(exc)
-        return {
-            _candidate_key(row): {
-                **row,
-                "status": "error",
-                "reason": f"Ego Lite定位失败: {log}",
-                "verified_at": datetime.now(timezone.utc).isoformat(),
-            }
-            for row in rows
-        }, log
-    if result.returncode != 0 or not output_path.exists():
-        log = (result.stderr or result.stdout or "Ego Lite定位没有生成结果").strip()[-1000:]
-        return {
-            _candidate_key(row): {
-                **row,
-                "status": "error",
-                "reason": f"Ego Lite定位失败: {log}",
-                "verified_at": datetime.now(timezone.utc).isoformat(),
-            }
-            for row in rows
-        }, log
-    log = ""
-    try:
-        payload = json.loads(output_path.read_text(encoding="utf-8"))
-        results = payload.get("results", [])
-    except (OSError, json.JSONDecodeError) as exc:
-        log = f"Ego Lite定位结果解析失败: {exc}"
-        results = []
-    checked = {_candidate_key(item): item for item in results if isinstance(item, dict)}
-    return {
-        _candidate_key(row): checked.get(
-            _candidate_key(row),
-            {
-                **row,
-                "status": "error",
-                "reason": "Ego Lite未返回该候选结果",
-                "verified_at": datetime.now(timezone.utc).isoformat(),
-            },
+    except subprocess.TimeoutExpired as exc:
+        checked_rows, parse_log = _read_locator_results(output_path)
+        return _merge_locator_results(
+            rows,
+            checked_rows,
+            parse_log or f"Ego Lite定位超时（已保留已完成结果）: {exc}",
         )
-        for row in rows
-    }, log
+    except OSError as exc:
+        return _merge_locator_results(rows, [], f"Ego Lite定位失败: {exc}")
+    results, parse_log = _read_locator_results(output_path)
+    process_log = (result.stderr or result.stdout or "").strip()[-1000:]
+    if result.returncode != 0:
+        process_log = process_log or "Ego Lite定位进程异常退出"
+        if parse_log:
+            process_log = f"{process_log}; {parse_log}"
+    return _merge_locator_results(rows, results, process_log if result.returncode != 0 else parse_log)
 
 
 def is_deliverable_lead(lead, min_score: int = 4) -> bool:
@@ -272,7 +279,8 @@ def locate_store(
 
     store = RadarStore(config.data_root / "radar.sqlite3")
     store.initialize()
-    leads = [lead for lead in store.load_leads(run_id) if lead.score >= config.min_lead_score and lead.decision != "reject"][:max_candidates]
+    all_leads = store.load_leads(run_id)
+    leads = [lead for lead in all_leads if lead.score >= config.min_lead_score and lead.decision != "reject"][:max_candidates]
     candidates = [
         {
             "run_id": run_id,
@@ -339,7 +347,17 @@ def locate_store(
                 "verified_at": verified_at,
             }
         )
-    store.save_leads(run_id, updated)
+    updated_by_key = {
+        (lead.platform, lead.content_id, lead.comment_id): lead
+        for lead in updated
+    }
+    store.save_leads(
+        run_id,
+        [
+            updated_by_key.get((lead.platform, lead.content_id, lead.comment_id), lead)
+            for lead in all_leads
+        ],
+    )
     store.close()
     counts: dict[str, int | str] = {"candidates": len(leads), "verified": 0, "not_found": 0, "blocked": 0, "ambiguous": 0, "error": 0}
     for lead in updated:

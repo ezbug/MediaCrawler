@@ -584,7 +584,9 @@ def report_store(config: RadarConfig, run_id: str, output_suffix: str = "", task
     failures = {
         key: "未抓取到有效内容或需要登录"
         for key, value in platform_status.items()
-        if value.get("contents", 0) == 0 and value.get("tasks", 0)
+        if isinstance(value, dict)
+        and value.get("contents", 0) == 0
+        and value.get("tasks", 0)
     }
     lead_author_keys = {(lead.platform, lead.author_id) for lead in leads if lead.author_id}
     profile_rows = store.load_profiles(run_id)
@@ -604,6 +606,8 @@ def report_store(config: RadarConfig, run_id: str, output_suffix: str = "", task
     raw_contents = sum(int(item.get("raw_contents", 0) or 0) for item in tasks)
     raw_comments = sum(int(item.get("raw_comments", 0) or 0) for item in tasks)
     for platform, status in platform_status.items():
+        if not isinstance(status, dict):
+            continue
         platform_tasks = [item for item in tasks if item.get("platform") == platform]
         duration = max((float(item.get("duration_seconds", 0) or 0) for item in platform_tasks), default=0.0)
         if not duration and wall_seconds and len(platform_status) == 1:
