@@ -234,6 +234,9 @@ def test_conversion_pack_marks_case_as_unverified_and_avoids_numeric_claims() ->
     assert pack.recommended_materials["case"].startswith("[待核实]")
     assert "%" not in pack.video_hook
     assert "90%" not in pack.video_topic
+    assert "多 CDN" not in pack.reply_text
+    assert "WebRTC" not in pack.reply_text
+    assert "我们公司需要培训直播平台，多少钱？" in pack.reply_text
 
 
 def _lead(score: int):

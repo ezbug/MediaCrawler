@@ -34,6 +34,16 @@ test("知乎目标匹配同时要求作者和原文", () => {
   }), false);
 });
 
+test("知乎回复脚本会先定位目标回答再打开评论框", async () => {
+  const source = await readFile(
+    "/Users/sexpistole111/.codex/skills/polyv-lead-auto-reply/scripts/auto_reply.mjs",
+    "utf8",
+  );
+  assert.match(source, /ContentItem\.AnswerItem/);
+  assert.match(source, /添加评论/);
+  assert.match(source, /data-zop/);
+});
+
 test("CLI requires an explicit Ego Lite TaskSpace", () => {
   assert.throws(() => parseArgs([
     "--platform", "dy",
