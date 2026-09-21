@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { filterSearchResults, isExpectedXhsNoteUrl, loadUntilStable, parseDisplayedTime, profileIdFromUrl, waitForResults } from './ego_helpers.mjs';
+import { filterSearchResults, isExpectedXhsNoteUrl, loadUntilStable, parseDisplayedTime, profileIdFromUrl, waitForResults, xhsDetailReady } from './ego_helpers.mjs';
 
 // Support env vars or CLI arguments
 const args = process.argv.slice(2);
@@ -70,30 +70,33 @@ for (let i = 0; i < targetNotes.length; i++) {
   const n = targetNotes[i];
   console.log(`[XhsCrawler] (${i + 1}/${targetNotes.length}) Fetching note: ${n.id} -> ${n.url}`);
   try {
-    const previousAuthorHref = await page.evaluate(() =>
-      document.querySelector('#noteContainer .author-container a[href*="/user/profile/"], #noteContainer .author-wrapper a[href*="/user/profile/"]')?.href || ''
-    );
     await page.goto(n.url);
     await page.waitForLoadState({ timeout: 15000 }).catch(() => {});
-    await page.waitForFunction(
-      (expected) => {
-        const title = document.querySelector('#detail-title')?.innerText?.trim() || '';
-        const authorHref = document.querySelector('#noteContainer .author-container a[href*="/user/profile/"], #noteContainer .author-wrapper a[href*="/user/profile/"]')?.href || '';
-        const idInPath = window.location.pathname.endsWith(`/${expected.id}`);
-        const titleMatches = title === expected.title || title.includes(expected.title) || expected.title.includes(title);
-        const authorChanged = !expected.previousAuthorHref || authorHref !== expected.previousAuthorHref;
-        return idInPath && title && titleMatches && authorHref && authorChanged;
-      },
-      { id: n.id, title: n.title, previousAuthorHref },
-      { timeout: 15000 },
-    ).catch(() => {});
-    await page.waitForSelector('#noteContainer .author-container a[href*="/user/profile/"], #noteContainer .author-wrapper a[href*="/user/profile/"], #noteContainer .name', { timeout: 15000 }).catch(() => {});
+    const detailDeadline = Date.now() + 15000;
+    let detailReady = false;
+    while (Date.now() < detailDeadline) {
+      const state = await page.evaluate(() => ({
+        path: window.location.pathname,
+        title: document.querySelector('#detail-title')?.innerText?.trim() || '',
+        authorHref: document.querySelector('#noteContainer .author-container a[href*="/user/profile/"], #noteContainer .author-wrapper a[href*="/user/profile/"]')?.href || '',
+      }));
+      if (xhsDetailReady(state, n)) {
+        detailReady = true;
+        break;
+      }
+      await page.waitForTimeout(250);
+    }
+    if (!detailReady) {
+      console.error(`  -> Detail page did not become ready for ${n.id}; skipped.`);
+      continue;
+    }
+    await page.waitForSelector('#noteContainer .author-container a[href*="/user/profile/"], #noteContainer .author-wrapper a[href*="/user/profile/"], #noteContainer .name', { timeout: 5000 }).catch(() => {});
     const detailUrl = await page.url();
     if (!isExpectedXhsNoteUrl(detailUrl, n.id)) {
       console.error(`  -> Skipped redirected note ${n.id}; final URL: ${detailUrl}`);
       continue;
     }
-    await loadUntilStable(page, '.parent-comment, .comment-item', maxComments);
+    await loadUntilStable(page, '.parent-comment, .comment-item', maxComments, 2, 14, 300);
 
     const pageData = await page.evaluate(() => {
       const titleEl = document.querySelector('#detail-title');

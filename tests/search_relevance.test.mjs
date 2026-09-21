@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { cardTitleFromText, extractPublishedTimeText, filterSearchResults, isExpectedXhsNoteUrl, isGenericPlatformRedirect, parseDisplayedTime, requiresSearchLogin, searchRelevance } from '../local_tools/polyv_radar/ego_helpers.mjs';
+import { cardTitleFromText, extractPublishedTimeText, filterSearchResults, isExpectedXhsNoteUrl, isGenericPlatformRedirect, normalizeZhihuCommentLines, parseDisplayedTime, requiresSearchLogin, searchRelevance, xhsDetailReady } from '../local_tools/polyv_radar/ego_helpers.mjs';
 
 test('extracts the title from a Douyin search card', () => {
   const title = cardTitleFromText('01:14\n57\n神鹏品牌全国经销商大会圆满召开\n@郑州三邦机电（周晓峰）\n3周前');
@@ -105,5 +105,22 @@ test('extracts an explicit page publication or edit date', () => {
   assert.equal(
     extractPublishedTimeText('编辑于 2026-04-13 09:38\n企业培训平台选型'),
     '编辑于 2026-04-13 09:38',
+  );
+});
+
+test('知乎评论文本从动态评论块中保留完整原话', () => {
+  assert.equal(
+    normalizeZhihuCommentLines(['lumina', '公司培训课程被录屏了，想问有什么平台能处理？', '01-26 · 美国', '回复', '喜欢'], 'lumina'),
+    '公司培训课程被录屏了，想问有什么平台能处理？',
+  );
+});
+
+test('小红书详情就绪不要求作者必须变化', () => {
+  assert.equal(
+    xhsDetailReady(
+      { path: '/explore/note-2', title: '新品发布会直播', authorHref: 'https://www.xiaohongshu.com/user/profile/same' },
+      { id: 'note-2', title: '新品发布会直播', previousAuthorHref: 'https://www.xiaohongshu.com/user/profile/same' },
+    ),
+    true,
   );
 });

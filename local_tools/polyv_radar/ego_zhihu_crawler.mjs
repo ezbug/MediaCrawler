@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { extractPublishedTimeText, filterSearchResults, loadUntilStable, parseDisplayedTime, profileIdFromUrl, waitForResults } from './ego_helpers.mjs';
+import { extractPublishedTimeText, filterSearchResults, normalizeZhihuCommentLines, parseDisplayedTime, profileIdFromUrl, waitForResults } from './ego_helpers.mjs';
 
 const args = process.argv.slice(2);
 const keyword = process.env.KEYWORD || args[0] || "员工培训";
@@ -15,6 +15,48 @@ if (!Number.isInteger(taskspaceId) || taskspaceId <= 0) throw new Error('需要�
 const task = await taskSpace(taskspaceId);
 
 const page = task.page("p1");
+
+async function openZhihuComments(page) {
+  const opened = await page.evaluate(() => {
+    const buttons = Array.from(document.querySelectorAll('button'));
+    const target = buttons.find((button) => {
+      const text = (button.innerText || '').replace(/\s+/g, ' ');
+      return /\d+\s*条评论/.test(text);
+    }) || buttons.find((button) => /评论/.test(button.innerText || button.getAttribute('aria-label') || ''));
+    if (!target) return false;
+    target.click();
+    return true;
+  });
+  if (opened) await page.waitForTimeout(300);
+  return opened;
+}
+
+async function loadZhihuComments(page, maxComments) {
+  let previous = 0;
+  let stable = 0;
+  for (let round = 0; round < 12 && stable < 2; round += 1) {
+    const count = await page.evaluate(() => {
+      const seen = new Set();
+      for (const link of Array.from(document.querySelectorAll('a[href*="/people/"]'))) {
+        let node = link.parentElement;
+        for (let depth = 0; node && depth < 8; depth += 1, node = node.parentElement) {
+          const text = (node.innerText || '').trim();
+          const profileCount = (node.matches('a[href*="/people/"]') ? 1 : 0) + node.querySelectorAll('a[href*="/people/"]').length;
+          if (profileCount === 1 && text.includes('回复') && text.length > 20 && text.length < 2200) {
+            seen.add(text);
+            break;
+          }
+        }
+      }
+      return seen.size;
+    });
+    if (count >= maxComments) break;
+    stable = count === previous ? stable + 1 : 0;
+    previous = count;
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await page.waitForTimeout(300);
+  }
+}
 
 console.log(`[ZhihuCrawler] Searching Zhihu for "${keyword}" (max ${maxContents} items)...`);
 const searchUrl = `https://www.zhihu.com/search?type=content&q=${encodeURIComponent(keyword)}`;
@@ -69,7 +111,8 @@ for (let i = 0; i < targetItems.length; i++) {
   try {
     await page.goto(item.url);
     await page.waitForLoadState({ timeout: 15000 }).catch(() => {});
-    await loadUntilStable(page, '.CommentItemV2, .CommentItem, [class*="CommentItem"]', maxComments);
+    await openZhihuComments(page);
+    await loadZhihuComments(page, maxComments);
 
     const pageData = await page.evaluate(() => {
       const titleEl = document.querySelector('h1, .QuestionHeader-title');
@@ -83,33 +126,46 @@ for (let i = 0; i < targetItems.length; i++) {
       const authorEl = authorLink || document.querySelector('.AuthorInfo-name');
       const tags = Array.from(document.querySelectorAll('.QuestionHeader-topics .Tag, a[href*="/topic/"]')).map(a => a.innerText.trim());
 
-      // Try reading comments if already open
-      const commentNodes = document.querySelectorAll('.CommentItemV2, .CommentItem, [class*="CommentItem"]');
-      const parsedComments = [];
-      for (let idx = 0; idx < commentNodes.length; idx++) {
-        const el = commentNodes[idx];
-        const authorLink = el.querySelector('a[href*="/people/"]');
-        const author = authorLink?.innerText?.trim() || el.querySelector('.UserLink-link, [class*="author"]')?.innerText?.trim() || "知乎用户";
-        const text = el.querySelector('.CommentItemV2-content, [class*="content"]')?.innerText?.trim() || "";
-        if (text) {
-          const lines = (el.innerText || "").split('\n').map(line => line.trim()).filter(Boolean);
-          const publishedAtRaw = [...lines].reverse().find(line => /刚刚|刚才|今天|昨天|\d+\s*(秒|分钟|小时|天|周|月|个月|年)前|20\d{2}[-/.]\d{1,2}[-/.]\d{1,2}/.test(line)) || "";
-          const nativeCommentId = el.getAttribute('data-comment-id') || el.getAttribute('data-id') || "";
-          const nativeParentId = el.getAttribute('data-parent-id') || el.getAttribute('data-root-id') || "";
-          const commentLink = el.querySelector('a[href*="comment"], a[href*="#"]');
-          parsedComments.push({
-            comment_id: `zh_cm_${idx}_${Date.now()}`,
+      const rawComments = [];
+      const seenComments = new Set();
+      const readAttr = (node, name) => {
+        let current = node;
+        for (let depth = 0; current && depth < 8; depth += 1, current = current.parentElement) {
+          const value = current.getAttribute?.(name);
+          if (value) return value;
+        }
+        return '';
+      };
+      for (const profileLink of Array.from(document.querySelectorAll('a[href*="/people/"]'))) {
+        const href = profileLink.getAttribute('href') || '';
+        if (/\/people\/[^/?#]+\/(answers|posts|followers|following|questions|collections)(?:[/?#]|$)/.test(href)) continue;
+        let block = profileLink.parentElement;
+        for (let depth = 0; block && depth < 8; depth += 1, block = block.parentElement) {
+          const lines = (block.innerText || '').split('\n').map(line => line.trim()).filter(Boolean);
+          const profileCount = (block.matches('a[href*="/people/"]') ? 1 : 0) + block.querySelectorAll('a[href*="/people/"]').length;
+          if (profileCount !== 1 || !lines.join(' ').includes('回复') || lines.join(' ').length <= 20 || lines.join(' ').length >= 2200) continue;
+          const author = profileLink.innerText?.trim() || '知乎用户';
+          const key = `${href}:${lines.join('|')}`;
+          if (seenComments.has(key)) break;
+          seenComments.add(key);
+          const publishedAtRaw = [...lines].reverse().find(line => /刚刚|刚才|今天|昨天|\d+\s*(秒|分钟|小时|天|周|月|个月|年)前|\d{1,2}[-/.]\d{1,2}\s*[·\-]|20\d{2}[-/.]\d{1,2}[-/.]\d{1,2}/.test(line)) || '';
+          const nativeCommentId = readAttr(block, 'data-comment-id') || readAttr(block, 'data-id');
+          const nativeParentId = readAttr(block, 'data-parent-id') || readAttr(block, 'data-root-id');
+          const commentLink = block.querySelector('a[href*="comment"], a[href*="#"]');
+          rawComments.push({
+            comment_id: `zh_cm_${rawComments.length}`,
             native_comment_id: nativeCommentId,
             native_parent_id: nativeParentId,
-            comment_url: commentLink?.href || "",
-            source_type: nativeParentId ? "reply" : "comment",
+            comment_url: commentLink?.href || '',
+            source_type: nativeParentId ? 'reply' : 'comment',
             published_at_raw: publishedAtRaw,
             author,
-            author_url: authorLink?.href || "",
-            parent_comment_id: el.getAttribute('data-parent-id') || "",
-            text,
-            likes: 0
+            author_url: profileLink.href || '',
+            parent_comment_id: readAttr(block, 'data-parent-id'),
+            lines,
+            likes: 0,
           });
+          break;
         }
       }
 
@@ -119,7 +175,7 @@ for (let i = 0; i < targetItems.length; i++) {
         author: authorEl ? authorEl.innerText.trim() : "",
         author_url: authorLink?.href || "",
         tags,
-        comments: parsedComments,
+        rawComments,
         bodyText: document.body?.innerText || "",
       };
     });
@@ -144,7 +200,11 @@ for (let i = 0; i < targetItems.length; i++) {
     };
     contents.push(contentRecord);
 
-    const itemComments = pageData.comments.slice(0, maxComments).map(c => ({
+    const itemComments = (pageData.rawComments || [])
+      .map((c) => ({ ...c, text: normalizeZhihuCommentLines(c.lines, c.author) }))
+      .filter((c) => c.text)
+      .slice(0, maxComments)
+      .map(c => ({
       platform: "zhihu",
       comment_id: `${contentId}_${c.native_comment_id || c.comment_id}`,
       content_id: contentId,
@@ -161,7 +221,7 @@ for (let i = 0; i < targetItems.length; i++) {
       likes: c.likes,
       source_keyword: keyword,
       create_time: parseDisplayedTime(c.published_at_raw)?.toISOString() || ""
-    }));
+      }));
     comments.push(...itemComments);
 
     console.log(`  -> Extracted: "${contentRecord.title.slice(0, 30)}..." | ${itemComments.length} comments`);

@@ -14,17 +14,52 @@ export async function waitForResults(page, selector, timeoutMs = 20000, stableRo
   return await page.evaluate((value) => document.querySelectorAll(value).length, selector);
 }
 
-export async function loadUntilStable(page, selector, maxItems, stableRounds = 3) {
+export async function loadUntilStable(page, selector, maxItems, stableRounds = 3, maxRounds = 24, delayMs = 400) {
   let previous = 0;
   let stable = 0;
-  for (let round = 0; round < 24 && stable < stableRounds; round += 1) {
+  for (let round = 0; round < maxRounds && stable < stableRounds; round += 1) {
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-    await new Promise(resolve => setTimeout(resolve, 400));
+    await new Promise(resolve => setTimeout(resolve, delayMs));
     const count = await page.evaluate((value) => document.querySelectorAll(value).length, selector);
     if (count >= maxItems) break;
     stable = count === previous ? stable + 1 : 0;
     previous = count;
   }
+}
+
+function isZhihuCommentMetaLine(value) {
+  const line = String(value || '').trim();
+  return !line
+    || line === '作者'
+    || line === '回复'
+    || line === '喜欢'
+    || line === '收起'
+    || line === '展开'
+    || /^(刚刚|刚才|今天|昨天|前天|\d+\s*(秒|分钟|小时|天|周|月|个月|年)前)/.test(line)
+    || /^\d{1,2}[-/.]\d{1,2}\s*[·\-]/.test(line)
+    || /^20\d{2}[-/.]\d{1,2}[-/.]\d{1,2}/.test(line);
+}
+
+export function normalizeZhihuCommentLines(lines, author = '') {
+  const values = Array.isArray(lines) ? lines.map((line) => String(line || '').trim()).filter(Boolean) : [];
+  const authorIndex = values.findIndex((line) => line === String(author || '').trim());
+  const body = values.slice(authorIndex >= 0 ? authorIndex + 1 : 0);
+  const content = [];
+  for (const line of body) {
+    if (isZhihuCommentMetaLine(line)) break;
+    content.push(line);
+  }
+  return content.join(' ').replace(/\s+/g, ' ').trim();
+}
+
+export function xhsDetailReady(state, expected) {
+  const path = String(state?.path || state?.url || '');
+  const idMatch = path.match(/\/(?:explore|search_result)\/([a-zA-Z0-9_-]+)/);
+  const expectedId = String(expected?.id || '');
+  const title = String(state?.title || '').trim();
+  const expectedTitle = String(expected?.title || '').trim();
+  const titleMatches = !title || !expectedTitle || title === expectedTitle || title.includes(expectedTitle) || expectedTitle.includes(title);
+  return Boolean(idMatch && idMatch[1] === expectedId && titleMatches && String(state?.authorHref || '').trim());
 }
 
 export function requiresSearchLogin(bodyText, resultCount = 0) {
@@ -81,7 +116,7 @@ export function cardTitleFromText(value) {
 }
 
 export function isExpectedXhsNoteUrl(url, expectedId) {
-  const match = String(url || "").match(/\/(?:explore|search_result)\/([a-zA-Z0-9]+)/);
+  const match = String(url || "").match(/\/(?:explore|search_result)\/([a-zA-Z0-9_-]+)/);
   return Boolean(match && match[1] === String(expectedId || ""));
 }
 
