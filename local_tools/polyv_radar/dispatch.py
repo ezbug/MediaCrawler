@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import time
 from dataclasses import dataclass
@@ -101,6 +102,129 @@ def build_dispatch_queue(leads: Iterable[LeadEvidence], selection: str = "manual
             )
         )
     return result
+
+
+def _normalize_dispatch_text(value: object) -> str:
+    return re.sub(r"\s+", " ", str(value or "")).strip().casefold()
+
+
+def dispatch_key(value: DispatchItem | dict) -> tuple[str, str, str, str]:
+    """Build a conservative identity for one proposed public reply.
+
+    The key intentionally includes the target URL, author, and complete reply
+    text.  It is used for retry control only; it does not merge users or
+    companies based on a nickname.
+    """
+    if isinstance(value, DispatchItem):
+        platform = value.platform
+        url = value.url
+        author = value.author
+        text = value.text
+    else:
+        platform = value.get("platform", "")
+        url = value.get("url", value.get("target_url", ""))
+        author = value.get("author", value.get("target_author", ""))
+        text = value.get("text", value.get("reply_text", ""))
+    return tuple(
+        _normalize_dispatch_text(part)
+        for part in (platform, url, author, text)
+    )
+
+
+def _load_jsonl(path: Path) -> list[dict]:
+    if not path.is_file():
+        return []
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+    rows: list[dict] = []
+    for line in lines:
+        if not line.strip():
+            continue
+        try:
+            value = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            rows.append(value)
+    return rows
+
+
+def _result_blocks_retry(row: dict) -> bool:
+    """Return whether a prior result should suppress a duplicate attempt."""
+    status = str(row.get("status", row.get("lead_status", "")))
+    return bool(row.get("submitted")) or status in {
+        "dry_run",
+        "submitted_verified",
+        "submitted_unverified",
+    }
+
+
+def load_existing_dispatch_keys(data_root: Path) -> set[tuple[str, str, str, str]]:
+    """Load successful and pending dispatch identities across all batches.
+
+    Failed locator/input/page attempts remain retryable.  Pending queue rows
+    are suppressed unless their latest result is an explicit failure, which
+    keeps repeated preparation idempotent without hiding recoverable targets.
+    """
+    dispatch_root = Path(data_root) / "dispatch"
+    result_by_key: dict[tuple[str, str, str, str], dict] = {}
+    for path in sorted(dispatch_root.glob("dispatch-*.jsonl")):
+        for row in _load_jsonl(path):
+            key = dispatch_key(row)
+            if key != ("", "", "", ""):
+                result_by_key[key] = row
+
+    existing: set[tuple[str, str, str, str]] = {
+        key for key, row in result_by_key.items() if _result_blocks_retry(row)
+    }
+
+    for path in sorted(dispatch_root.glob("*.jsonl")):
+        if path.name.startswith(("dispatch-", "audit-")):
+            continue
+        for row in _load_jsonl(path):
+            key = dispatch_key(row)
+            if key == ("", "", "", ""):
+                continue
+            latest = result_by_key.get(key)
+            if latest is None or _result_blocks_retry(latest):
+                existing.add(key)
+
+    for row in _load_jsonl(Path(REPLY_HISTORY_PATH)):
+        key = dispatch_key(row)
+        if key != ("", "", "", "") and row.get("submitted") is True and row.get("mode") != "dry_run":
+            existing.add(key)
+    return existing
+
+
+def filter_previously_queued(
+    items: Iterable[DispatchItem], data_root: Path
+) -> tuple[list[DispatchItem], list[dict]]:
+    """Remove cross-batch duplicates and return an auditable skip list."""
+    existing = load_existing_dispatch_keys(data_root)
+    kept: list[DispatchItem] = []
+    skipped: list[dict] = []
+    for item in items:
+        key = dispatch_key(item)
+        if key in existing:
+            skipped.append({
+                **item.to_dict(),
+                "reason": "already_queued_or_successfully_attempted",
+                "dedupe_key": list(key),
+            })
+            continue
+        existing.add(key)
+        kept.append(item)
+    return kept, skipped
+
+
+def write_dispatch_audit(path: Path, rows: Iterable[dict]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows),
+        encoding="utf-8",
+    )
 
 
 def write_dispatch_queue(path: Path, items: Iterable[DispatchItem]) -> None:

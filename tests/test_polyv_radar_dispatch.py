@@ -11,6 +11,7 @@ from local_tools.polyv_radar.dispatch import (
     build_dispatch_command,
     build_dispatch_queue,
     dispatch_queue,
+    filter_previously_queued,
     load_dispatch_queue,
     write_dispatch_queue,
 )
@@ -119,3 +120,58 @@ def test_dispatch_enforces_global_five_item_limit() -> None:
     )
     assert len(calls) == 5
     assert len(results) == 5
+
+
+def test_cross_batch_successful_dry_run_is_deduplicated(tmp_path: Path) -> None:
+    item = DispatchItem("zhihu", "https://www.zhihu.com/question/1/answer/2", "用户", "回复内容")
+    dispatch_dir = tmp_path / "dispatch"
+    write_dispatch_queue(dispatch_dir / "old-run-model.jsonl", [item])
+    (dispatch_dir / "dispatch-old-dry-run.jsonl").write_text(
+        json.dumps({**item.to_dict(), "status": "dry_run", "mode": "dry_run", "draft_verified": True}) + "\n",
+        encoding="utf-8",
+    )
+
+    kept, skipped = filter_previously_queued([item], tmp_path)
+
+    assert kept == []
+    assert len(skipped) == 1
+    assert skipped[0]["reason"] == "already_queued_or_successfully_attempted"
+
+
+def test_failed_result_remains_retryable(tmp_path: Path) -> None:
+    item = DispatchItem("zhihu", "https://www.zhihu.com/question/1/answer/2", "用户", "回复内容")
+    dispatch_dir = tmp_path / "dispatch"
+    write_dispatch_queue(dispatch_dir / "old-run-model.jsonl", [item])
+    (dispatch_dir / "dispatch-old-failed.jsonl").write_text(
+        json.dumps({**item.to_dict(), "status": "target_not_found", "mode": "dry_run", "target_matched": False}) + "\n",
+        encoding="utf-8",
+    )
+
+    kept, skipped = filter_previously_queued([item], tmp_path)
+
+    assert kept == [item]
+    assert skipped == []
+
+
+def test_live_reply_history_suppresses_duplicate(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from local_tools.polyv_radar import dispatch as dispatch_module
+
+    history = tmp_path / "reply_history.jsonl"
+    item = DispatchItem("dy", "https://www.douyin.com/video/1", "用户", "回复内容")
+    history.write_text(
+        json.dumps({
+            "platform": item.platform,
+            "target_url": item.url,
+            "target_author": item.author,
+            "reply_text": item.text,
+            "submitted": True,
+            "mode": "submit",
+        }, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(dispatch_module, "REPLY_HISTORY_PATH", history)
+
+    kept, skipped = filter_previously_queued([item], tmp_path)
+
+    assert kept == []
+    assert len(skipped) == 1

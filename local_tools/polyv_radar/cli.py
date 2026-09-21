@@ -12,7 +12,15 @@ from .pipeline import enrich_store, prefilter_store, review_store
 from .benchmark import run_benchmark
 from .hunt import run_hunt
 from .locator import locate_store
-from .dispatch import build_dispatch_queue, dispatch_queue, load_dispatch_queue, write_dispatch_queue, write_dispatch_results
+from .dispatch import (
+    build_dispatch_queue,
+    dispatch_queue,
+    filter_previously_queued,
+    load_dispatch_queue,
+    write_dispatch_audit,
+    write_dispatch_queue,
+    write_dispatch_results,
+)
 from .storage import RadarStore
 from .antigravity_import import import_antigravity
 from .approval import approve_lead
@@ -298,8 +306,18 @@ def main(argv: list[str] | None = None) -> int:
         items = build_dispatch_queue(store.load_leads(args.run_id), args.selection)
         store.close()
         output = Path(args.output) if args.output else config.data_root / "dispatch" / f"{args.run_id}-{args.selection}.jsonl"
+        items, skipped = filter_previously_queued(items, config.data_root)
         write_dispatch_queue(output, items)
-        payload = {"run_id": args.run_id, "selection": args.selection, "queue_path": str(output), "count": len(items)}
+        audit_path = config.data_root / "dispatch" / f"audit-{args.run_id}-{args.selection}-duplicates.jsonl"
+        write_dispatch_audit(audit_path, skipped)
+        payload = {
+            "run_id": args.run_id,
+            "selection": args.selection,
+            "queue_path": str(output),
+            "count": len(items),
+            "skipped_duplicates": len(skipped),
+            "duplicates_path": str(audit_path),
+        }
     elif args.command == "dispatch":
         queue_path = Path(args.queue)
         items = load_dispatch_queue(queue_path)
