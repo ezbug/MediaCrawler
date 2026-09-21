@@ -12,6 +12,7 @@ from local_tools.polyv_radar.enrichment import (
     choose_enrichment_candidates,
     classify_identity_confidence,
     extract_company_role,
+    _clean_profile_text,
 )
 from local_tools.polyv_radar.ego_crawl_all import build_ego_batch_launcher, build_ego_launcher, run_ego_crawlers
 from local_tools.polyv_radar.models import LeadEvidence, ProfilePost, ProfileSnapshot
@@ -129,6 +130,18 @@ def test_identity_extraction_requires_explicit_company_text() -> None:
     assert classify_identity_confidence(company, role, ["https://example.com/news"]) == "high"
     assert classify_identity_confidence("", "", ["https://example.com/news"]) == "low"
     assert classify_identity_confidence("", "", [], verified=True) == "high"
+
+
+def test_profile_cleaning_drops_xhs_shell_without_dropping_real_bio() -> None:
+    cleaned = _clean_profile_text(
+        "首页\n直播\n通知\n红尘无味\n小红书号：490558472\n男士勿扰！！！\n31岁\n65\n关注\n"
+        "沪ICP备13030189号 | 营业执照"
+    )
+
+    assert "首页" not in cleaned
+    assert "直播｜通知" not in cleaned
+    assert "男士勿扰！！！" in cleaned
+    assert "沪ICP备" not in cleaned
 
 
 def test_candidate_enrichment_is_capped_and_deduplicated() -> None:

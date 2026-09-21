@@ -89,28 +89,35 @@ async function readPage(platform) {
   return page.evaluate((currentPlatform) => {
     const body = document.body?.innerText || '';
     const title = document.title || '';
+    const isXhs = currentPlatform === 'xhs';
     const comments = currentPlatform === 'bili'
       ? []
       : Array.from(document.querySelectorAll(
           currentPlatform === 'dy'
             ? '[data-e2e="comment-item"]'
-            : currentPlatform === 'xhs'
-              ? '.parent-comment, .comment-item'
+            : isXhs
+              ? '.comments-container .comment-item'
               : '.CommentItemV2, .CommentItem, [class*="CommentItem"]'
         )).map((node) => {
           const lines = (node.innerText || '').split('\n').map((line) => line.trim()).filter(Boolean);
           if (lines.length < 2) return null;
-          const authorLink = node.querySelector('a[href*="/user/"], a[href*="/user/profile/"], a[href*="/people/"]');
+          const authorLink = node.querySelector(isXhs ? '.author .name, a[href*="/user/profile/"]' : 'a[href*="/user/"], a[href*="/user/profile/"], a[href*="/people/"]');
           const author = authorLink?.innerText?.trim() || lines[0];
+          const contentNode = isXhs ? node.querySelector('.content .note-text, .content') : null;
           const textLines = lines.slice(1).filter((line) => line !== '...' && line !== '作者' && line !== '分享' && line !== '回复' && !/^\d+$/.test(line) && !/刚刚|刚才|今天|昨天|\d+\s*(秒|分钟|小时|天|周|月|个月|年)前|20\d{2}[-/.]\d{1,2}[-/.]\d{1,2}/.test(line));
-          const text = textLines.join(' ').trim();
+          const text = (contentNode?.innerText || textLines.join(' ')).trim();
           if (!text) return null;
           const attrs = Object.fromEntries(Array.from(node.attributes || []).map((attribute) => [attribute.name, attribute.value]));
-          const nativeCommentId = attrs['data-comment-id'] || attrs['data-cid'] || attrs['data-rpid'] || attrs['data-id'] || '';
-          const nativeParentId = attrs['data-root-id'] || attrs['data-parent-id'] || attrs['data-root'] || '';
+          const nativeCommentId = attrs['data-comment-id'] || attrs['data-cid'] || attrs['data-rpid'] || attrs['data-id'] || (isXhs ? (attrs.id || '').replace(/^comment-/, '') : '');
+          const parentWrapper = isXhs ? node.closest('.parent-comment') : null;
+          const rootNode = parentWrapper?.querySelector(':scope > .comment-item:not(.comment-item-sub)');
+          const rootAttrs = Object.fromEntries(Array.from(rootNode?.attributes || []).map((attribute) => [attribute.name, attribute.value]));
+          const rootId = rootAttrs['data-comment-id'] || rootAttrs['data-cid'] || rootAttrs['data-id'] || (rootAttrs.id || '').replace(/^comment-/, '');
+          const nativeParentId = attrs['data-root-id'] || attrs['data-parent-id'] || attrs['data-root'] || (isXhs && node.classList.contains('comment-item-sub') ? rootId : '');
           const commentLink = node.querySelector('a[href*="comment"], a[href*="reply"], a[href*="#reply"]');
+          const stableCommentUrl = isXhs && nativeCommentId ? `${location.href.split('#')[0]}#comment-${nativeCommentId}` : '';
           const publishedAtRaw = [...lines].reverse().find((line) => /刚刚|刚才|今天|昨天|\d+\s*(秒|分钟|小时|天|周|月|个月|年)前|20\d{2}[-/.]\d{1,2}[-/.]\d{1,2}/.test(line)) || '';
-          return { native_comment_id: nativeCommentId, native_parent_id: nativeParentId, parent_comment_id: nativeParentId, comment_url: commentLink?.href || '', source_type: nativeParentId ? 'reply' : 'comment', author, author_url: authorLink?.href || '', text, published_at_raw: publishedAtRaw };
+          return { native_comment_id: nativeCommentId, native_parent_id: nativeParentId, parent_comment_id: nativeParentId, comment_url: stableCommentUrl || commentLink?.href || '', source_type: nativeParentId ? 'reply' : 'comment', author, author_url: authorLink?.href || '', text, published_at_raw: publishedAtRaw };
         }).filter(Boolean);
     return { title, body: body.slice(0, 30000), hasBody: Boolean(body.trim()), comments };
   }, platform);

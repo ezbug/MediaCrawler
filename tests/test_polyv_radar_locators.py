@@ -5,7 +5,9 @@ from pathlib import Path
 
 from local_tools.polyv_radar.adapters import normalize_comment
 from local_tools.polyv_radar.locator import (
+    VENDOR_EXCLUSION_REASON,
     is_deliverable_lead,
+    lead_exclusion_reason,
     locate_comment,
     locator_url,
     locate_store,
@@ -378,6 +380,28 @@ def test_vendor_and_editorial_accounts_do_not_enter_delivery_list() -> None:
     )
 
     assert not is_deliverable_lead(lead)
+
+
+def test_profile_demand_post_is_not_vendor_filtered_by_its_own_quote() -> None:
+    lead = LeadEvidence(
+        platform="xhs",
+        content_id="note-1",
+        comment_id="",
+        url="https://www.xiaohongshu.com/explore/note-1",
+        user="红尘无味",
+        quote="征集全流程年会直播供应商",
+        content_title="征集全流程年会直播供应商",
+        category="企业直播",
+        solution="企业活动直播方向",
+        profile_bio="红尘无味\n小红书号：490558472\n男士勿扰！！！\n31岁",
+        score=8,
+        dimensions={"business_scene": 2, "project_timing": 2, "platform_intent": 2},
+        locator_status="verified",
+        source_type="content",
+        author_id="author-1",
+    )
+
+    assert lead_exclusion_reason(lead) != VENDOR_EXCLUSION_REASON
 
 
 def test_generic_zhihu_author_and_editorial_selection_article_do_not_enter_delivery_list() -> None:

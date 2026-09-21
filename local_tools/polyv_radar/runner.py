@@ -548,7 +548,7 @@ def report_store(config: RadarConfig, run_id: str, output_suffix: str = "", task
     store = RadarStore(config.data_root / "radar.sqlite3")
     store.initialize()
     leads = store.load_leads(run_id)
-    from .locator import lead_exclusion_reason
+    from .locator import VENDOR_EXCLUSION_REASON, lead_exclusion_reason
 
     # Older batches predate profile fields and vendor filtering. Hydrate them
     # from the batch-scoped profile table before rendering any deliverable list.
@@ -574,6 +574,16 @@ def report_store(config: RadarConfig, run_id: str, output_suffix: str = "", task
             hydrated.decision = "reject"
             hydrated.stage = "model_rejected"
             hydrated.rejection_reason = exclusion
+        elif (
+            not exclusion
+            and hydrated.decision == "reject"
+            and hydrated.rejection_reason == VENDOR_EXCLUSION_REASON
+        ):
+            # Re-enrichment may remove a profile-shell false positive. Clear
+            # only this derived filter; model or rule rejections remain intact.
+            hydrated.decision = ""
+            hydrated.stage = "prefiltered"
+            hydrated.rejection_reason = ""
         hydrated_leads.append(hydrated)
     if hydrated_leads:
         store.save_leads(run_id, hydrated_leads)
@@ -611,10 +621,10 @@ def report_store(config: RadarConfig, run_id: str, output_suffix: str = "", task
         duration = max((float(item.get("duration_seconds", 0) or 0) for item in platform_tasks), default=0.0)
         if not duration and wall_seconds and len(platform_status) == 1:
             duration = wall_seconds
-        per_minute = max(duration / 60, 1e-9)
+        per_minute = duration / 60 if duration > 0 else 0.0
         status["duration_seconds"] = duration
-        status["contents_per_minute"] = status.get("contents", 0) / per_minute
-        status["comments_per_minute"] = status.get("comments", 0) / per_minute
+        status["contents_per_minute"] = status.get("contents", 0) / per_minute if per_minute else 0.0
+        status["comments_per_minute"] = status.get("comments", 0) / per_minute if per_minute else 0.0
         status["raw_contents"] = sum(int(item.get("raw_contents", 0) or 0) for item in platform_tasks)
         status["raw_comments"] = sum(int(item.get("raw_comments", 0) or 0) for item in platform_tasks)
         status["backends"] = sorted({str(item.get("backend", "")) for item in platform_tasks if item.get("backend")})

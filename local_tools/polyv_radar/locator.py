@@ -15,6 +15,7 @@ VENDOR_PROFILE_TERMS = (
     "欢迎交流", "欢迎咨询", "解决方案提供", "专注企业直播",
 )
 VENDOR_NAME_TERMS = ("云直播", "直播服务", "会展", "影像", "商学园", "酷学院", "考培系统", "直播平台")
+VENDOR_EXCLUSION_REASON = "主页或身份信息显示为服务商、平台方或咨询/会展账号"
 BUYER_SIGNAL_TERMS = (
     "我们公司", "我司", "公司要", "企业要", "公司需要", "企业需要", "正在找", "在找", "求推荐", "求平台",
     "多少钱", "报价", "采购", "选型", "供应商", "服务商", "求方案", "征集", "老板让我", "下个月", "本月", "近期", "准备", "筹备",
@@ -221,7 +222,7 @@ def lead_exclusion_reason(lead) -> str:
         for value in (lead.user, lead.company, lead.role, lead.profile_bio)
     ).casefold()
     if any(term.casefold() in profile_text for term in VENDOR_PROFILE_TERMS):
-        return "主页或身份信息显示为服务商、平台方或咨询/会展账号"
+        return VENDOR_EXCLUSION_REASON
     if any(term.casefold() in str(lead.user or "").casefold() for term in VENDOR_NAME_TERMS):
         return "用户名显示为直播、软件或会展服务账号"
     signal_text = f"{lead.content_title}\n{lead.quote}".casefold()
