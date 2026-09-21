@@ -566,6 +566,24 @@ def test_config_contains_event_query_volume() -> None:
     assert config.min_lead_score == 4
 
 
+def test_config_uses_complete_antigravity_core_taxonomy() -> None:
+    config = load_config(Path("local_tools/polyv_radar/pilot.toml"))
+
+    assert config.taxonomy_snapshot is not None
+    assert config.taxonomy_snapshot.version == "2.0.0"
+    assert config.taxonomy_snapshot.query_count == 27
+    assert len(config.taxonomy_snapshot.query_map()) == 27
+    assert config.taxonomy_tiers == ("tier1_primary", "tier2_verify_demand")
+    assert len(config.taxonomy_keywords) == 22
+    queries = set(config.taxonomy_keywords.values())
+    assert "公司年会 异地员工 视频方案" in queries
+    assert "经销商大会 全国渠道 技术服务" in queries
+    assert "医学学术会议 视频平台 服务商" in queries
+    assert "招商大会 全国经销商 技术支持" in queries
+    assert "主持人" in config.taxonomy_negative_terms
+    assert "方案征集" in config.taxonomy_intent_terms["commercial_actions"]
+
+
 def test_ego_launcher_uses_configured_collection_limits(tmp_path: Path) -> None:
     launcher = build_ego_launcher(Path("crawler.mjs"), "经销商大会", 15, 30, tmp_path)
 

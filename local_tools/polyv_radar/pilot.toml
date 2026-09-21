@@ -12,6 +12,11 @@ min_lead_score = 4
 recent_days = 90
 collector_backend = "ego"
 platform_workers = 1
+# Exact byte-for-byte snapshot of Antigravity's v2.0.0 taxonomy. Tier 3 is
+# available for the second hunt wave; the first wave stays on the core tiers.
+taxonomy_enabled = true
+taxonomy_path = "polyv_radar_keyword_taxonomy.json"
+taxonomy_tiers = ["tier1_primary", "tier2_verify_demand"]
 
 [filters]
 excluded_author_names = ["保利威", "POLYV"]

@@ -41,17 +41,27 @@ LONG_TAIL_KEYWORDS = {
 
 
 def _with_long_tail(config: RadarConfig) -> RadarConfig:
-    merged: dict[str, dict[str, str]] = {}
-    remaining = 15
-    for platform in config.platforms:
-        if remaining <= 0:
-            break
-        values = LONG_TAIL_KEYWORDS.get(platform, {})
-        selected = list(values.items())[:remaining]
-        if selected:
-            merged[platform] = dict(selected)
-            remaining -= len(selected)
-    return replace(config, platform_keywords=merged)
+    # The second hunt wave is deliberately separate from the core taxonomy:
+    # it adds first-person wording and the experimental Antigravity tier to
+    # every selected platform. The old implementation shared one global
+    # budget, which silently starved later platforms.
+    merged = {
+        platform: dict(LONG_TAIL_KEYWORDS.get(platform, {}))
+        for platform in config.platforms
+        if LONG_TAIL_KEYWORDS.get(platform)
+    }
+    taxonomy_keywords = (
+        config.taxonomy_snapshot.query_map(("tier3_experimental",))
+        if config.taxonomy_snapshot
+        else {}
+    )
+    return replace(
+        config,
+        platform_keywords=merged,
+        taxonomy_enabled=bool(config.taxonomy_snapshot),
+        taxonomy_tiers=("tier3_experimental",),
+        taxonomy_keywords=taxonomy_keywords,
+    )
 
 
 def _process_run(

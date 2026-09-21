@@ -31,11 +31,12 @@ PURCHASE_SCENE_TERMS = (
 )
 PROJECT_TIMING_TERMS = (
     "下个月", "本月", "近期", "最近", "正在", "准备", "筹备", "项目", "上线", "落地", "启动", "实施",
-    "大会", "发布会", "年会", "培训",
+    "大会", "发布会", "年会", "培训", "年底", "筹划", "即将在", "筹备中", "最近90天",
+    "异地分支", "全国渠道", "多会场", "线上线下同步", "海外员工", "跨省",
 )
 PLATFORM_INTENT_TERMS = (
     "求推荐", "推荐", "平台", "供应商", "服务商", "选型", "采购", "预算", "报价", "多少钱", "费用",
-    "方案", "用什么", "有没有", "哪家", "怎么选",
+    "方案", "用什么", "有没有", "哪家", "怎么选", "询价", "招标", "比选", "招募", "方案征集",
 )
 DELIVERY_INQUIRY_TERMS = (
     "部署", "私有化", "接口", "SDK", "API", "接入", "并发", "交付", "实施周期", "周期", "能不能支持", "支持多少人", "支持并发",
@@ -132,6 +133,7 @@ def score_purchase_evidence(
     external_evidence: Iterable[dict] = (),
     now: datetime | None = None,
     recent_days: int = 90,
+    negative_terms: Iterable[str] = (),
 ) -> PurchaseEvidenceScore:
     now = now or datetime.now(timezone.utc)
     quote = comment.text if comment else content.text
@@ -144,7 +146,8 @@ def score_purchase_evidence(
     profile = profile or {}
     evidence_urls = [str(item.get("source_url", "")) for item in external_evidence if item.get("source_url")]
 
-    if any(term.lower() in lowered for term in (*AD_TERMS, *NEGATIVE_TERMS)):
+    configured_negative_terms = tuple(str(term) for term in negative_terms if term)
+    if any(term.lower() in lowered for term in (*AD_TERMS, *NEGATIVE_TERMS, *configured_negative_terms)):
         return PurchaseEvidenceScore(
             score=0,
             dimensions={key: 0 for key in ("business_scene", "project_timing", "platform_intent", "delivery_inquiry", "identity")},
@@ -237,6 +240,7 @@ def score_text(
     now: datetime | None = None,
     category_hint: str | None = None,
     recent_days: int = 90,
+    negative_terms: Iterable[str] = (),
 ) -> ScoreResult:
     text = text.strip()
     now = now or datetime.now(timezone.utc)
@@ -276,10 +280,11 @@ def score_text(
         reasons.append("广告或同行推广")
         evidence.extend(_evidence(text, AD_TERMS))
 
-    if any(term.lower() in text.lower() for term in NEGATIVE_TERMS):
+    configured_negative_terms = tuple(str(term) for term in negative_terms if term)
+    if any(term.lower() in text.lower() for term in (*NEGATIVE_TERMS, *configured_negative_terms)):
         score -= 8
-        reasons.append("非B端业务场景/消费数码/医疗讨论")
-        evidence.extend(_evidence(text, NEGATIVE_TERMS))
+        reasons.append("非B端业务场景/消费数码/医疗讨论或词库负向场景")
+        evidence.extend(_evidence(text, (*NEGATIVE_TERMS, *configured_negative_terms)))
 
     unique_evidence = list(dict.fromkeys(evidence))
     return ScoreResult(max(0, min(10, score)), category, reasons, unique_evidence)
@@ -291,6 +296,7 @@ def score_lead(
     now: datetime | None = None,
     category_hint: str | None = None,
     recent_days: int = 90,
+    negative_terms: Iterable[str] = (),
 ) -> LeadEvidence:
     now = now or datetime.now(timezone.utc)
     if now.tzinfo is None:
@@ -299,7 +305,14 @@ def score_lead(
     context = f"{content.title}\n{content.text}".strip()
     signal_text = quote.strip()
     inferred_category = classify_category(context, category_hint)
-    result = score_text(signal_text, comment.published_at if comment else content.published_at, now, inferred_category, recent_days)
+    result = score_text(
+        signal_text,
+        comment.published_at if comment else content.published_at,
+        now,
+        inferred_category,
+        recent_days,
+        negative_terms,
+    )
     category_terms = CATEGORY_TERMS.get(inferred_category, ())
     has_business_scene = any(term.lower() in context.lower() or term.lower() in signal_text.lower() for term in category_terms)
     has_intent = any(

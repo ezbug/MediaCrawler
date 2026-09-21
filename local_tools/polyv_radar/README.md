@@ -6,6 +6,14 @@
 
 首轮配置位于 `local_tools/polyv_radar/pilot.toml`，运行数据位于仓库外的 `polyv-radar-data/`。
 
+关键词同步：`polyv_radar_keyword_taxonomy.json` 是从 Antigravity
+`polyv_radar_keyword_taxonomy.json` 原样保存的 v2.0.0 快照。配置会自动加载
+Tier 1 核心场景和 Tier 2 验证场景，包含公司年会、员工大会、经销商大会、
+合作伙伴大会、新品发布会、行业峰会、医学会议、招商会、订货会等企业活动词，
+以及六类业务场景、岗位画像、采购信号和负向词。第二轮 `hunt` 会加入 Tier 3
+实验查询和每个平台的第一人称长尾词。查询中的 `+` 只在提交平台搜索时规范为空格，
+原始词库快照不被改写。
+
 ```bash
 POLYV_TASKSPACE_ID=<current-taskspace> uv run python -m local_tools.polyv_radar collect \
   --config local_tools/polyv_radar/pilot.toml \
@@ -35,6 +43,21 @@ uv run python -m local_tools.polyv_radar collect \
   --max-comments 10 \
   --task-timeout-seconds 180
 ```
+
+指定完整词库层级运行时，可以显式加入实验层：
+
+```bash
+uv run python -m local_tools.polyv_radar collect \
+  --config local_tools/polyv_radar/pilot.toml \
+  --platform xhs \
+  --taxonomy-tier tier1_primary \
+  --taxonomy-tier tier2_verify_demand \
+  --taxonomy-tier tier3_experimental \
+  --taskspace <current-taskspace>
+```
+
+传入 `--keyword` 的命令仍然是聚焦测试，默认暂时关闭词库扩展；需要在自定义关键词
+上叠加词库时，同时传入 `--taxonomy-tier`。
 
 采集完成后，使用输出中的 `run_id` 分析和生成报告：
 

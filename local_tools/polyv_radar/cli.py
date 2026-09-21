@@ -31,11 +31,21 @@ def apply_collect_overrides(config, args):
             category = original_categories.get(keyword, f"自定义{index}")
             keywords[category] = keyword
         updates["keywords"] = keywords
-        if args.platform:
-            platform_keywords = {platform: dict(values) for platform, values in config.platform_keywords.items()}
-            for platform in args.platform:
-                platform_keywords[platform] = dict(keywords)
-            updates["platform_keywords"] = platform_keywords
+        platform_keywords = {platform: dict(values) for platform, values in config.platform_keywords.items()}
+        for platform in (args.platform or config.platforms):
+            platform_keywords[platform] = dict(keywords)
+        updates["platform_keywords"] = platform_keywords
+        # An explicit --keyword is a focused run. Taxonomy expansion can
+        # be re-enabled explicitly with --taxonomy-tier.
+        updates["taxonomy_enabled"] = False
+    taxonomy_tiers = getattr(args, "taxonomy_tier", None)
+    if taxonomy_tiers:
+        updates["taxonomy_enabled"] = True
+        updates["taxonomy_tiers"] = tuple(taxonomy_tiers)
+        if config.taxonomy_snapshot:
+            updates["taxonomy_keywords"] = config.taxonomy_snapshot.query_map(taxonomy_tiers)
+    if getattr(args, "no_taxonomy", False):
+        updates["taxonomy_enabled"] = False
     for name in ("max_contents", "max_comments", "task_timeout_seconds"):
         value = getattr(args, name)
         if value is not None:
@@ -65,6 +75,8 @@ def build_parser() -> argparse.ArgumentParser:
     collect_parser.add_argument("--task-timeout-seconds", type=int)
     collect_parser.add_argument("--collector", choices=("ego",))
     collect_parser.add_argument("--taskspace", type=int, required=True, help="用户已登录的 Ego Lite TaskSpace")
+    collect_parser.add_argument("--taxonomy-tier", action="append", choices=("tier1_primary", "tier2_verify_demand", "tier3_experimental"), help="启用 Antigravity 词库层级，可重复传入")
+    collect_parser.add_argument("--no-taxonomy", action="store_true", help="关闭内置 Antigravity 词库扩展")
     prefilter_parser = subparsers.choices["prefilter"]
     prefilter_parser.add_argument("--max-candidates", type=int, default=50)
     enrich_parser = subparsers.choices["enrich"]
@@ -82,6 +94,8 @@ def build_parser() -> argparse.ArgumentParser:
     pipeline_parser.add_argument("--max-comments", type=int)
     pipeline_parser.add_argument("--collector", choices=("ego",))
     pipeline_parser.add_argument("--taskspace", type=int, help="采集和定位时使用的用户 Ego Lite TaskSpace")
+    pipeline_parser.add_argument("--taxonomy-tier", action="append", choices=("tier1_primary", "tier2_verify_demand", "tier3_experimental"), help="覆盖 Antigravity 词库层级，可重复传入")
+    pipeline_parser.add_argument("--no-taxonomy", action="store_true", help="关闭内置 Antigravity 词库扩展")
     benchmark_parser = subparsers.add_parser("benchmark")
     benchmark_parser.add_argument("--config", required=True)
     benchmark_parser.add_argument("--repo-root", default=str(Path(__file__).resolve().parents[2]))
@@ -112,6 +126,7 @@ def build_parser() -> argparse.ArgumentParser:
     hunt_parser.add_argument("--max-batches", type=int, default=2)
     hunt_parser.add_argument("--run-id")
     hunt_parser.add_argument("--codex", default="codex")
+    hunt_parser.add_argument("--taxonomy-tier", action="append", choices=("tier1_primary", "tier2_verify_demand", "tier3_experimental"), help="覆盖 Antigravity 词库层级，可重复传入")
     prepare_dispatch_parser = subparsers.add_parser("prepare-dispatch")
     prepare_dispatch_parser.add_argument("--config", required=True)
     prepare_dispatch_parser.add_argument("--run-id", required=True)
@@ -173,6 +188,16 @@ def main(argv: list[str] | None = None) -> int:
         payload = {"run_id": args.run_id, **result}
     elif args.command == "pipeline":
         run_id = args.run_id or datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        taxonomy_tiers = getattr(args, "taxonomy_tier", None)
+        if taxonomy_tiers:
+            config = replace(
+                config,
+                taxonomy_enabled=True,
+                taxonomy_tiers=tuple(taxonomy_tiers),
+                taxonomy_keywords=config.taxonomy_snapshot.query_map(taxonomy_tiers) if config.taxonomy_snapshot else {},
+            )
+        elif getattr(args, "no_taxonomy", False):
+            config = replace(config, taxonomy_enabled=False)
         if args.max_contents is not None or args.max_comments is not None:
             updates = {}
             if args.max_contents is not None:
@@ -225,6 +250,14 @@ def main(argv: list[str] | None = None) -> int:
             output_suffix=args.output_suffix,
         )
     elif args.command == "hunt":
+        taxonomy_tiers = getattr(args, "taxonomy_tier", None)
+        if taxonomy_tiers:
+            config = replace(
+                config,
+                taxonomy_enabled=True,
+                taxonomy_tiers=tuple(taxonomy_tiers),
+                taxonomy_keywords=config.taxonomy_snapshot.query_map(taxonomy_tiers) if config.taxonomy_snapshot else {},
+            )
         payload = run_hunt(
             config,
             Path(args.repo_root),

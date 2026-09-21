@@ -487,6 +487,7 @@ def analyze_records(
     category_by_keyword: dict[str, str] | None = None,
     min_score: int = 4,
     recent_days: int = 90,
+    negative_terms: Iterable[str] = (),
 ) -> list[LeadEvidence]:
     content_by_key = {(item.platform, item.content_id): item for item in contents}
     comments_by_content: dict[tuple[str, str], list[CommentRecord]] = {}
@@ -506,7 +507,7 @@ def analyze_records(
             category_hint = category_by_keyword.get(
                 comment.source_keyword if comment else (content.source_keywords[0] if content.source_keywords else "")
             )
-            lead = score_lead(item, comment, now, category_hint, recent_days)
+            lead = score_lead(item, comment, now, category_hint, recent_days, negative_terms)
             if lead.score >= min_score:
                 key = (lead.platform, lead.content_id, _text_key(lead.user), _text_key(lead.quote))
                 existing = leads_by_key.get(key)
@@ -537,6 +538,7 @@ def analyze_store(config: RadarConfig, run_id: str, now: datetime | None = None)
         config.category_by_keyword,
         config.min_lead_score,
         config.recent_days,
+        config.taxonomy_negative_terms,
     )
     store.save_leads(run_id, leads)
     write_review_queue(config.data_root / "review" / f"{run_id}.jsonl", leads)
