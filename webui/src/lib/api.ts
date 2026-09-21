@@ -107,6 +107,7 @@ export interface RadarSummary {
   raw_leads: number
   cleaned_leads: number
   filtered_leads: number
+  manual_candidates: number
   filtered_reasons: Record<string, number>
   contents: number
   comments: number
@@ -165,12 +166,27 @@ export interface RadarQueueItem {
   submitted?: boolean
 }
 
+export interface RadarManualCandidate {
+  candidate_id: string
+  platform: string
+  candidate_kind: string
+  freshness: string
+  source_role: string
+  user: string
+  quote: string
+  rule_score: number
+  recommended_action: string
+  content_url: string
+  comment_url: string
+}
+
 export const radarApi = {
   getRuns: (limit = 30) => api.get<{ runs: RadarRun[] }>('/radar/runs', { params: { limit } }),
   getSummary: (runId?: string) => api.get<RadarSummary>('/radar/summary', { params: runId ? { run_id: runId } : {} }),
   getLeads: (runId: string, limit = 20, view: 'cleaned' | 'all' = 'cleaned') =>
     api.get<{ run_id: string; leads: RadarLead[]; raw_count: number; cleaned_count: number; filtered_count: number }>('/radar/leads', { params: { run_id: runId, limit, view } }),
   getQueue: (runId: string) => api.get<{ queue: RadarQueueItem[] }>('/radar/queue', { params: { run_id: runId } }),
+  getManualCandidates: (runId: string, limit = 50) => api.get<{ run_id: string; candidates: RadarManualCandidate[] }>('/radar/manual-candidates', { params: { run_id: runId, limit } }),
 }
 
 export default api

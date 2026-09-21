@@ -113,6 +113,85 @@ NEGATIVE_TERMS = (
     "离职", "辞职", "工资只有", "打工人", "破防", "领导恶心", "摆烂", "躺平"
 )
 
+TECHNICAL_INTEREST_TERMS = (
+    "怎么实现", "怎么开发", "开发教程", "搭建教程", "设备篇", "源码", "代码实现",
+    "webRTC", "SDK怎么", "API怎么", "接口怎么写", "技术原理", "开发经验",
+)
+
+POLYV_DOMAIN_TERMS = (
+    "直播", "点播", "视频", "培训", "内训", "企培", "企业大学", "员工学习", "经销商培训",
+    "经销商大会", "合作伙伴大会", "新品发布会", "发布会", "年会", "峰会", "学术会议", "医学会议",
+    "招商会", "订货会", "巡展", "路演", "投教", "课程", "微课", "回放", "防录屏", "盗录",
+    "视频加密", "学习平台", "培训平台", "Webinar", "SDK", "API", "WebRTC", "线上活动",
+)
+
+POLYV_MANUAL_CONTEXT_TERMS = tuple(
+    term for term in POLYV_DOMAIN_TERMS if term not in {"课程", "微课", "SDK", "API", "WebRTC"}
+)
+
+PROVIDER_ACCOUNT_TERMS = (
+    "平台", "服务商", "会务", "会展", "视频加密", "视频播放器", "培训平台", "企培", "云直播",
+    "解决方案", "课程API", "课程api", "客户经理", "咨询师", "培训顾问", "小鹅通", "平安知鸟",
+    "先闻道", "EduSoho", "酷学院", "商学园", "LockBox", "小鹅教头", "云课堂", "课程顾问",
+)
+
+MANUAL_REVIEW_SIGNAL_TERMS = (
+    "用户体验", "售后服务", "性价比", "长久持续", "长期使用", "已经选好", "还没选",
+    "正好需要", "有需求", "需求", "预算", "报价", "平台", "方案", "供应商", "服务商",
+    "线下培训", "公开课", "公司请", "我们公司", "我司", "老板", "企业", "公司",
+)
+
+ENTERPRISE_NAME_TERMS = (
+    "公司", "集团", "科技", "教育", "学院", "协会", "中心", "官方", "企业", "有限公司",
+    "股份", "银行", "证券", "医院", "学校", "大学", "研究院", "传媒", "会务",
+)
+
+
+def freshness_bucket(
+    published_at: datetime | None,
+    now: datetime | None = None,
+    recent_days: int = 90,
+    max_age_days: int = 730,
+) -> str:
+    """Return a routing bucket without treating missing time as recent."""
+    if published_at is None:
+        return "unknown"
+    now = now or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    if published_at.tzinfo is None:
+        published_at = published_at.replace(tzinfo=timezone.utc)
+    if published_at > now:
+        return "unknown"
+    age = now - published_at
+    if age <= timedelta(days=max(1, recent_days)):
+        return "current"
+    if age <= timedelta(days=max(1, max_age_days)):
+        return "historical"
+    return "stale"
+
+
+def classify_publisher_role(content: ContentRecord) -> tuple[str, str]:
+    """Classify the source account as a routing hint, never as identity proof."""
+    author = (content.author or "").casefold()
+    source = f"{content.title}\n{content.text}".casefold()
+    if any(term.casefold() in author for term in PROVIDER_ACCOUNT_TERMS):
+        return "likely_provider", "账号名带有平台、服务商或会务类词"
+    if any(term.casefold() in source for term in PROVIDER_CONTENT_TERMS):
+        return "likely_provider", "帖子含服务商、平台推广或内容营销表达"
+    if any(term.casefold() in author for term in ENTERPRISE_NAME_TERMS):
+        return "likely_enterprise", "账号名具有企业/机构命名特征，仅作弱信号"
+    return "unknown", "没有足够的公开来源角色信号"
+
+
+def classify_account_role(name: str) -> tuple[str, str]:
+    lowered = str(name or "").casefold()
+    if any(term.casefold() in lowered for term in PROVIDER_ACCOUNT_TERMS):
+        return "likely_provider", "账号名带有服务商、平台或销售身份特征"
+    if any(term.casefold() in lowered for term in ENTERPRISE_NAME_TERMS):
+        return "likely_enterprise", "账号名具有企业/机构命名特征，仅作弱信号"
+    return "unknown", "没有足够的公开账号角色信号"
+
 
 def classify_intent(content: ContentRecord, comment: CommentRecord | None = None) -> tuple[str, str]:
     """Classify a source before enrichment and model review.
@@ -236,7 +315,7 @@ def score_purchase_evidence(
             rejected_reason=f"{intent_reason}，不进入模型复核",
         )
 
-    published_at = comment.published_at if comment else content.published_at
+    published_at = (comment.published_at if comment and comment.published_at else None) or content.published_at
     recent = bool(published_at and now - timedelta(days=max(1, recent_days)) <= published_at <= now)
     buyer_context = signal_text if comment else content_context
     buyer_lower = buyer_context.lower()
@@ -372,6 +451,7 @@ def score_lead(
     category_hint: str | None = None,
     recent_days: int = 90,
     negative_terms: Iterable[str] = (),
+    max_age_days: int = 730,
 ) -> LeadEvidence:
     now = now or datetime.now(timezone.utc)
     if now.tzinfo is None:
@@ -395,6 +475,12 @@ def score_lead(
     )
     dimensions = purchase.dimensions
     intent_class, intent_reason = classify_intent(content, comment)
+    published_at = (comment.published_at if comment and comment.published_at else None) or content.published_at
+    freshness = freshness_bucket(published_at, now, recent_days, max_age_days)
+    source_role, _ = classify_publisher_role(content)
+    candidate_kind = "historical_reactivation" if freshness == "historical" else (
+        "conditional_provider_context" if source_role == "likely_provider" else "current_demand"
+    )
     if comment:
         source_type = comment.source_type or "comment"
         profile_url = comment.author_url or content.creator_url or content.author_url
@@ -436,4 +522,13 @@ def score_lead(
         comment_url=comment.comment_url if comment else "",
         parent_comment_id=comment.parent_comment_id if comment else "",
         native_comment_id=comment.native_comment_id if comment else "",
+        published_at=published_at.isoformat() if published_at else (comment.published_at_raw if comment else ""),
+        freshness=freshness,
+        source_role=source_role,
+        candidate_kind=candidate_kind,
+        recommended_action=(
+            "历史复活：先确认现在是否仍有需求，再说明POLYV可以结合场景提供定制方案，邀请私信沟通。"
+            if freshness == "historical"
+            else "进入人工复核：补充主页、公开身份和需求定位证据。"
+        ),
     )

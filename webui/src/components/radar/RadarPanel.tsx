@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ExternalLink, RefreshCw, ShieldCheck } from 'lucide-react'
-import { radarApi, type RadarLead, type RadarQueueItem, type RadarRun, type RadarSummary } from '@/lib/api'
+import { radarApi, type RadarLead, type RadarManualCandidate, type RadarQueueItem, type RadarRun, type RadarSummary } from '@/lib/api'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 function stat(label: string, value: number, tone = 'text-cyber-text-primary') {
@@ -18,6 +18,7 @@ export function RadarPanel() {
   const [selectedRun, setSelectedRun] = useState('')
   const [leads, setLeads] = useState<RadarLead[]>([])
   const [queue, setQueue] = useState<RadarQueueItem[]>([])
+  const [manualCandidates, setManualCandidates] = useState<RadarManualCandidate[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -36,15 +37,18 @@ export function RadarPanel() {
       setRuns(nextRuns)
       setSelectedRun(resolvedRun)
       if (resolvedRun) {
-        const [leadsResponse, queueResponse] = await Promise.all([
+        const [leadsResponse, queueResponse, manualResponse] = await Promise.all([
           radarApi.getLeads(resolvedRun, 20, 'cleaned'),
           radarApi.getQueue(resolvedRun),
+          radarApi.getManualCandidates(resolvedRun, 20),
         ])
         setLeads(leadsResponse.data.leads)
         setQueue(queueResponse.data.queue)
+        setManualCandidates(manualResponse.data.candidates)
       } else {
         setLeads([])
         setQueue([])
+        setManualCandidates([])
       }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '雷达数据暂不可用')
@@ -99,6 +103,7 @@ export function RadarPanel() {
             {stat('原始线索', summary.raw_leads)}
             {stat('清洗后候选', summary.cleaned_leads, 'text-cyber-neon-green')}
             {stat('已过滤', summary.filtered_leads, 'text-cyber-neon-orange')}
+            {stat('人工待选', summary.manual_candidates, 'text-cyber-neon-cyan')}
             {stat('定位通过', summary.locator_verified)}
             {stat('Dry-Run 队列', summary.dry_run_queue, 'text-cyber-neon-cyan')}
             {stat('真实发送', summary.real_sent)}
@@ -152,6 +157,31 @@ export function RadarPanel() {
             ))}
             {!loading && !queue.length && <div className="text-xs text-cyber-text-muted">当前批次暂无 Dry-Run 队列</div>}
           </div>
+        </div>
+      </div>
+
+      <div className="mt-4">
+        <div className="text-xs text-cyber-text-muted mb-2">人工待选线索（需人工标注，不进入发送队列）</div>
+        <div className="grid lg:grid-cols-2 gap-2 max-h-72 overflow-auto pr-1">
+          {manualCandidates.map((candidate) => (
+            <div key={candidate.candidate_id} className="border-t border-white/10 pt-2 min-w-0">
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-cyber-text-primary truncate">{candidate.user || '未识别用户'}</span>
+                <span className="text-cyber-neon-cyan">{candidate.candidate_kind}</span>
+                <span className="text-cyber-text-muted">{candidate.freshness}</span>
+              </div>
+              <div className="text-xs text-cyber-text-secondary line-clamp-2 mt-1">{candidate.quote}</div>
+              <div className="flex items-center justify-between gap-2 mt-1">
+                <span className="text-[11px] text-cyber-text-muted">规则分 {candidate.rule_score} · {candidate.source_role}</span>
+                {candidate.comment_url && (
+                  <a href={candidate.comment_url} target="_blank" rel="noreferrer" title="打开评论定位" className="text-cyber-text-muted hover:text-cyber-neon-green">
+                    <ExternalLink size={13} />
+                  </a>
+                )}
+              </div>
+            </div>
+          ))}
+          {!loading && !manualCandidates.length && <div className="text-xs text-cyber-text-muted">当前批次暂无人工待选线索</div>}
         </div>
       </div>
     </section>

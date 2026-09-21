@@ -38,6 +38,7 @@ from local_tools.polyv_radar.dashboard import (
     clean_dashboard_leads,
     filter_reason_counts,
     load_dry_run_queue,
+    load_manual_candidates,
     merge_dashboard_queue,
 )
 
@@ -222,6 +223,7 @@ async def radar_summary(run_id: str | None = None):
         (selected_run, selected_run),
     ).fetchone() if selected_run else None
     dry_run_queue = [item for item in queue if item.get("source") == "dispatch_file"]
+    manual_candidates = load_manual_candidates(data_root, selected_run)
     file_verified = sum(
         bool(item.get("submitted", False) and item.get("verified", False))
         for item in dry_run_queue
@@ -232,6 +234,7 @@ async def radar_summary(run_id: str | None = None):
         "raw_leads": len(leads),
         "cleaned_leads": len(cleaned),
         "filtered_leads": len(filtered),
+        "manual_candidates": len(manual_candidates),
         "filtered_reasons": filter_reason_counts(filtered),
         "contents": int(run_counts["contents"]) if run_counts else 0,
         "comments": int(run_counts["comments"]) if run_counts else 0,
@@ -282,6 +285,7 @@ async def radar_runs(limit: int = 30):
                 "raw_leads": len(leads),
                 "cleaned_leads": len(cleaned),
                 "filtered_leads": len(filtered),
+                "manual_candidates": len(load_manual_candidates(data_root, run_id)),
                 "dry_run_queue": len(load_dry_run_queue(data_root, run_id)),
             }
         )
@@ -308,6 +312,12 @@ async def radar_leads(run_id: str, limit: int = 100, view: str = "cleaned"):
         "filtered_count": len(filtered),
         "filtered_reasons": filter_reason_counts(filtered),
     }
+
+
+@app.get("/api/radar/manual-candidates")
+async def radar_manual_candidates(run_id: str, limit: int = 50):
+    data_root = Path(os.environ.get("POLYV_RADAR_DATA_ROOT", "/Users/sexpistole111/Documents/workplace/polyv-radar-data"))
+    return {"run_id": run_id, "candidates": load_manual_candidates(data_root, run_id, limit)}
 
 
 @app.get("/api/radar/queue")

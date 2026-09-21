@@ -16,7 +16,15 @@ from .review import (
     candidate_review_id,
     review_candidates_resilient,
 )
-from .scoring import SOLUTIONS, classify_category, classify_intent, has_content_demand_signal, score_purchase_evidence
+from .scoring import (
+    SOLUTIONS,
+    classify_category,
+    classify_intent,
+    classify_publisher_role,
+    freshness_bucket,
+    has_content_demand_signal,
+    score_purchase_evidence,
+)
 from .storage import RadarStore
 
 
@@ -24,7 +32,15 @@ def _key(value: str) -> str:
     return "".join(str(value or "").casefold().split())
 
 
-def _lead_from_score(content: ContentRecord, comment: CommentRecord | None, result) -> LeadEvidence:
+def _lead_from_score(
+    content: ContentRecord,
+    comment: CommentRecord | None,
+    result,
+    *,
+    now: datetime | None = None,
+    recent_days: int = 90,
+    max_age_days: int = 730,
+) -> LeadEvidence:
     quote = comment.text if comment else content.text
     profile_url = (comment.author_url if comment else "") or content.creator_url or content.author_url
     author_id = (comment.author_id if comment else "") or content.author_id
@@ -39,6 +55,12 @@ def _lead_from_score(content: ContentRecord, comment: CommentRecord | None, resu
     else:
         source_type = "content"
     intent_class, intent_reason = classify_intent(content, comment)
+    published_at = (comment.published_at if comment and comment.published_at else None) or content.published_at
+    freshness = freshness_bucket(published_at, now, recent_days, max_age_days)
+    source_role, _ = classify_publisher_role(content)
+    candidate_kind = "historical_reactivation" if freshness == "historical" else (
+        "conditional_provider_context" if source_role == "likely_provider" else "current_demand"
+    )
     return LeadEvidence(
         platform=content.platform,
         content_id=content.content_id,
@@ -66,6 +88,15 @@ def _lead_from_score(content: ContentRecord, comment: CommentRecord | None, resu
         comment_url=comment.comment_url if comment else "",
         parent_comment_id=comment.parent_comment_id if comment else "",
         native_comment_id=comment.native_comment_id if comment else "",
+        published_at=published_at.isoformat() if published_at else (comment.published_at_raw if comment else ""),
+        freshness=freshness,
+        source_role=source_role,
+        candidate_kind=candidate_kind,
+        recommended_action=(
+            "历史复活：先确认现在是否仍有需求，再说明POLYV可以结合场景提供定制方案，邀请私信沟通。"
+            if freshness == "historical"
+            else "进入人工复核：补充主页、公开身份和需求定位证据。"
+        ),
     )
 
 
@@ -78,7 +109,9 @@ def build_prefilter_leads(
     excluded_author_names: Iterable[str] = (),
     recent_days: int = 90,
     negative_terms: Iterable[str] = (),
+    max_age_days: int = 730,
 ) -> list[LeadEvidence]:
+    effective_now = now or datetime.now(timezone.utc)
     content_by_key = {(item.platform, item.content_id): item for item in contents}
     comments_by_content: dict[tuple[str, str], list[CommentRecord]] = defaultdict(list)
     for comment in comments:
@@ -95,19 +128,29 @@ def build_prefilter_leads(
             records.append((content, None))
         records.extend((content, comment) for comment in related)
         for item, comment in records:
+            published_at = (comment.published_at if comment and comment.published_at else None) or item.published_at
+            if freshness_bucket(published_at, effective_now, recent_days, max_age_days) == "stale":
+                continue
             author_name = (comment.author if comment else content.author).casefold()
             if any(token in author_name for token in excluded):
                 continue
             result = score_purchase_evidence(
                 item,
                 comment,
-                now=now,
+                now=effective_now,
                 recent_days=recent_days,
                 negative_terms=negative_terms,
             )
             if result.score < min_score:
                 continue
-            lead = _lead_from_score(item, comment, result)
+            lead = _lead_from_score(
+                item,
+                comment,
+                result,
+                now=effective_now,
+                recent_days=recent_days,
+                max_age_days=max_age_days,
+            )
             identity = lead.author_id or lead.profile_url or lead.user
             dedupe_key = (lead.platform, _key(identity), _key(lead.quote))
             existing = best.get(dedupe_key)
@@ -185,6 +228,7 @@ def prefilter_store(config: RadarConfig, run_id: str, max_candidates: int = 50) 
         excluded_author_names=config.excluded_author_names,
         recent_days=config.recent_days,
         negative_terms=config.taxonomy_negative_terms,
+        max_age_days=config.max_lead_age_days,
     )
     store.save_leads(run_id, leads)
     path = config.data_root / "review" / f"{run_id}-prefilter.json"

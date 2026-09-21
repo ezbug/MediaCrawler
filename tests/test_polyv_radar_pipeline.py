@@ -17,6 +17,7 @@ from local_tools.polyv_radar.enrichment import (
 )
 from local_tools.polyv_radar.ego_crawl_all import build_ego_batch_launcher, build_ego_launcher, run_ego_crawlers
 from local_tools.polyv_radar.models import LeadEvidence, ProfilePost, ProfileSnapshot
+from local_tools.polyv_radar.manual_candidates import build_manual_candidates
 from local_tools.polyv_radar.pipeline import candidate_bundle, review_store
 from local_tools.polyv_radar.review import (
     build_review_batch_prompt,
@@ -29,7 +30,7 @@ from local_tools.polyv_radar.review import (
     run_codex_review_batch,
     review_candidates_resilient,
 )
-from local_tools.polyv_radar.scoring import classify_intent, score_purchase_evidence
+from local_tools.polyv_radar.scoring import classify_intent, freshness_bucket, score_purchase_evidence
 from local_tools.polyv_radar.storage import RadarStore
 from local_tools.polyv_radar.workflow import load_workflow_run
 
@@ -88,6 +89,149 @@ def test_purchase_evidence_scores_active_business_event_high() -> None:
     assert result.dimensions["platform_intent"] == 2
     assert result.dimensions["identity"] == 0
     assert result.rejected_reason == ""
+
+
+def test_freshness_separates_current_historical_and_stale() -> None:
+    now = datetime(2026, 9, 22, tzinfo=timezone.utc)
+    assert freshness_bucket(now - timedelta(days=30), now) == "current"
+    assert freshness_bucket(now - timedelta(days=120), now) == "historical"
+    assert freshness_bucket(datetime(2021, 12, 24, tzinfo=timezone.utc), now) == "stale"
+    assert freshness_bucket(None, now) == "unknown"
+
+
+def test_manual_candidates_keep_historical_and_provider_context_but_drop_stale_and_technical() -> None:
+    now = datetime(2026, 9, 22, tzinfo=timezone.utc)
+    provider = normalize_content(
+        "xhs",
+        {
+            "note_id": "provider-post",
+            "title": "线上学习平台",
+            "desc": "企业培训平台功能介绍",
+            "nickname": "某某企业培训平台",
+            "time": (now - timedelta(days=30)).isoformat(),
+            "note_url": "https://www.xiaohongshu.com/explore/provider-post",
+        },
+        "线上学习平台",
+    )
+    provider_comment = normalize_comment(
+        "xhs",
+        {
+            "comment_id": "provider-comment",
+            "note_id": "provider-post",
+            "content": "主要就是用户体验、售后服务、性价比，平台要长久持续能用",
+            "nickname": "Poon",
+            "create_time": (now - timedelta(days=30)).isoformat(),
+        },
+    )
+    historical = normalize_content(
+        "xhs",
+        {
+            "note_id": "historical-post",
+            "title": "公司请老师来培训",
+            "desc": "企业培训活动",
+            "nickname": "普通用户",
+            "time": (now - timedelta(days=180)).isoformat(),
+            "note_url": "https://www.xiaohongshu.com/explore/historical-post",
+        },
+        "公司培训",
+    )
+    historical_comment = normalize_comment(
+        "xhs",
+        {
+            "comment_id": "historical-comment",
+            "note_id": "historical-post",
+            "content": "我们公司请的，20万3小时",
+            "nickname": "爱呀爱呀",
+            "create_time": (now - timedelta(days=180)).isoformat(),
+        },
+    )
+    stale = normalize_content(
+        "zhihu",
+        {
+            "content_id": "stale-post",
+            "title": "企业培训平台求推荐",
+            "content_text": "正处于企业培训课程采购阶段",
+            "user_nickname": "李惹惹",
+            "created_time": datetime(2021, 12, 24, tzinfo=timezone.utc).isoformat(),
+            "content_url": "https://www.zhihu.com/question/stale-post/answer/1",
+        },
+        "企业培训",
+    )
+    stale_comment = normalize_comment(
+        "zhihu",
+        {
+            "comment_id": "stale-comment",
+            "content_id": "stale-post",
+            "content": "正处于企业培训课程的询价和采购阶段",
+            "user_nickname": "李惹惹",
+            "created_time": datetime(2021, 12, 24, tzinfo=timezone.utc).isoformat(),
+        },
+    )
+    technical = normalize_comment(
+        "xhs",
+        {
+            "comment_id": "technical-comment",
+            "note_id": "provider-post",
+            "content": "这一套系统专业的名字叫什么来着",
+            "nickname": "技术兴趣用户",
+            "create_time": (now - timedelta(days=30)).isoformat(),
+        },
+    )
+
+    rows = build_manual_candidates(
+        [provider, historical, stale],
+        [provider_comment, historical_comment, stale_comment, technical],
+        now=now,
+        max_age_days=730,
+    )
+    ids = {row["candidate_id"] for row in rows}
+    assert "manual-xhs-provider-post-provider-comment" in ids
+    assert "manual-xhs-historical-post-historical-comment" in ids
+    assert "manual-zhihu-stale-post-stale-comment" not in ids
+    assert all("technical-comment" not in row["candidate_id"] for row in rows)
+    provider_row = next(row for row in rows if row["candidate_id"].endswith("provider-comment"))
+    historical_row = next(row for row in rows if row["candidate_id"].endswith("historical-comment"))
+    assert provider_row["candidate_kind"] == "conditional_provider_context"
+    assert historical_row["candidate_kind"] == "historical_reactivation"
+    assert historical_row["reply_draft"]
+
+
+def test_manual_candidates_drop_generic_procurement_and_provider_commenters() -> None:
+    now = datetime(2026, 9, 22, tzinfo=timezone.utc)
+    generic = normalize_content(
+        "xhs",
+        {
+            "note_id": "generic-post",
+            "title": "从零学习做采购",
+            "desc": "采购需求和供应商报价课程",
+            "nickname": "普通用户",
+            "time": now.isoformat(),
+            "note_url": "https://www.xiaohongshu.com/explore/generic-post",
+        },
+        "采购课程",
+    )
+    generic_comment = normalize_comment(
+        "xhs",
+        {
+            "comment_id": "generic-comment",
+            "note_id": "generic-post",
+            "content": "公司最近采购预算怎么做",
+            "nickname": "普通用户",
+            "create_time": now.isoformat(),
+        },
+    )
+    provider_comment = normalize_comment(
+        "xhs",
+        {
+            "comment_id": "provider-comment",
+            "note_id": "generic-post",
+            "content": "有需求可以来了解一下小鹅通企学院",
+            "nickname": "小鹅教头",
+            "create_time": now.isoformat(),
+        },
+    )
+    rows = build_manual_candidates([generic], [generic_comment, provider_comment], now=now)
+    assert rows == []
 
 
 def test_generic_budget_question_does_not_count_as_buyer_evidence() -> None:

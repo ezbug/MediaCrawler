@@ -96,6 +96,11 @@ class LeadEvidence:
     locator_verified_at: str = ""
     locator_reason: str = ""
     native_comment_id: str = ""
+    published_at: str = ""
+    freshness: str = "unknown"
+    source_role: str = "unknown"
+    candidate_kind: str = "current_demand"
+    recommended_action: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

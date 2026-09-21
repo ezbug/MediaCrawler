@@ -26,6 +26,7 @@ from .antigravity_import import import_antigravity
 from .approval import approve_lead
 from .daily import run_daily
 from .cleaning import clean_store
+from .manual_candidates import build_manual_candidates, write_manual_candidate_artifacts
 
 
 def apply_collect_overrides(config, args):
@@ -66,7 +67,7 @@ def apply_collect_overrides(config, args):
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run the local POLYV demand radar.")
     subparsers = parser.add_subparsers(dest="command", required=True)
-    for name in ("collect", "ingest", "analyze", "report", "prefilter", "enrich", "review", "pipeline"):
+    for name in ("collect", "ingest", "analyze", "report", "prefilter", "manual-candidates", "enrich", "review", "pipeline"):
         sub = subparsers.add_parser(name)
         sub.add_argument("--config", required=True)
         if name != "collect" and name != "pipeline":
@@ -87,6 +88,8 @@ def build_parser() -> argparse.ArgumentParser:
     collect_parser.add_argument("--no-taxonomy", action="store_true", help="关闭内置 Antigravity 词库扩展")
     prefilter_parser = subparsers.choices["prefilter"]
     prefilter_parser.add_argument("--max-candidates", type=int, default=50)
+    manual_parser = subparsers.choices["manual-candidates"]
+    manual_parser.add_argument("--max-candidates", type=int, default=50)
     enrich_parser = subparsers.choices["enrich"]
     enrich_parser.add_argument("--repo-root", default=str(Path(__file__).resolve().parents[2]))
     enrich_parser.add_argument("--taskspace", type=int, required=True)
@@ -188,6 +191,25 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "prefilter":
         leads = prefilter_store(config, args.run_id, args.max_candidates)
         payload = {"run_id": args.run_id, "prefilter_count": len(leads)}
+    elif args.command == "manual-candidates":
+        store = RadarStore(config.data_root / "radar.sqlite3")
+        store.initialize()
+        candidates = build_manual_candidates(
+            store.iter_contents(args.run_id),
+            store.iter_comments(args.run_id),
+            max_candidates=args.max_candidates,
+            recent_days=config.recent_days,
+            max_age_days=config.max_lead_age_days,
+            excluded_author_names=config.excluded_author_names,
+            negative_terms=config.taxonomy_negative_terms,
+        )
+        artifacts = write_manual_candidate_artifacts(config.data_root, args.run_id, candidates)
+        store.close()
+        payload = {
+            "run_id": args.run_id,
+            "manual_candidate_count": len(candidates),
+            **{key: str(value) for key, value in artifacts.items()},
+        }
     elif args.command == "enrich":
         result = enrich_store(config, Path(args.repo_root), args.run_id, taskspace=args.taskspace)
         payload = {"run_id": args.run_id, **result}

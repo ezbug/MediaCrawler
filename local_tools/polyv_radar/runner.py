@@ -12,6 +12,7 @@ from typing import Callable, Iterable
 from .adapters import normalize_comment, normalize_content
 from .config import RadarConfig
 from .models import CommentRecord, ContentRecord, LeadEvidence
+from .manual_candidates import build_manual_candidates, write_manual_candidate_artifacts
 from .report import render_report, write_report, write_verified_lead_artifacts
 from .scoring import has_content_demand_signal, score_lead
 from .storage import RadarStore
@@ -502,6 +503,7 @@ def analyze_records(
     min_score: int = 4,
     recent_days: int = 90,
     negative_terms: Iterable[str] = (),
+    max_age_days: int = 730,
 ) -> list[LeadEvidence]:
     content_by_key = {(item.platform, item.content_id): item for item in contents}
     comments_by_content: dict[tuple[str, str], list[CommentRecord]] = {}
@@ -518,10 +520,14 @@ def analyze_records(
             records.append((content, None))
         records.extend((content, comment) for comment in related_comments)
         for item, comment in records:
+            published_at = (comment.published_at if comment and comment.published_at else None) or item.published_at
+            from .scoring import freshness_bucket
+            if freshness_bucket(published_at, now, recent_days, max_age_days) == "stale":
+                continue
             category_hint = category_by_keyword.get(
                 comment.source_keyword if comment else (content.source_keywords[0] if content.source_keywords else "")
             )
-            lead = score_lead(item, comment, now, category_hint, recent_days, negative_terms)
+            lead = score_lead(item, comment, now, category_hint, recent_days, negative_terms, max_age_days)
             if lead.score >= min_score:
                 key = (lead.platform, lead.content_id, _text_key(lead.user), _text_key(lead.quote))
                 existing = leads_by_key.get(key)
@@ -553,6 +559,7 @@ def analyze_store(config: RadarConfig, run_id: str, now: datetime | None = None)
         config.min_lead_score,
         config.recent_days,
         config.taxonomy_negative_terms,
+        config.max_lead_age_days,
     )
     store.save_leads(run_id, leads)
     write_review_queue(config.data_root / "review" / f"{run_id}.jsonl", leads)
@@ -722,6 +729,16 @@ def report_store(config: RadarConfig, run_id: str, output_suffix: str = "", task
     counts["model_call_failures"] = sum(
         1 for item in model_calls if item.get("status") not in {"ok", "partial", "model_verified"}
     )
+    manual_candidates = build_manual_candidates(
+        store.iter_contents(run_id),
+        store.iter_comments(run_id),
+        max_candidates=50,
+        recent_days=config.recent_days,
+        max_age_days=config.max_lead_age_days,
+        excluded_author_names=config.excluded_author_names,
+        negative_terms=config.taxonomy_negative_terms,
+    )
+    counts["manual_candidates"] = len(manual_candidates)
     from .locator import select_deliverable_leads
 
     counts["locator_verified"] = sum(1 for lead in leads if lead.locator_status == "verified")
@@ -755,7 +772,20 @@ def report_store(config: RadarConfig, run_id: str, output_suffix: str = "", task
     )
     suffix = f"-{output_suffix.strip('-')}" if output_suffix.strip('-') else ""
     report_path = config.data_root / "reports" / f"{run_id}{suffix}.md"
-    write_report(report_path, render_report(run_id, leads, top_contents, platform_status, failures, counts, url_checks))
+    write_manual_candidate_artifacts(config.data_root, run_id, manual_candidates)
+    write_report(
+        report_path,
+        render_report(
+            run_id,
+            leads,
+            top_contents,
+            platform_status,
+            failures,
+            counts,
+            url_checks,
+            manual_candidates,
+        ),
+    )
     dump_url_checks(config.data_root / "reports" / f"{run_id}{suffix}-url-checks.json", url_checks)
     locator_checks = store.load_comment_locators(run_id)
     verified_leads = select_deliverable_leads(leads, 20, config.min_lead_score)

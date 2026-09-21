@@ -108,6 +108,24 @@ uv run python -m local_tools.polyv_radar dispatch \
 
 `--selection manual` 只包含人工确认高价值记录；`--selection model` 包含模型复核通过且评论定位已验证的记录。当前自动发送范围仅为公开评论回复；私信开场和资料建议继续写入报告，供后续流程使用。
 
+## 人工待选线索
+
+正式评分门槛以下、但可能有学习价值的记录会单独保存，不会进入公开回复队列：
+
+```bash
+uv run python -m local_tools.polyv_radar manual-candidates \
+  --config local_tools/polyv_radar/pilot.toml \
+  --run-id <run-id> \
+  --max-candidates 50
+```
+
+输出位置：
+
+- `polyv-radar-data/review/<run-id>-manual-candidates.jsonl`
+- `polyv-radar-data/reports/<run-id>-manual-candidates.md`
+
+时间层分为 `current`（90天内）、`historical`（90天至730天）、`stale`（超过730天）和 `unknown`。历史记录只生成“确认现在是否仍有需求”的复活草稿；账号名只作来源角色提示，不能单独证明企业身份。服务商帖子可作为评论容器，但服务商评论者会从潜客待选池排除。
+
 原生和混合后端基准已停用，避免产生不在 Ego Lite 中的页面操作。
 
 报告生成时会自动校验报告里的原文、主页和外部证据链接，并额外写出 `*-url-checks.json`。也可以只对已有批次重新生成带校验结果的报告：

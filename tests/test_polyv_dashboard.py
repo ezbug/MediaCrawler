@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from local_tools.polyv_radar.dashboard import clean_dashboard_leads, load_dry_run_queue
+from local_tools.polyv_radar.dashboard import clean_dashboard_leads, load_dry_run_queue, load_manual_candidates
 from local_tools.polyv_radar.models import LeadEvidence
 
 
@@ -95,3 +95,11 @@ def test_dashboard_reads_verified_send_from_structured_dispatch_result(tmp_path:
     assert rows[0]["submitted"] is True
     assert rows[0]["verified"] is True
     assert rows[0]["lead_status"] == "submitted_verified"
+
+
+def test_dashboard_reads_manual_candidate_pool(tmp_path: Path) -> None:
+    review = tmp_path / "review"
+    review.mkdir()
+    row = {"candidate_id": "manual-1", "user": "用户", "quote": "公司培训需求"}
+    (review / "run-1-manual-candidates.jsonl").write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")
+    assert load_manual_candidates(tmp_path, "run-1") == [row]
