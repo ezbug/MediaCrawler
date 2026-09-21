@@ -103,3 +103,15 @@ def test_dashboard_reads_manual_candidate_pool(tmp_path: Path) -> None:
     row = {"candidate_id": "manual-1", "user": "用户", "quote": "公司培训需求"}
     (review / "run-1-manual-candidates.jsonl").write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")
     assert load_manual_candidates(tmp_path, "run-1") == [row]
+
+
+def test_dashboard_merges_manual_locator_results(tmp_path: Path) -> None:
+    review = tmp_path / "review"
+    review.mkdir()
+    row = {"candidate_id": "manual-1", "user": "用户", "quote": "公司培训需求"}
+    locator = {"candidate_id": "manual-1", "status": "verified", "locator_method": "native_id", "locator_url": "https://example.com/#comment-1"}
+    (review / "run-1-manual-candidates.jsonl").write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")
+    (review / "run-1-manual-locator.jsonl").write_text(json.dumps(locator, ensure_ascii=False) + "\n", encoding="utf-8")
+    merged = load_manual_candidates(tmp_path, "run-1")
+    assert merged[0]["locator_status"] == "verified"
+    assert merged[0]["locator_url"].endswith("#comment-1")

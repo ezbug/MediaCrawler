@@ -169,12 +169,13 @@ export function RadarPanel() {
                 <span className="text-cyber-text-primary truncate">{candidate.user || '未识别用户'}</span>
                 <span className="text-cyber-neon-cyan">{candidate.triage_label}</span>
                 <span className="text-cyber-text-muted">{candidate.freshness}</span>
+                {candidate.locator_status && <span className={candidate.locator_status === 'verified' ? 'text-cyber-neon-green' : 'text-amber-300'}>{candidate.locator_status}</span>}
               </div>
               <div className="text-xs text-cyber-text-secondary line-clamp-2 mt-1">{candidate.quote}</div>
               <div className="flex items-center justify-between gap-2 mt-1">
                 <span className="text-[11px] text-cyber-text-muted">规则分 {candidate.rule_score} · {candidate.source_role}</span>
-                {candidate.comment_url && (
-                  <a href={candidate.comment_url} target="_blank" rel="noreferrer" title="打开评论定位" className="text-cyber-text-muted hover:text-cyber-neon-green">
+                {(candidate.locator_url || candidate.comment_url) && (
+                  <a href={candidate.locator_url || candidate.comment_url} target="_blank" rel="noreferrer" title="打开评论定位" className="text-cyber-text-muted hover:text-cyber-neon-green">
                     <ExternalLink size={13} />
                   </a>
                 )}

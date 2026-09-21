@@ -179,6 +179,12 @@ export interface RadarManualCandidate {
   recommended_action: string
   content_url: string
   comment_url: string
+  locator_status?: string
+  locator_method?: string
+  locator_url?: string
+  locator_reason?: string
+  screenshot_path?: string
+  reply_evidence_status?: string
 }
 
 export const radarApi = {
