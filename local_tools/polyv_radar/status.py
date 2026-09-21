@@ -7,6 +7,9 @@ LEAD_STATES = (
     "discovered",
     "evidence_verified",
     "model_reviewed",
+    "model_pending_timeout",
+    "model_pending_invalid",
+    "human_review_required",
     "approved",
     "queued",
     "target_matched",
@@ -32,6 +35,9 @@ ALLOWED_TRANSITIONS = {
     "discovered": {"evidence_verified", "model_reviewed", "target_not_found", "ambiguous"},
     "evidence_verified": {"model_reviewed", "approved", "target_not_found", "ambiguous"},
     "model_reviewed": {"approved", "discovered", "target_not_found", "ambiguous"},
+    "model_pending_timeout": {"approved", "model_reviewed", "discovered", "target_not_found", "ambiguous"},
+    "model_pending_invalid": {"approved", "model_reviewed", "discovered", "target_not_found", "ambiguous"},
+    "human_review_required": {"approved", "model_reviewed", "discovered", "target_not_found", "ambiguous"},
     "approved": {"queued", "discovered", "ambiguous"},
     "queued": {"target_matched", "target_not_found", "ambiguous", "blocked"},
     "target_matched": {"draft_verified", "input_failed", "blocked"},
@@ -56,7 +62,7 @@ def validate_transition(old: str, new: str) -> None:
     if not is_known_state(old) or not is_known_state(new):
         raise ValueError(f"未知线索状态: {old!r} -> {new!r}")
     if new in FAILURE_STATES:
-        if old not in {"queued", "target_matched", "draft_verified", "submitted_unverified", "legacy_unverified", "discovered", "evidence_verified", "model_reviewed", "approved"}:
+        if old not in {"queued", "target_matched", "draft_verified", "submitted_unverified", "legacy_unverified", "discovered", "evidence_verified", "model_reviewed", "model_pending_timeout", "model_pending_invalid", "human_review_required", "approved"}:
             raise ValueError(f"不允许从 {old} 进入失败状态 {new}")
         return
     if new not in ALLOWED_TRANSITIONS.get(old, set()):

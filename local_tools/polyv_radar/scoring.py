@@ -30,8 +30,8 @@ PURCHASE_SCENE_TERMS = (
     "会议", "课程", "投教", "年会", "招商", "企业大学", "Webinar", "研讨会",
 )
 PROJECT_TIMING_TERMS = (
-    "下个月", "本月", "近期", "最近", "正在", "准备", "筹备", "项目", "上线", "落地", "启动", "实施",
-    "大会", "发布会", "年会", "培训", "年底", "筹划", "即将在", "筹备中", "最近90天",
+    "下个月", "本月", "近期", "最近要", "最近需要", "近期需要", "正在做", "正在筹备", "准备做", "准备上线", "已经立项",
+    "预算已批", "老板让我", "公司年会要", "公司要搞", "企业要办", "即将在", "筹备中", "年底要", "项目启动", "项目实施", "上线前",
     "异地分支", "全国渠道", "多会场", "线上线下同步", "海外员工", "跨省",
 )
 PLATFORM_INTENT_TERMS = (
@@ -70,8 +70,30 @@ SOLUTIONS = {
 EXPLICIT_NEED = ("我们公司", "我司", "公司需要", "企业需要", "正在找", "需要一个", "需要做", "想找", "老板让我", "求推荐", "哪家平台", "用什么系统", "怎么选平台", "征集")
 PROJECT_TERMS = ("项目", "上线", "准备", "正在做", "筹备", "落地", "启动", "实施", "采购", "老板让我", "征集", "年会", "发布会", "大会")
 INQUIRY_TERMS = ("预算", "多少钱", "价格", "费用", "方案", "平台推荐", "推荐一下", "能不能支持", "怎么选", "有没有做过", "好用吗", "怎么收费", "试用", "供应商", "服务商", "选型", "采购", "报价")
-ROLE_TERMS = ("公司", "企业", "老板", "负责人", "总监", "经理", "HR", "人事", "运营", "技术", "采购", "IT")
+ROLE_TERMS = ("负责人", "总监", "经理", "HR", "人事", "运营", "技术", "采购", "IT")
 AD_TERMS = ("我们提供", "加微信", "私信我", "招商加盟", "招商代理", "招代理", "代理加盟", "源码", "代运营", "同行", "厂家", "欢迎咨询", "出各种", "诚信接单")
+
+BUYER_OWNERSHIP_TERMS = (
+    "我们公司", "我司", "公司需要", "公司要", "公司要搞", "公司年会要", "公司准备", "公司在找", "企业需要", "企业要", "企业要办", "企业在找", "老板让我", "我们要",
+    "我们正在", "我们准备", "我们计划", "正在找", "想找", "需要一个", "需要做", "求推荐",
+    "求平台", "求方案", "征集",
+)
+BUYER_ACTION_TERMS = (
+    "预算", "多少钱", "报价", "费用", "采购", "选型", "供应商", "服务商", "平台", "方案", "系统", "平台推荐",
+    "怎么选", "哪家", "用什么", "能不能支持", "支持多少人", "部署", "私有化", "接口",
+    "SDK", "API", "交付", "实施周期", "并发",
+)
+PROVIDER_CONTENT_TERMS = (
+    "我们提供", "解决方案", "成功案例", "助力企业", "欢迎咨询", "报价清单", "服务商介绍",
+    "一站式服务", "服务案例", "平台盘点", "十大平台", "平台测评", "实测不踩坑",
+)
+GUIDE_CONTENT_TERMS = (
+    "攻略", "指南", "避坑", "解析", "经验总结", "经验分享", "保姆级教程", "教程",
+    "盘点", "测评", "怎么报价", "选型参考", "不踩坑",
+)
+IRRELEVANT_PATTERNS = (
+    ("招聘", "培训费"), ("兼职", "押金"), ("刷单", "培训"), ("招聘", "保证金"),
+)
 
 # A content-level lead is only useful when the post itself asks for a
 # solution, supplier, price, or selection help. Generic educational content
@@ -92,9 +114,38 @@ NEGATIVE_TERMS = (
 )
 
 
+def classify_intent(content: ContentRecord, comment: CommentRecord | None = None) -> tuple[str, str]:
+    """Classify a source before enrichment and model review.
+
+    A post supplies business context, while a comment must carry its own buyer
+    evidence. Provider and guide posts remain useful containers for comments,
+    but their authors are not leads by default.
+    """
+    content_text = f"{content.title}\n{content.text}".strip()
+    signal_text = comment.text.strip() if comment else content_text
+    lowered = signal_text.casefold()
+    if any(all(part.casefold() in lowered for part in pattern) for pattern in IRRELEVANT_PATTERNS):
+        return "irrelevant", "招聘、兼职或收费骗局模式"
+
+    has_ownership = any(term.casefold() in lowered for term in BUYER_OWNERSHIP_TERMS)
+    has_action = any(term.casefold() in lowered for term in BUYER_ACTION_TERMS)
+    has_provider = any(term.casefold() in lowered for term in PROVIDER_CONTENT_TERMS)
+    has_guide = any(term.casefold() in lowered for term in GUIDE_CONTENT_TERMS)
+
+    if has_ownership and has_action:
+        return "buyer_request", "存在主体归属和项目、选型或交付动作"
+    if has_provider and not has_ownership:
+        return "provider_content", "内容呈现为服务商或产品推广"
+    if has_guide and not has_ownership:
+        return "guide_content", "内容呈现为教程、盘点或经验总结"
+    if has_action and not has_ownership:
+        return "general_discussion", "有业务术语但没有可确认的买方主体"
+    return "general_discussion", "缺少明确买方动作或项目主体"
+
+
 def has_content_demand_signal(content: ContentRecord) -> bool:
-    text = f"{content.title}\n{content.text}".casefold()
-    return any(term.casefold() in text for term in CONTENT_DEMAND_TERMS)
+    intent_class, _ = classify_intent(content)
+    return intent_class == "buyer_request"
 
 
 @dataclass
@@ -155,11 +206,35 @@ def score_purchase_evidence(
             rejected_reason="广告、同行或非B端内容",
         )
 
+    intent_class, intent_reason = classify_intent(content, comment)
+    if intent_class in {"provider_content", "guide_content", "irrelevant"}:
+        return PurchaseEvidenceScore(
+            score=0,
+            dimensions={key: 0 for key in ("business_scene", "project_timing", "platform_intent", "delivery_inquiry", "identity")},
+            event_type=classify_event(content_context) or classify_event(signal_text),
+            rejected_reason=f"{intent_reason}，不进入模型复核",
+        )
+
     has_scene = any(term.lower() in content_lower or term.lower() in signal_lower for term in PURCHASE_SCENE_TERMS)
     event_type = classify_event(content_context)
     if event_type == "未分类":
         event_type = classify_event(signal_text)
     business_scene = 2 if has_scene and event_type != "未分类" else (1 if has_scene else 0)
+
+    if intent_class != "buyer_request":
+        return PurchaseEvidenceScore(
+            score=business_scene,
+            dimensions={
+                "business_scene": business_scene,
+                "project_timing": 0,
+                "platform_intent": 0,
+                "delivery_inquiry": 0,
+                "identity": 0,
+            },
+            event_type=event_type,
+            evidence_sentences=_dimension_evidence(content_context, PURCHASE_SCENE_TERMS),
+            rejected_reason=f"{intent_reason}，不进入模型复核",
+        )
 
     published_at = comment.published_at if comment else content.published_at
     recent = bool(published_at and now - timedelta(days=max(1, recent_days)) <= published_at <= now)
@@ -169,7 +244,7 @@ def score_purchase_evidence(
     project_timing = 2 if project_hit and recent else (1 if project_hit else 0)
 
     platform_hits = _dimension_evidence(buyer_context, PLATFORM_INTENT_TERMS)
-    platform_intent = 2 if any(term.lower() in buyer_lower for term in ("求推荐", "供应商", "服务商", "选型", "采购", "预算", "报价", "多少钱", "哪家")) else (1 if platform_hits else 0)
+    platform_intent = 2 if any(term.lower() in buyer_lower for term in ("求推荐", "平台推荐", "推荐", "供应商", "服务商", "选型", "采购", "预算", "报价", "多少钱", "哪家")) else (1 if platform_hits else 0)
 
     delivery_hits = _dimension_evidence(buyer_context, DELIVERY_INQUIRY_TERMS)
     delivery_inquiry = 2 if any(term.lower() in buyer_lower for term in ("预算", "报价", "多少钱", "部署", "私有化", "接口", "SDK", "API", "交付", "实施周期")) else (1 if delivery_hits else 0)
@@ -305,42 +380,21 @@ def score_lead(
     context = f"{content.title}\n{content.text}".strip()
     signal_text = quote.strip()
     inferred_category = classify_category(context, category_hint)
-    result = score_text(
-        signal_text,
-        comment.published_at if comment else content.published_at,
-        now,
-        inferred_category,
-        recent_days,
-        negative_terms,
+    purchase = score_purchase_evidence(
+        content,
+        comment,
+        now=now,
+        recent_days=recent_days,
+        negative_terms=negative_terms,
     )
-    category_terms = CATEGORY_TERMS.get(inferred_category, ())
-    has_business_scene = any(term.lower() in context.lower() or term.lower() in signal_text.lower() for term in category_terms)
-    has_intent = any(
-        term.lower() in signal_text.lower()
-        for term in (*EXPLICIT_NEED, *PROJECT_TERMS, *INQUIRY_TERMS)
+    result = ScoreResult(
+        score=purchase.score,
+        category=inferred_category,
+        reasons=[f"{name}:{value}" for name, value in purchase.dimensions.items() if value],
+        evidence_sentences=purchase.evidence_sentences,
     )
-    if not has_business_scene or not has_intent:
-        result = ScoreResult(
-            score=0,
-            category=result.category,
-            reasons=["过滤：缺少明确的视频业务场景或采购/项目意图"],
-            evidence_sentences=result.evidence_sentences,
-        )
-    normalized_signal = signal_text.casefold()
-    recent = bool(
-        (comment.published_at if comment else content.published_at)
-        and now
-        and now - timedelta(days=max(1, recent_days))
-        <= (comment.published_at if comment else content.published_at)
-        <= now
-    )
-    dimensions = {
-        "business_scene": 2 if has_business_scene else 0,
-        "project_timing": 2 if recent and any(term.casefold() in normalized_signal for term in PROJECT_TERMS) else (1 if any(term.casefold() in normalized_signal for term in PROJECT_TERMS) else 0),
-        "platform_intent": 2 if any(term.casefold() in normalized_signal for term in ("求推荐", "供应商", "服务商", "选型", "采购", "报价", "多少钱", "征集")) else (1 if any(term.casefold() in normalized_signal for term in INQUIRY_TERMS) else 0),
-        "delivery_inquiry": 2 if any(term.casefold() in normalized_signal for term in ("报价", "多少钱", "部署", "私有化", "接口", "SDK", "API", "交付", "实施周期")) else (1 if any(term.casefold() in normalized_signal for term in DELIVERY_INQUIRY_TERMS) else 0),
-        "identity": 0,
-    }
+    dimensions = purchase.dimensions
+    intent_class, intent_reason = classify_intent(content, comment)
     if comment:
         source_type = comment.source_type or "comment"
         profile_url = comment.author_url or content.creator_url or content.author_url
@@ -376,6 +430,8 @@ def score_lead(
         author_url=profile_url,
         author_id=author_id,
         dimensions=dimensions,
+        intent_class=intent_class,
+        intent_reason=intent_reason,
         source_type=source_type,
         comment_url=comment.comment_url if comment else "",
         parent_comment_id=comment.parent_comment_id if comment else "",

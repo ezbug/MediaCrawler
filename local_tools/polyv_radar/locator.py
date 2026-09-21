@@ -226,13 +226,15 @@ def lead_exclusion_reason(lead) -> str:
     if any(term.casefold() in str(lead.user or "").casefold() for term in VENDOR_NAME_TERMS):
         return "用户名显示为直播、软件或会展服务账号"
     signal_text = f"{lead.content_title}\n{lead.quote}".casefold()
-    has_buyer_signal = any(term.casefold() in signal_text for term in BUYER_SIGNAL_TERMS)
+    has_buyer_signal = lead.intent_class == "buyer_request" or any(
+        term.casefold() in signal_text for term in BUYER_SIGNAL_TERMS
+    )
     if not has_buyer_signal:
         return "原文缺少第一人称需求或明确采购/项目询问"
     editorial_terms = (*EDITORIAL_TERMS, "选型", "评测", "推荐")
     if lead.source_type in {"post", "answer", "content"} and any(
         term.casefold() in signal_text for term in editorial_terms
-    ) and not any(term.casefold() in str(lead.quote or "").casefold() for term in ("我们公司", "我司", "公司要", "公司需要", "企业要", "企业需要")):
+    ) and lead.intent_class != "buyer_request":
         return "内容为攻略、指南或案例型发布，缺少第一人称项目需求"
     return ""
 

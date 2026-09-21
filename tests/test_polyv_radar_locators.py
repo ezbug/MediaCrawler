@@ -404,6 +404,28 @@ def test_profile_demand_post_is_not_vendor_filtered_by_its_own_quote() -> None:
     assert lead_exclusion_reason(lead) != VENDOR_EXCLUSION_REASON
 
 
+def test_explicit_buyer_event_post_is_not_blocked_by_editorial_wording() -> None:
+    lead = LeadEvidence(
+        platform="zhihu",
+        content_id="answer-3",
+        comment_id="",
+        url="https://www.zhihu.com/question/1/answer/3",
+        user="企业用户",
+        quote="公司年会要搞线上直播，有好的直播平台推荐吗？",
+        content_title="公司年会要搞线上直播，有好的直播平台推荐吗？",
+        category="企业直播",
+        solution="企业活动直播方向",
+        score=5,
+        dimensions={"business_scene": 2, "project_timing": 1, "platform_intent": 2, "delivery_inquiry": 0, "identity": 0},
+        source_type="answer",
+        intent_class="buyer_request",
+        locator_status="verified",
+        decision="review",
+    )
+
+    assert lead_exclusion_reason(lead) == ""
+
+
 def test_generic_zhihu_author_and_editorial_selection_article_do_not_enter_delivery_list() -> None:
     lead = LeadEvidence(
         platform="zhihu",

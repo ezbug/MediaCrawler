@@ -85,6 +85,8 @@ class LeadEvidence:
     stage: str = "legacy"
     decision: str = ""
     rejection_reason: str = ""
+    intent_class: str = "unknown"
+    intent_reason: str = ""
     author_id: str = ""
     source_type: str = "comment"
     comment_url: str = ""
@@ -154,3 +156,7 @@ class LeadAssessment:
     decision: str = "reject"
     reason: str = ""
     model_status: str = "rule"
+    evidence_hash: str = ""
+    reviewer_version: str = ""
+    reviewer_attempts: int = 0
+    review_latency_seconds: float = 0.0

@@ -72,6 +72,17 @@ uv run python -m local_tools.polyv_radar report \
   --taskspace <current-taskspace>
 ```
 
+模型复核采用可续跑的小批模式：每批最多 2 条候选，默认使用
+`gpt-5.6-luna + low`，批次超时后只对受影响记录单条重试一次；连续两次失败会熔断，
+剩余记录进入 `model_pending_timeout` 或 `model_pending_invalid` 人工复核队列。每条结果
+立即落库，缓存键包含候选、证据哈希和复核版本，重复运行不会覆盖已完成的其他候选。
+模型通过、模型待审和模型拒绝在报告中分开统计；待审记录即使规则分数达标，也只能生成
+明确标注“模型复核未完成”的人工草稿，不能直接进入自动发送队列。
+
+模型调用和噪声分类可从报告漏斗查看。报告会区分 `buyer_request`、`provider_content`、
+`guide_content`、`general_discussion` 和 `irrelevant`；服务商或教程内容仍可作为评论容器，
+但发布者不会直接成为潜客。标题只提供业务场景，评论自身必须提供项目、选型、价格或交付证据。
+
 如果任务被手动中断或单个关键词超过 `pilot.toml` 中的 `task_timeout_seconds`，先恢复已经写入的 JSONL，再执行分析：
 
 ```bash

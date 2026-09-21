@@ -16,7 +16,7 @@ from local_tools.polyv_radar.enrichment import (
 )
 from local_tools.polyv_radar.ego_crawl_all import build_ego_batch_launcher, build_ego_launcher, run_ego_crawlers
 from local_tools.polyv_radar.models import LeadEvidence, ProfilePost, ProfileSnapshot
-from local_tools.polyv_radar.pipeline import candidate_bundle
+from local_tools.polyv_radar.pipeline import candidate_bundle, review_store
 from local_tools.polyv_radar.review import (
     build_review_batch_prompt,
     candidate_review_id,
@@ -26,8 +26,9 @@ from local_tools.polyv_radar.review import (
     review_schema,
     run_codex_review,
     run_codex_review_batch,
+    review_candidates_resilient,
 )
-from local_tools.polyv_radar.scoring import score_purchase_evidence
+from local_tools.polyv_radar.scoring import classify_intent, score_purchase_evidence
 from local_tools.polyv_radar.storage import RadarStore
 from local_tools.polyv_radar.workflow import load_workflow_run
 
@@ -88,7 +89,7 @@ def test_purchase_evidence_scores_active_business_event_high() -> None:
     assert result.rejected_reason == ""
 
 
-def test_budget_question_counts_as_purchase_and_delivery_evidence() -> None:
+def test_generic_budget_question_does_not_count_as_buyer_evidence() -> None:
     content = _content("发布会直播搭建的全过程")
     comment = _comment("这些东西整出来预算大概多少")
 
@@ -96,9 +97,10 @@ def test_budget_question_counts_as_purchase_and_delivery_evidence() -> None:
     result = score_purchase_evidence(content, comment)
 
     assert result.dimensions["business_scene"] == 2
-    assert result.dimensions["platform_intent"] == 2
-    assert result.dimensions["delivery_inquiry"] == 2
-    assert result.score >= 6
+    assert result.dimensions["platform_intent"] == 0
+    assert result.dimensions["delivery_inquiry"] == 0
+    assert result.score == 2
+    assert "不进入模型复核" in result.rejected_reason
 
 
 def test_generic_sdk_question_is_capped_without_business_scene() -> None:
@@ -124,6 +126,155 @@ def test_generic_comment_does_not_inherit_purchase_intent_from_video_title() -> 
     assert result.dimensions["platform_intent"] == 0
     assert result.dimensions["delivery_inquiry"] == 0
     assert result.score == 2
+
+
+def test_intent_gate_separates_provider_guide_and_buyer_comment() -> None:
+    provider = _content("AI企业培训怎么报价，平台选型指南")
+    buyer = _comment("我们公司下个月要做员工培训，求平台报价")
+
+    assert provider is not None and buyer is not None
+    assert classify_intent(provider)[0] in {"provider_content", "guide_content"}
+    assert classify_intent(provider, buyer)[0] == "buyer_request"
+
+
+def test_review_resilience_keeps_successful_chunk_when_next_call_times_out() -> None:
+    candidates = [
+        {
+            "platform": "dy",
+            "content_id": f"video-{index}",
+            "comment_id": f"comment-{index}",
+            "quote": "公司下个月需要培训平台，求报价",
+            "sources": [{"url": f"https://example.com/{index}", "text": "公司下个月需要培训平台，求报价"}],
+            "rule_dimensions": {"business_scene": 2, "project_timing": 2, "platform_intent": 2, "delivery_inquiry": 0, "identity": 0},
+            "profile": {"identity_confidence": "low"},
+        }
+        for index in range(3)
+    ]
+    calls = []
+    commands = []
+
+    def fake_runner(command, **kwargs):
+        calls.append(kwargs["input"])
+        commands.append(command)
+        prompt = kwargs["input"]
+        if "DATA_JSON:\n[" in prompt:
+            data = json.loads(prompt.split("DATA_JSON:\n", 1)[1])
+            if data[0]["content_id"] == "video-2":
+                raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+            reviews = [
+                {
+                    "candidate_id": item["candidate_id"],
+                    "score": 4,
+                    "dimensions": {"business_scene": 2, "project_timing": 2, "platform_intent": 0, "delivery_inquiry": 0, "identity": 0},
+                    "event_type": "员工培训",
+                    "identity_confidence": "low",
+                    "evidence": [{"dimension": "business_scene", "quote": item["quote"], "url": item["sources"][0]["url"]}],
+                    "decision": "high_value",
+                    "reason": "存在企业场景和近期项目",
+                }
+                for item in data
+            ]
+            return subprocess.CompletedProcess(command, 0, json.dumps({"reviews": reviews}), "")
+        raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+
+    results, telemetry = review_candidates_resilient(candidates, runner=fake_runner)
+
+    assert results["dy|video-0|comment-0"][1] == "model_verified"
+    assert results["dy|video-1|comment-1"][1] == "model_verified"
+    assert results["dy|video-2|comment-2"][1] == "model_pending_timeout"
+    assert any(item["status"] == "timeout" for item in telemetry)
+    assert all(command[command.index("--model") + 1] == "gpt-5.6-luna" for command in commands)
+    assert all("model_reasoning_effort='low'" in command for command in commands)
+    assert calls
+
+
+def test_review_command_forces_low_reasoning_effort() -> None:
+    candidate = {
+        "platform": "dy",
+        "content_id": "video-1",
+        "comment_id": "comment-1",
+        "quote": "公司下个月需要培训平台，求报价",
+        "sources": [{"url": "https://example.com/1", "text": "公司下个月需要培训平台，求报价"}],
+        "profile": {"identity_confidence": "low"},
+    }
+    captured = {}
+
+    def fake_runner(command, **kwargs):
+        captured["command"] = command
+        payload = {"score": 0, "dimensions": {name: 0 for name in ("business_scene", "project_timing", "platform_intent", "delivery_inquiry", "identity")}, "event_type": "员工培训", "identity_confidence": "low", "evidence": [], "decision": "review", "reason": "证据不足"}
+        return subprocess.CompletedProcess(command, 0, json.dumps(payload), "")
+
+    run_codex_review(candidate, runner=fake_runner)
+
+    assert captured["command"][captured["command"].index("--model") + 1] == "gpt-5.6-luna"
+    assert "model_reasoning_effort='low'" in captured["command"]
+
+
+def test_review_store_persists_partial_results_and_reuses_evidence_cache(tmp_path: Path) -> None:
+    from local_tools.polyv_radar.config import RadarConfig
+
+    config = RadarConfig(data_root=tmp_path, platforms=["dy"], keywords={}, min_lead_score=4)
+    lead = LeadEvidence(
+        platform="dy",
+        content_id="video-cache",
+        comment_id="comment-cache",
+        url="https://example.com/cache",
+        user="买方用户",
+        quote="我们公司下个月需要培训平台，求报价",
+        category="企业培训",
+        solution="企业培训方向",
+        score=6,
+        dimensions={"business_scene": 2, "project_timing": 2, "platform_intent": 2, "delivery_inquiry": 0, "identity": 0},
+        author_id="buyer-1",
+    )
+    store = RadarStore(tmp_path / "radar.sqlite3")
+    store.initialize()
+    second_lead = LeadEvidence(
+        platform="dy",
+        content_id="video-cache-2",
+        comment_id="comment-cache-2",
+        url="https://example.com/cache-2",
+        user="第二个买方用户",
+        quote="老板让我找员工培训平台并问报价",
+        category="企业培训",
+        solution="企业培训方向",
+        score=6,
+        dimensions={"business_scene": 2, "project_timing": 2, "platform_intent": 2, "delivery_inquiry": 0, "identity": 0},
+        author_id="buyer-2",
+    )
+    store.save_leads("run-cache", [lead, second_lead])
+    store.close()
+    calls = []
+
+    def fake_runner(command, **kwargs):
+        calls.append(command)
+        rows = json.loads(kwargs["input"].split("DATA_JSON:\n", 1)[1])
+        reviews = [
+            {
+                "candidate_id": row["candidate_id"],
+                "score": 6,
+                "dimensions": {"business_scene": 2, "project_timing": 2, "platform_intent": 2, "delivery_inquiry": 0, "identity": 0},
+                "event_type": "员工培训",
+                "identity_confidence": "low",
+                "evidence": [{"dimension": "business_scene", "quote": row["quote"], "url": row["sources"][0]["url"]}],
+                "decision": "high_value",
+                "reason": "企业场景和项目证据成立",
+            }
+            for row in rows
+        ]
+        return subprocess.CompletedProcess(command, 0, json.dumps({"reviews": reviews}), "")
+
+    first = review_store(config, "run-cache", runner=fake_runner)
+    second = review_store(config, "run-cache", runner=fake_runner)
+
+    assert first["model_calls"] == 1
+    assert second["model_calls"] == 0
+    assert second["model_cached"] == 2
+    assert len(calls) == 1
+    check_store = RadarStore(tmp_path / "radar.sqlite3")
+    check_store.initialize()
+    assert len(check_store.load_leads("run-cache")) == 2
+    check_store.close()
 
 
 def test_business_event_terms_are_not_treated_as_ad_or_medical_negatives() -> None:
@@ -228,6 +379,8 @@ def test_existing_database_migration_preserves_rows(tmp_path: Path) -> None:
     assert row["content_id"] == "old-1"
     assert row["author_id"] == ""
     assert store.connection.execute("SELECT name FROM sqlite_master WHERE name='profiles'").fetchone()
+    review_columns = {item[1] for item in store.connection.execute("PRAGMA table_info(model_review_calls)")}
+    assert "reviewer_version" in review_columns
     store.close()
 
 

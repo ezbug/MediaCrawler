@@ -181,6 +181,22 @@ class RadarStore:
                 payload TEXT NOT NULL,
                 PRIMARY KEY (run_id, platform, content_id, comment_id)
             );
+            CREATE TABLE IF NOT EXISTS model_review_calls (
+                call_id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                candidate_ids TEXT NOT NULL DEFAULT '[]',
+                candidate_count INTEGER NOT NULL DEFAULT 0,
+                input_bytes INTEGER NOT NULL DEFAULT 0,
+                timeout_seconds INTEGER NOT NULL DEFAULT 0,
+                model TEXT NOT NULL DEFAULT '',
+                reasoning_effort TEXT NOT NULL DEFAULT '',
+                reviewer_version TEXT NOT NULL DEFAULT '',
+                retry_count INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL DEFAULT '',
+                error TEXT NOT NULL DEFAULT '',
+                duration_seconds REAL NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT ''
+            );
             CREATE TABLE IF NOT EXISTS comment_locators (
                 run_id TEXT NOT NULL,
                 platform TEXT NOT NULL,
@@ -292,6 +308,9 @@ class RadarStore:
             },
             "lead_status_events": {
                 "event_key": "TEXT NOT NULL DEFAULT ''",
+            },
+            "model_review_calls": {
+                "reviewer_version": "TEXT NOT NULL DEFAULT ''",
             },
         }
         for table, columns in migrations.items():
@@ -537,10 +556,18 @@ class RadarStore:
     def save_leads(self, run_id: str, leads: Iterable[LeadEvidence]) -> None:
         self.connection.execute("DELETE FROM leads WHERE run_id = ?", (run_id,))
         for lead in leads:
-            self.connection.execute(
-                "INSERT OR REPLACE INTO leads(run_id, platform, content_id, comment_id, payload) VALUES (?, ?, ?, ?, ?)",
-                (run_id, lead.platform, lead.content_id, lead.comment_id, json.dumps(lead.to_dict(), ensure_ascii=False)),
-            )
+            self._upsert_lead_row(run_id, lead)
+        self.connection.commit()
+
+    def _upsert_lead_row(self, run_id: str, lead: LeadEvidence) -> None:
+        self.connection.execute(
+            "INSERT OR REPLACE INTO leads(run_id, platform, content_id, comment_id, payload) VALUES (?, ?, ?, ?, ?)",
+            (run_id, lead.platform, lead.content_id, lead.comment_id, json.dumps(lead.to_dict(), ensure_ascii=False)),
+        )
+
+    def upsert_lead(self, run_id: str, lead: LeadEvidence) -> None:
+        """Persist one derived lead without deleting other leads in the run."""
+        self._upsert_lead_row(run_id, lead)
         self.connection.commit()
 
     def iter_contents(self, run_id: str | None = None) -> list[ContentRecord]:
@@ -703,6 +730,34 @@ class RadarStore:
                 ),
             )
         self.connection.commit()
+
+    def save_model_review_call(self, run_id: str, payload: dict) -> None:
+        self.connection.execute(
+            """INSERT OR REPLACE INTO model_review_calls
+               (call_id, run_id, candidate_ids, candidate_count, input_bytes,
+                timeout_seconds, model, reasoning_effort, reviewer_version, retry_count,
+                status, error, duration_seconds, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                str(payload.get("call_id", "")), run_id,
+                json.dumps(payload.get("candidate_ids", []), ensure_ascii=False),
+                int(payload.get("candidate_count", 0) or 0),
+                int(payload.get("input_bytes", 0) or 0),
+                int(payload.get("timeout_seconds", 0) or 0),
+                str(payload.get("model", "")), str(payload.get("reasoning_effort", "")),
+                str(payload.get("reviewer_version", "")),
+                int(payload.get("retry_count", 0) or 0), str(payload.get("status", "")),
+                str(payload.get("error", "")), float(payload.get("duration_seconds", 0) or 0),
+                datetime.now().astimezone().isoformat(),
+            ),
+        )
+        self.connection.commit()
+
+    def load_model_review_calls(self, run_id: str) -> list[dict]:
+        rows = self.connection.execute(
+            "SELECT * FROM model_review_calls WHERE run_id = ? ORDER BY created_at, call_id", (run_id,)
+        ).fetchall()
+        return [dict(row) | {"candidate_ids": json.loads(row["candidate_ids"] or "[]")} for row in rows]
 
     def save_legacy_import(self, payload: dict) -> None:
         self.connection.execute(
@@ -879,7 +934,7 @@ class RadarStore:
         return [dict(row) for row in rows]
 
     def count(self, table: str) -> int:
-        if table not in {"contents", "comments", "leads", "runs", "crawl_tasks", "profiles", "profile_posts", "external_evidence", "lead_assessments", "comment_locators", "legacy_imports", "lead_status_events", "outreach_queue", "outreach_attempts", "interaction_events"}:
+        if table not in {"contents", "comments", "leads", "runs", "crawl_tasks", "profiles", "profile_posts", "external_evidence", "lead_assessments", "model_review_calls", "comment_locators", "legacy_imports", "lead_status_events", "outreach_queue", "outreach_attempts", "interaction_events"}:
             raise ValueError(f"Unsupported table: {table}")
         return int(self.connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
 

@@ -565,6 +565,7 @@ def report_store(config: RadarConfig, run_id: str, output_suffix: str = "", task
     store.initialize()
     leads = store.load_leads(run_id)
     from .locator import VENDOR_EXCLUSION_REASON, lead_exclusion_reason
+    from .scoring import classify_intent
 
     # Older batches predate profile fields and vendor filtering. Hydrate them
     # from the batch-scoped profile table before rendering any deliverable list.
@@ -661,6 +662,21 @@ def report_store(config: RadarConfig, run_id: str, output_suffix: str = "", task
         ),
         "external_evidence": int(store.connection.execute("SELECT COUNT(*) FROM external_evidence WHERE run_id = ?", (run_id,)).fetchone()[0]),
     }
+    noise_counts: dict[str, int] = {}
+    contents_for_run = store.iter_contents(run_id)
+    content_lookup = {(item.platform, item.content_id): item for item in contents_for_run}
+    for content in contents_for_run:
+        intent_class, _ = classify_intent(content)
+        if intent_class != "buyer_request":
+            noise_counts[intent_class] = noise_counts.get(intent_class, 0) + 1
+    for comment in store.iter_comments(run_id):
+        content = content_lookup.get((comment.platform, comment.content_id))
+        if content is None:
+            continue
+        intent_class, _ = classify_intent(content, comment)
+        if intent_class != "buyer_request":
+            noise_counts[intent_class] = noise_counts.get(intent_class, 0) + 1
+    counts["noise_counts"] = noise_counts
     query_counts: dict[str, dict[str, int]] = {}
     for content in store.iter_contents(run_id):
         for keyword in content.source_keywords:
@@ -677,20 +693,35 @@ def report_store(config: RadarConfig, run_id: str, output_suffix: str = "", task
     for item in query_counts.values():
         item["candidate_rate"] = item["leads"] / item["contents"] if item["contents"] else 0.0
     counts["query_stats"] = sorted(query_counts.values(), key=lambda item: (-item["leads"], -item["comments"], item["keyword"]))
+    current_lead_keys = {(lead.platform, lead.content_id, lead.comment_id) for lead in leads}
     assessment_rows = store.connection.execute("SELECT payload FROM lead_assessments WHERE run_id = ?", (run_id,)).fetchall()
     for row in assessment_rows:
         payload = json.loads(row[0])
+        if (str(payload.get("platform", "")), str(payload.get("content_id", "")), str(payload.get("comment_id", ""))) not in current_lead_keys:
+            continue
         if payload.get("decision") == "high_value" and payload.get("score", 0) >= config.min_lead_score:
             counts["high_value"] = counts.get("high_value", 0) + 1
         if payload.get("decision") == "review":
             counts["review"] = counts.get("review", 0) + 1
         if payload.get("decision") == "manual_confirmed":
             counts["manual_confirmed"] = counts.get("manual_confirmed", 0) + 1
+        status = str(payload.get("model_status", ""))
+        if status in {"model_pending_timeout", "model_pending_invalid"}:
+            counts[status] = counts.get(status, 0) + 1
     counts["model_passed"] = counts.get("high_value", 0)
     counts["evidence_insufficient"] = counts.get("review", 0)
     counts["task_count"] = len(tasks)
     counts["status_events_raw"] = store.count_status_events(run_id, distinct=False)
     counts["status_events_distinct"] = store.count_status_events(run_id, distinct=True)
+    # Keep all attempts for this run in the audit metric: historical replay is
+    # intentionally cumulative, while reviewer_version identifies each policy
+    # generation for later comparison.
+    model_calls = store.load_model_review_calls(run_id)
+    counts["model_calls"] = len(model_calls)
+    counts["model_call_seconds"] = round(sum(float(item.get("duration_seconds", 0) or 0) for item in model_calls), 3)
+    counts["model_call_failures"] = sum(
+        1 for item in model_calls if item.get("status") not in {"ok", "partial", "model_verified"}
+    )
     from .locator import select_deliverable_leads
 
     counts["locator_verified"] = sum(1 for lead in leads if lead.locator_status == "verified")
