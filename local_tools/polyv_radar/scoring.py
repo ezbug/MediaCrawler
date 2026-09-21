@@ -39,7 +39,7 @@ PLATFORM_INTENT_TERMS = (
 )
 DELIVERY_INQUIRY_TERMS = (
     "部署", "私有化", "接口", "SDK", "API", "接入", "并发", "交付", "实施周期", "周期", "能不能支持", "支持多少人", "支持并发",
-    "多少钱", "报价", "费用",
+    "预算", "多少钱", "报价", "费用",
 )
 
 
@@ -68,7 +68,7 @@ SOLUTIONS = {
 
 EXPLICIT_NEED = ("我们公司", "我司", "公司需要", "企业需要", "正在找", "需要一个", "需要做", "想找", "老板让我", "求推荐", "哪家平台", "用什么系统", "怎么选平台", "征集")
 PROJECT_TERMS = ("项目", "上线", "准备", "正在做", "筹备", "落地", "启动", "实施", "采购", "老板让我", "征集", "年会", "发布会", "大会")
-INQUIRY_TERMS = ("多少钱", "价格", "费用", "方案", "平台推荐", "推荐一下", "能不能支持", "怎么选", "有没有做过", "好用吗", "怎么收费", "试用", "供应商", "服务商", "选型", "采购", "报价")
+INQUIRY_TERMS = ("预算", "多少钱", "价格", "费用", "方案", "平台推荐", "推荐一下", "能不能支持", "怎么选", "有没有做过", "好用吗", "怎么收费", "试用", "供应商", "服务商", "选型", "采购", "报价")
 ROLE_TERMS = ("公司", "企业", "老板", "负责人", "总监", "经理", "HR", "人事", "运营", "技术", "采购", "IT")
 AD_TERMS = ("我们提供", "加微信", "私信我", "招商加盟", "招商代理", "招代理", "代理加盟", "源码", "代运营", "同行", "厂家", "欢迎咨询", "出各种", "诚信接单")
 
@@ -166,10 +166,10 @@ def score_purchase_evidence(
     project_timing = 2 if project_hit and recent else (1 if project_hit else 0)
 
     platform_hits = _dimension_evidence(buyer_context, PLATFORM_INTENT_TERMS)
-    platform_intent = 2 if any(term.lower() in buyer_lower for term in ("求推荐", "供应商", "服务商", "选型", "采购", "报价", "多少钱", "哪家")) else (1 if platform_hits else 0)
+    platform_intent = 2 if any(term.lower() in buyer_lower for term in ("求推荐", "供应商", "服务商", "选型", "采购", "预算", "报价", "多少钱", "哪家")) else (1 if platform_hits else 0)
 
     delivery_hits = _dimension_evidence(buyer_context, DELIVERY_INQUIRY_TERMS)
-    delivery_inquiry = 2 if any(term.lower() in buyer_lower for term in ("报价", "多少钱", "部署", "私有化", "接口", "SDK", "API", "交付", "实施周期")) else (1 if delivery_hits else 0)
+    delivery_inquiry = 2 if any(term.lower() in buyer_lower for term in ("预算", "报价", "多少钱", "部署", "私有化", "接口", "SDK", "API", "交付", "实施周期")) else (1 if delivery_hits else 0)
 
     identity_confidence = str(profile.get("identity_confidence", "low"))
     identity = {"high": 2, "medium": 1}.get(identity_confidence, 0)

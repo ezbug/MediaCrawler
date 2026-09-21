@@ -88,6 +88,19 @@ def test_purchase_evidence_scores_active_business_event_high() -> None:
     assert result.rejected_reason == ""
 
 
+def test_budget_question_counts_as_purchase_and_delivery_evidence() -> None:
+    content = _content("发布会直播搭建的全过程")
+    comment = _comment("这些东西整出来预算大概多少")
+
+    assert content is not None and comment is not None
+    result = score_purchase_evidence(content, comment)
+
+    assert result.dimensions["business_scene"] == 2
+    assert result.dimensions["platform_intent"] == 2
+    assert result.dimensions["delivery_inquiry"] == 2
+    assert result.score >= 6
+
+
 def test_generic_sdk_question_is_capped_without_business_scene() -> None:
     content = _content("直播 SDK 开发教程")
     comment = _comment("直播 SDK 怎么实现")
