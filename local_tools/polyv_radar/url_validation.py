@@ -127,7 +127,7 @@ def validate_urls_with_ego(
         f"process.env.POLYV_URL_INPUT = {json.dumps(str(input_path))};\n"
         f"process.env.POLYV_URL_OUTPUT = {json.dumps(str(output_path))};\n"
         f"process.env.POLYV_TASKSPACE_ID = {json.dumps(str(taskspace))};\n"
-        f"await import({json.dumps(str(script_path))});\n"
+        f"await import({json.dumps(script_path.resolve().as_uri())});\n"
     )
     try:
         result = runner(

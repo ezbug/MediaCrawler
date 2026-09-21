@@ -97,7 +97,7 @@ def _run_ego_json_script(
         f"process.env.{input_var} = {json.dumps(str(input_path))};\n"
         f"process.env.{output_var} = {json.dumps(str(output_path))};\n"
         f"process.env.POLYV_TASKSPACE_ID = {json.dumps(str(taskspace))};\n"
-        f"await import({json.dumps(str(script_path))});\n"
+        f"await import({json.dumps(script_path.resolve().as_uri())});\n"
     )
     try:
         result = runner(

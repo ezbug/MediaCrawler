@@ -13,6 +13,7 @@ from local_tools.polyv_radar.enrichment import (
     classify_identity_confidence,
     extract_company_role,
     _clean_profile_text,
+    _run_ego_json_script,
 )
 from local_tools.polyv_radar.ego_crawl_all import build_ego_batch_launcher, build_ego_launcher, run_ego_crawlers
 from local_tools.polyv_radar.models import LeadEvidence, ProfilePost, ProfileSnapshot
@@ -339,6 +340,41 @@ def test_candidate_enrichment_is_capped_and_deduplicated() -> None:
 
     assert len(selected) == 50
     assert len({item.author_id for item in selected}) == 50
+
+
+def test_ego_json_enrichment_uses_module_safe_entrypoint(tmp_path: Path) -> None:
+    script = tmp_path / "profile.mjs"
+    script.write_text("", encoding="utf-8")
+    input_path = tmp_path / "input.json"
+    output_path = tmp_path / "output.json"
+    input_path.write_text("[]", encoding="utf-8")
+    calls = []
+
+    class Completed:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_runner(command, **kwargs):
+        calls.append((command, kwargs))
+        output_path.write_text("{}", encoding="utf-8")
+        return Completed()
+
+    ok, _ = _run_ego_json_script(
+        script,
+        input_path,
+        output_path,
+        "POLYV_PROFILE_INPUT",
+        "POLYV_PROFILE_OUTPUT",
+        taskspace=3,
+        runner=fake_runner,
+    )
+
+    assert ok is True
+    assert calls[0][0] == ["ego-browser", "nodejs"]
+    assert calls[0][1]["input"].startswith("process.env.POLYV_PROFILE_INPUT")
+    assert "await import(\"file://" in calls[0][1]["input"]
+    assert str(script.resolve()) in calls[0][1]["input"]
 
 
 def test_prefilter_excludes_configured_first_party_author() -> None:

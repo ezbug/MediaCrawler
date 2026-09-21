@@ -207,4 +207,5 @@ def test_url_validation_uses_ego_lite_runner_and_persists_browser_results(tmp_pa
 
     assert not log
     assert calls[0][0] == ["ego-browser", "nodejs"]
+    assert "await import(\"file://" in calls[0][1]["input"]
     assert checks["https://example.com/item"]["status"] == "ok"

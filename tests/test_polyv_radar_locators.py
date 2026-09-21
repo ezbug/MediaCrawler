@@ -197,6 +197,7 @@ def test_ego_locator_runner_uses_ego_browser_only(tmp_path: Path) -> None:
 
     assert not log
     assert calls[0][0] == ["ego-browser", "nodejs"]
+    assert "await import(\"file://" in calls[0][1]["input"]
     assert results["run-1:dy:video-1:comment-1"]["status"] == "verified"
 
 

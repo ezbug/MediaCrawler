@@ -166,7 +166,7 @@ def run_ego_locator(
         f"process.env.POLYV_LOCATOR_INPUT = {json.dumps(str(input_path))};\n"
         f"process.env.POLYV_LOCATOR_OUTPUT = {json.dumps(str(output_path))};\n"
         f"process.env.POLYV_TASKSPACE_ID = {json.dumps(str(taskspace))};\n"
-        f"await import({json.dumps(str(script_path))});\n"
+        f"await import({json.dumps(script_path.resolve().as_uri())});\n"
     )
     try:
         result = runner(
