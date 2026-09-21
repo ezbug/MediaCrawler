@@ -437,3 +437,5 @@ def test_long_tail_wave_does_not_repeat_first_wave_queries() -> None:
 
     assert sum(len(values) for values in expanded.platform_keywords.values()) == 15
     assert "base" not in expanded.platform_keywords.get("dy", {})
+    assert any("我们公司" in keyword for keyword in expanded.platform_keywords["dy"].values())
+    assert any("老板让我找" in keyword for keyword in expanded.platform_keywords["dy"].values())
