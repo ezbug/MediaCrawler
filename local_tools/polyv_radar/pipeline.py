@@ -10,7 +10,7 @@ from .config import RadarConfig
 from .enrichment import choose_enrichment_candidates, run_profile_enrichment
 from .locator import lead_exclusion_reason
 from .models import CommentRecord, ContentRecord, LeadAssessment, LeadEvidence
-from .review import run_codex_review
+from .review import candidate_review_id, run_codex_review_batch
 from .scoring import SOLUTIONS, classify_category, has_content_demand_signal, score_purchase_evidence
 from .storage import RadarStore
 
@@ -196,8 +196,13 @@ def review_store(
     assessments = []
     reviewed: list[LeadEvidence] = []
     stats = {"high_value": 0, "review": 0, "rejected": 0, "model_fallback": 0}
+    batch_results = run_codex_review_batch(
+        bundle,
+        codex=codex,
+        runner=runner or __import__("subprocess").run,
+    )
     for lead, candidate in zip(leads, bundle):
-        payload, status = run_codex_review(candidate, codex=codex, runner=runner or __import__("subprocess").run)
+        payload, status = batch_results.get(candidate_review_id(candidate), (None, "model_missing"))
         profile = profiles.get((lead.platform, lead.author_id), {})
         profile_updates = {
             "company": profile.get("company", lead.company),

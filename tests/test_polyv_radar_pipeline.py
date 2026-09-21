@@ -17,7 +17,16 @@ from local_tools.polyv_radar.enrichment import (
 from local_tools.polyv_radar.ego_crawl_all import build_ego_batch_launcher, build_ego_launcher, run_ego_crawlers
 from local_tools.polyv_radar.models import LeadEvidence, ProfilePost, ProfileSnapshot
 from local_tools.polyv_radar.pipeline import candidate_bundle
-from local_tools.polyv_radar.review import enforce_review_gates, parse_review_payload, review_schema, run_codex_review
+from local_tools.polyv_radar.review import (
+    build_review_batch_prompt,
+    candidate_review_id,
+    enforce_review_gates,
+    parse_review_payload,
+    review_batch_schema,
+    review_schema,
+    run_codex_review,
+    run_codex_review_batch,
+)
 from local_tools.polyv_radar.scoring import score_purchase_evidence
 from local_tools.polyv_radar.storage import RadarStore
 from local_tools.polyv_radar.workflow import load_workflow_run
@@ -433,6 +442,105 @@ def test_codex_review_runner_rejects_untrusted_source_urls() -> None:
     parsed, status = run_codex_review(candidate, runner=fake_runner)
     assert status == "model_verified"
     assert parsed is not None and parsed["decision"] == "high_value"
+
+
+def test_codex_batch_review_validates_each_candidate_and_uses_stable_ids() -> None:
+    candidates = [
+        {
+            "platform": "dy",
+            "content_id": f"video-{index}",
+            "comment_id": f"comment-{index}",
+            "quote": "公司下个月需要培训平台",
+            "sources": [{"url": f"https://example.com/post-{index}", "text": "公司下个月需要培训平台"}],
+            "rule_dimensions": {
+                "business_scene": 2,
+                "project_timing": 2,
+                "platform_intent": 0,
+                "delivery_inquiry": 0,
+                "identity": 0,
+            },
+            "profile": {"identity_confidence": "low"},
+        }
+        for index in range(2)
+    ]
+
+    def fake_runner(command, **kwargs):
+        prompt = kwargs["input"]
+        assert "必须为每个 candidate_id 返回且只返回一条 review" in prompt
+        data = json.loads(prompt.split("DATA_JSON:\n", 1)[1])
+        reviews = []
+        for item in data:
+            reviews.append(
+                {
+                    "candidate_id": item["candidate_id"],
+                    "score": 4,
+                    "dimensions": {
+                        "business_scene": 2,
+                        "project_timing": 2,
+                        "platform_intent": 0,
+                        "delivery_inquiry": 0,
+                        "identity": 0,
+                    },
+                    "event_type": "员工培训",
+                    "identity_confidence": "low",
+                    "evidence": [
+                        {
+                            "dimension": "business_scene",
+                            "quote": "公司下个月需要培训平台",
+                            "url": item["sources"][0]["url"],
+                        }
+                    ],
+                    "decision": "high_value",
+                    "reason": "存在企业场景和近期项目",
+                }
+            )
+        return subprocess.CompletedProcess(command, 0, json.dumps({"reviews": reviews}), "")
+
+    result = run_codex_review_batch(candidates, runner=fake_runner)
+
+    assert set(result) == {candidate_review_id(item) for item in candidates}
+    assert all(status == "model_verified" for _, status in result.values())
+    assert all(payload and payload["score"] == 4 for payload, _ in result.values())
+    assert review_batch_schema()["properties"]["reviews"]["items"]["required"][0] == "candidate_id"
+
+
+def test_codex_batch_review_falls_back_only_for_missing_or_invalid_rows() -> None:
+    candidates = [
+        {
+            "platform": "zhihu",
+            "content_id": f"answer-{index}",
+            "comment_id": "",
+            "quote": "公司正在筹备线上招商会，求平台报价",
+            "sources": [{"url": f"https://example.com/answer-{index}", "text": "公司正在筹备线上招商会，求平台报价"}],
+            "rule_dimensions": {name: 0 for name in ("business_scene", "project_timing", "platform_intent", "delivery_inquiry", "identity")},
+            "profile": {"identity_confidence": "low"},
+        }
+        for index in range(2)
+    ]
+
+    def fake_runner(command, **kwargs):
+        data = json.loads(kwargs["input"].split("DATA_JSON:\n", 1)[1])
+        first = data[0]
+        valid = {
+            "candidate_id": first["candidate_id"],
+            "score": 0,
+            "dimensions": {name: 0 for name in ("business_scene", "project_timing", "platform_intent", "delivery_inquiry", "identity")},
+            "event_type": "线上招商会",
+            "identity_confidence": "low",
+            "evidence": [],
+            "decision": "review",
+            "reason": "证据不足",
+        }
+        invalid = {"candidate_id": data[1]["candidate_id"], "score": 4}
+        return subprocess.CompletedProcess(command, 0, json.dumps({"reviews": [valid, invalid]}), "")
+
+    result = run_codex_review_batch(candidates, runner=fake_runner)
+
+    first_id = candidate_review_id(candidates[0])
+    second_id = candidate_review_id(candidates[1])
+    assert result[first_id][1] == "model_verified"
+    assert result[first_id][0]["score"] == 0
+    assert result[second_id] == (None, "model_invalid")
 
 
 def test_config_contains_event_query_volume() -> None:
