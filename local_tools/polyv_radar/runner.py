@@ -436,6 +436,12 @@ def ingest_existing_run(
     store_path = config.data_root / "radar.sqlite3"
     store = RadarStore(store_path)
     store.initialize()
+    workflow = load_workflow_run(config.data_root, run_id) or {}
+    workflow_platforms = {
+        str(item.get("platform")): item
+        for item in workflow.get("platforms", [])
+        if isinstance(item, dict) and item.get("platform")
+    }
     platform_status: dict[str, dict] = {}
     failures: dict[str, str] = {}
     store.clear_run_links(run_id)
@@ -456,11 +462,19 @@ def ingest_existing_run(
             status["contents"] = details["dedup_contents"]
             status["comments"] = details["dedup_comments"]
             status["tasks"] = len(details["by_keyword"]) or (1 if list(platform_root.rglob("*.jsonl")) else 0)
+        workflow_status = workflow_platforms.get(platform, {})
         if status["tasks"] and status["contents"]:
             status["status"] = "success"
+            if workflow_status.get("status") == "partial":
+                status["status"] = "partial"
+                failures[platform] = str(
+                    workflow_status.get("error") or "任务部分完成，已恢复已落盘数据"
+                )
         if status["tasks"] and not status["contents"]:
             status["status"] = "partial"
-            failures[platform] = "任务被中断或未完成，已恢复已落盘数据"
+            failures[platform] = str(
+                workflow_status.get("error") or "任务被中断或未完成，已恢复已落盘数据"
+            )
         platform_status[platform] = status
     existing_run = store.connection.execute(
         "SELECT started_at, finished_at FROM runs WHERE run_id = ?", (run_id,)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 import subprocess
 from datetime import datetime, timedelta, timezone
@@ -283,6 +284,31 @@ def test_ingest_recovers_partial_run(tmp_path: Path) -> None:
     )
     assert result.platform_status["dy"]["contents"] == 1
     assert result.platform_status["dy"]["status"] == "success"
+
+
+def test_ingest_preserves_workflow_partial_status_with_recovered_contents(tmp_path: Path) -> None:
+    data_root = tmp_path / "radar-data"
+    raw_dir = data_root / "raw" / "workflow-partial" / "dy" / "员工培训" / "dy" / "jsonl"
+    raw_dir.mkdir(parents=True)
+    (raw_dir / "search_contents.jsonl").write_text(
+        '{"aweme_id":"dy-1","desc":"员工培训","aweme_url":"https://www.douyin.com/video/dy-1"}\n',
+        encoding="utf-8",
+    )
+    workflow_dir = data_root / "workflow-runs" / "workflow-partial"
+    workflow_dir.mkdir(parents=True)
+    (workflow_dir / "workflow-run.json").write_text(
+        json.dumps({"platforms": [{"platform": "dy", "status": "partial", "error": "任务超时"}]}),
+        encoding="utf-8",
+    )
+
+    result = ingest_existing_run(
+        RadarConfig(data_root=data_root, platforms=["dy"], keywords={"企业培训": "员工培训"}),
+        "workflow-partial",
+    )
+
+    assert result.platform_status["dy"]["contents"] == 1
+    assert result.platform_status["dy"]["status"] == "partial"
+    assert result.failures["dy"] == "任务超时"
 
 
 def test_collect_rejects_native_before_running_a_browser(tmp_path: Path) -> None:
