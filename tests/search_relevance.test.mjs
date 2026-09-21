@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { cardTitleFromText, extractPublishedTimeText, filterSearchResults, isExpectedXhsNoteUrl, isGenericPlatformRedirect, parseDisplayedTime, searchRelevance } from '../local_tools/polyv_radar/ego_helpers.mjs';
+import { cardTitleFromText, extractPublishedTimeText, filterSearchResults, isExpectedXhsNoteUrl, isGenericPlatformRedirect, parseDisplayedTime, requiresSearchLogin, searchRelevance } from '../local_tools/polyv_radar/ego_helpers.mjs';
 
 test('extracts the title from a Douyin search card', () => {
   const title = cardTitleFromText('01:14\n57\n神鹏品牌全国经销商大会圆满召开\n@郑州三邦机电（周晓峰）\n3周前');
@@ -10,6 +10,12 @@ test('extracts the title from a Douyin search card', () => {
 
 test('does not treat Bilibili metadata as a title', () => {
   assert.equal(cardTitleFromText('1257\n0\n01:12'), '');
+});
+
+test('distinguishes a Douyin login gate from an empty search result', () => {
+  assert.equal(requiresSearchLogin('登录后即可搜索更多精彩视频\n扫码登录', 0), true);
+  assert.equal(requiresSearchLogin('登录后即可搜索更多精彩视频', 2), false);
+  assert.equal(requiresSearchLogin('没有找到相关视频', 0), false);
 });
 
 test('rejects an XHS detail redirect to a different note', () => {

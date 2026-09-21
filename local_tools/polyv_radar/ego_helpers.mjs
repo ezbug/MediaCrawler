@@ -27,6 +27,11 @@ export async function loadUntilStable(page, selector, maxItems, stableRounds = 3
   }
 }
 
+export function requiresSearchLogin(bodyText, resultCount = 0) {
+  if (Number(resultCount) > 0) return false;
+  return /登录后即可搜索更多精彩视频|扫码登录/.test(String(bodyText || ""));
+}
+
 const SEARCH_EVENT_TERMS = [
   "企业直播", "直播", "公司年会", "年会", "经销商", "渠道大会", "员工培训", "企业培训", "企业内训",
   "新品", "新品发布会", "产品发布会", "发布会", "招商会", "医学会议", "学术会议", "金融投教", "投教直播", "企业大学",
