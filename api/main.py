@@ -34,6 +34,12 @@ from fastapi.responses import FileResponse
 
 from .routers import crawler_router, data_router, websocket_router
 from local_tools.polyv_radar.storage import RadarStore
+from local_tools.polyv_radar.dashboard import (
+    clean_dashboard_leads,
+    filter_reason_counts,
+    load_dry_run_queue,
+    merge_dashboard_queue,
+)
 
 # Project root directory (used for running subprocesses like uv run main.py)
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -200,17 +206,37 @@ async def radar_summary(run_id: str | None = None):
         row = store.connection.execute("SELECT run_id FROM runs ORDER BY started_at DESC LIMIT 1").fetchone()
         selected_run = str(row[0]) if row else ""
     leads = store.load_leads(selected_run) if selected_run else []
-    queue = store.load_outreach_queue(selected_run)
+    cleaned, filtered = clean_dashboard_leads(leads)
+    queue = merge_dashboard_queue(
+        store.load_outreach_queue(selected_run),
+        load_dry_run_queue(data_root, selected_run) if selected_run else [],
+    )
     attempts = store.connection.execute(
         "SELECT status, COUNT(*) AS count FROM outreach_attempts WHERE run_id = ? GROUP BY status",
         (selected_run,),
     ).fetchall()
+    run_counts = store.connection.execute(
+        """SELECT
+               (SELECT COUNT(*) FROM run_contents WHERE run_id = ?) AS contents,
+               (SELECT COUNT(*) FROM run_comments WHERE run_id = ?) AS comments""",
+        (selected_run, selected_run),
+    ).fetchone() if selected_run else None
+    dry_run_queue = [item for item in queue if item.get("source") == "dispatch_file"]
     result = {
         "run_id": selected_run,
         "leads": len(leads),
+        "raw_leads": len(leads),
+        "cleaned_leads": len(cleaned),
+        "filtered_leads": len(filtered),
+        "filtered_reasons": filter_reason_counts(filtered),
+        "contents": int(run_counts["contents"]) if run_counts else 0,
+        "comments": int(run_counts["comments"]) if run_counts else 0,
         "demand_candidates": sum(item.score >= 4 and item.decision != "reject" for item in leads),
         "locator_verified": sum(item.locator_status == "verified" for item in leads),
         "approved_queue": len([item for item in queue if item.get("lead_status") in {"approved", "queued"}]),
+        "dry_run_queue": len(dry_run_queue),
+        "dry_run_completed": sum(item.get("dry_run_status") in {"dry_run", "failed"} for item in dry_run_queue),
+        "real_sent": sum(str(row["status"]) == "submitted_verified" for row in attempts),
         "status_events_raw": store.count_status_events(selected_run, distinct=False) if selected_run else 0,
         "status_events_distinct": store.count_status_events(selected_run, distinct=True) if selected_run else 0,
         "attempts": {str(row["status"]): int(row["count"]) for row in attempts},
@@ -219,14 +245,65 @@ async def radar_summary(run_id: str | None = None):
     return result
 
 
-@app.get("/api/radar/leads")
-async def radar_leads(run_id: str, limit: int = 100):
+@app.get("/api/radar/runs")
+async def radar_runs(limit: int = 30):
+    """List selectable local radar batches with raw and cleaned counts."""
     data_root = Path(os.environ.get("POLYV_RADAR_DATA_ROOT", "/Users/sexpistole111/Documents/workplace/polyv-radar-data"))
     store = RadarStore(data_root / "radar.sqlite3")
     store.initialize()
-    rows = [lead.to_dict() for lead in store.load_leads(run_id)[: max(1, min(limit, 500))]]
+    rows = store.connection.execute(
+        "SELECT run_id, started_at, finished_at, status, platform_status FROM runs ORDER BY started_at DESC LIMIT ?",
+        (max(1, min(limit, 100)),),
+    ).fetchall()
+    result = []
+    for row in rows:
+        run_id = str(row["run_id"])
+        leads = store.load_leads(run_id)
+        cleaned, filtered = clean_dashboard_leads(leads)
+        counts = store.connection.execute(
+            """SELECT
+                   (SELECT COUNT(*) FROM run_contents WHERE run_id = ?) AS contents,
+                   (SELECT COUNT(*) FROM run_comments WHERE run_id = ?) AS comments""",
+            (run_id, run_id),
+        ).fetchone()
+        result.append(
+            {
+                "run_id": run_id,
+                "started_at": row["started_at"],
+                "finished_at": row["finished_at"],
+                "status": row["status"],
+                "platform_status": row["platform_status"],
+                "contents": int(counts["contents"]),
+                "comments": int(counts["comments"]),
+                "raw_leads": len(leads),
+                "cleaned_leads": len(cleaned),
+                "filtered_leads": len(filtered),
+                "dry_run_queue": len(load_dry_run_queue(data_root, run_id)),
+            }
+        )
     store.close()
-    return {"run_id": run_id, "leads": rows}
+    return {"runs": result}
+
+
+@app.get("/api/radar/leads")
+async def radar_leads(run_id: str, limit: int = 100, view: str = "cleaned"):
+    data_root = Path(os.environ.get("POLYV_RADAR_DATA_ROOT", "/Users/sexpistole111/Documents/workplace/polyv-radar-data"))
+    store = RadarStore(data_root / "radar.sqlite3")
+    store.initialize()
+    raw = store.load_leads(run_id)
+    cleaned, filtered = clean_dashboard_leads(raw)
+    selected = raw if view == "all" else cleaned
+    rows = [lead.to_dict() for lead in selected[: max(1, min(limit, 500))]]
+    store.close()
+    return {
+        "run_id": run_id,
+        "view": "all" if view == "all" else "cleaned",
+        "leads": rows,
+        "raw_count": len(raw),
+        "cleaned_count": len(cleaned),
+        "filtered_count": len(filtered),
+        "filtered_reasons": filter_reason_counts(filtered),
+    }
 
 
 @app.get("/api/radar/queue")
@@ -234,7 +311,11 @@ async def radar_queue(run_id: str | None = None):
     data_root = Path(os.environ.get("POLYV_RADAR_DATA_ROOT", "/Users/sexpistole111/Documents/workplace/polyv-radar-data"))
     store = RadarStore(data_root / "radar.sqlite3")
     store.initialize()
-    rows = store.load_outreach_queue(run_id or "")
+    selected_run = run_id or ""
+    rows = merge_dashboard_queue(
+        store.load_outreach_queue(selected_run),
+        load_dry_run_queue(data_root, selected_run) if selected_run else [],
+    )
     store.close()
     return {"queue": rows}
 

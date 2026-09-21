@@ -104,12 +104,35 @@ export const envApi = {
 export interface RadarSummary {
   run_id: string
   leads: number
+  raw_leads: number
+  cleaned_leads: number
+  filtered_leads: number
+  filtered_reasons: Record<string, number>
+  contents: number
+  comments: number
   demand_candidates: number
   locator_verified: number
   approved_queue: number
+  dry_run_queue: number
+  dry_run_completed: number
+  real_sent: number
   status_events_raw: number
   status_events_distinct: number
   attempts: Record<string, number>
+}
+
+export interface RadarRun {
+  run_id: string
+  started_at: string
+  finished_at: string | null
+  status: string
+  platform_status: string
+  contents: number
+  comments: number
+  raw_leads: number
+  cleaned_leads: number
+  filtered_leads: number
+  dry_run_queue: number
 }
 
 export interface RadarLead {
@@ -126,9 +149,28 @@ export interface RadarLead {
   identity_confidence?: string
 }
 
+export interface RadarQueueItem {
+  queue_id: string | number
+  run_id?: string
+  platform: string
+  url: string
+  author: string
+  text: string
+  quote?: string
+  lead_status?: string
+  source?: string
+  selection?: string
+  dry_run_status?: string
+  screenshot?: string
+  submitted?: boolean
+}
+
 export const radarApi = {
+  getRuns: (limit = 30) => api.get<{ runs: RadarRun[] }>('/radar/runs', { params: { limit } }),
   getSummary: (runId?: string) => api.get<RadarSummary>('/radar/summary', { params: runId ? { run_id: runId } : {} }),
-  getLeads: (runId: string, limit = 20) => api.get<{ run_id: string; leads: RadarLead[] }>('/radar/leads', { params: { run_id: runId, limit } }),
+  getLeads: (runId: string, limit = 20, view: 'cleaned' | 'all' = 'cleaned') =>
+    api.get<{ run_id: string; leads: RadarLead[]; raw_count: number; cleaned_count: number; filtered_count: number }>('/radar/leads', { params: { run_id: runId, limit, view } }),
+  getQueue: (runId: string) => api.get<{ queue: RadarQueueItem[] }>('/radar/queue', { params: { run_id: runId } }),
 }
 
 export default api
