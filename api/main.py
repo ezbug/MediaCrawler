@@ -222,6 +222,10 @@ async def radar_summary(run_id: str | None = None):
         (selected_run, selected_run),
     ).fetchone() if selected_run else None
     dry_run_queue = [item for item in queue if item.get("source") == "dispatch_file"]
+    file_verified = sum(
+        bool(item.get("submitted", False) and item.get("verified", False))
+        for item in dry_run_queue
+    )
     result = {
         "run_id": selected_run,
         "leads": len(leads),
@@ -236,7 +240,7 @@ async def radar_summary(run_id: str | None = None):
         "approved_queue": len([item for item in queue if item.get("lead_status") in {"approved", "queued"}]),
         "dry_run_queue": len(dry_run_queue),
         "dry_run_completed": sum(item.get("dry_run_status") in {"dry_run", "failed"} for item in dry_run_queue),
-        "real_sent": sum(str(row["status"]) == "submitted_verified" for row in attempts),
+        "real_sent": sum(str(row["status"]) == "submitted_verified" for row in attempts) + file_verified,
         "status_events_raw": store.count_status_events(selected_run, distinct=False) if selected_run else 0,
         "status_events_distinct": store.count_status_events(selected_run, distinct=True) if selected_run else 0,
         "attempts": {str(row["status"]): int(row["count"]) for row in attempts},

@@ -88,9 +88,15 @@ def load_dry_run_queue(data_root: Path, run_id: str) -> list[dict]:
             row["dry_run_status"] = str(result.get("status", "unknown"))
             row["dry_run_result_path"] = str(result.get("result_path", ""))
             row["screenshot"] = str(result.get("screenshot", ""))
-            row["structured_result"] = result.get("structured_result", {})
+            structured = result.get("structured_result", {}) or {}
+            row["structured_result"] = structured
             row["executed_at"] = str(result.get("executed_at", ""))
-            row["submitted"] = bool(result.get("submitted", False))
+            row["submitted"] = bool(result.get("submitted", structured.get("submitted", False)))
+            row["verified"] = bool(result.get("verified", structured.get("verified", False)))
+            row["draft_verified"] = bool(result.get("draft_verified", structured.get("draft_verified", False)))
+            row["target_matched"] = bool(result.get("target_matched", structured.get("target_matched", False)))
+            if row["submitted"] and row["verified"]:
+                row["lead_status"] = "submitted_verified"
     return queue_rows
 
 

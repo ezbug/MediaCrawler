@@ -68,3 +68,30 @@ def test_dashboard_reads_file_queue_and_matches_dry_run_result(tmp_path: Path) -
     assert rows[0]["source"] == "dispatch_file"
     assert rows[0]["dry_run_status"] == "dry_run"
     assert rows[0]["submitted"] is False
+
+
+def test_dashboard_reads_verified_send_from_structured_dispatch_result(tmp_path: Path) -> None:
+    dispatch = tmp_path / "dispatch"
+    dispatch.mkdir()
+    queue = {
+        "platform": "zhihu",
+        "url": "https://www.zhihu.com/question/1/answer/2",
+        "author": "aidou",
+        "text": "测试回复",
+        "content_id": "answer-1",
+        "comment_id": "",
+        "quote": "公司年会要搞线上直播，有好的直播平台推荐吗？",
+    }
+    (dispatch / "run-1-model.jsonl").write_text(json.dumps(queue, ensure_ascii=False) + "\n", encoding="utf-8")
+    result = {
+        **queue,
+        "status": "submitted_verified",
+        "structured_result": {"submitted": True, "verified": True, "target_matched": True},
+    }
+    (dispatch / "dispatch-1.jsonl").write_text(json.dumps(result, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    rows = load_dry_run_queue(tmp_path, "run-1")
+    assert rows[0]["dry_run_status"] == "submitted_verified"
+    assert rows[0]["submitted"] is True
+    assert rows[0]["verified"] is True
+    assert rows[0]["lead_status"] == "submitted_verified"

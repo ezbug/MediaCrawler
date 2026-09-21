@@ -316,7 +316,7 @@ def main(argv: list[str] | None = None) -> int:
             "queue_path": str(queue_path),
             "result_path": str(output),
             "mode": "submit" if args.submit else "dry_run",
-            "submitted": sum(item["status"] == "submitted" for item in results),
+            "submitted": sum(item["status"] == "submitted_verified" for item in results),
             "failed": sum(item["status"] == "failed" for item in results),
         }
     else:

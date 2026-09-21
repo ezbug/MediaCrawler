@@ -44,6 +44,16 @@ test("知乎回复脚本会先定位目标回答再打开评论框", async () =>
   assert.match(source, /data-zop/);
 });
 
+test("知乎真实发送会命中发布按钮并轮询验证", async () => {
+  const source = await readFile(
+    "/Users/sexpistole111/.codex/skills/polyv-lead-auto-reply/scripts/auto_reply.mjs",
+    "utf8",
+  );
+  assert.match(source, /innerText\?\.trim\(\) === '发布'/);
+  assert.match(source, /attempt < 8 && !verified/);
+  assert.match(source, /if \(prepared\) await page\.keyboard\.insertText\(text\)/);
+});
+
 test("CLI requires an explicit Ego Lite TaskSpace", () => {
   assert.throws(() => parseArgs([
     "--platform", "dy",
@@ -67,6 +77,8 @@ test("duplicate replies are rejected by target and text key", () => {
     target_url: "https://www.douyin.com/video/1",
     target_author: "用户",
     reply_text: "测试回复",
+    mode: "live",
+    submitted: true,
   }];
 
   assert.equal(isDuplicateReply(history, {
@@ -77,14 +89,34 @@ test("duplicate replies are rejected by target and text key", () => {
   }), true);
 });
 
+test("Dry-Run记录不会阻止后续真实发送", () => {
+  const history = [{
+    platform: "zhihu",
+    target_url: "https://www.zhihu.com/question/1/answer/2",
+    target_author: "用户",
+    reply_text: "测试回复",
+    mode: "dry_run",
+    submitted: false,
+  }];
+
+  assert.equal(isDuplicateReply(history, {
+    platform: "zhihu",
+    url: "https://www.zhihu.com/question/1/answer/2",
+    author: "用户",
+    text: "测试回复",
+  }), false);
+});
+
 test("rate limit enforces cooldown while allowing an explicit optional cap", () => {
   const now = new Date("2026-09-14T12:00:00.000Z");
-  const recent = [{ timestamp: "2026-09-14T11:59:45.000Z", platform: "dy" }];
+  const recent = [{ timestamp: "2026-09-14T11:59:45.000Z", platform: "dy", mode: "live", submitted: true }];
   assert.throws(() => assertReplyRateLimit(recent, "dy", now), /30秒/);
 
   const daily = Array.from({ length: 5 }, (_, index) => ({
     timestamp: `2026-09-14T0${index}:00:00.000Z`,
     platform: "dy",
+    mode: "live",
+    submitted: true,
   }));
   assert.doesNotThrow(() => assertReplyRateLimit(daily, "dy", now));
   assert.throws(() => assertReplyRateLimit(daily, "dy", now, { dailyLimit: 5 }), /每日最多5条/);
