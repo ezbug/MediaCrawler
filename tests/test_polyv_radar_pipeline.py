@@ -194,6 +194,8 @@ def test_manual_candidates_keep_historical_and_provider_context_but_drop_stale_a
     assert provider_row["candidate_kind"] == "conditional_provider_context"
     assert historical_row["candidate_kind"] == "historical_reactivation"
     assert historical_row["reply_draft"]
+    assert provider_row["content_id"]
+    assert "native_comment_id" in provider_row
     assert provider_row["triage_label"] == "keep_current"
     assert historical_row["triage_label"] == "keep_reactivation"
 
