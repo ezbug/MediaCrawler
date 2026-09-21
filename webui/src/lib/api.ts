@@ -169,6 +169,7 @@ export interface RadarQueueItem {
 export interface RadarManualCandidate {
   candidate_id: string
   platform: string
+  triage_label: string
   candidate_kind: string
   freshness: string
   source_role: string

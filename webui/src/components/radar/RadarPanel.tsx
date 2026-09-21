@@ -167,7 +167,7 @@ export function RadarPanel() {
             <div key={candidate.candidate_id} className="border-t border-white/10 pt-2 min-w-0">
               <div className="flex items-center gap-2 text-xs">
                 <span className="text-cyber-text-primary truncate">{candidate.user || '未识别用户'}</span>
-                <span className="text-cyber-neon-cyan">{candidate.candidate_kind}</span>
+                <span className="text-cyber-neon-cyan">{candidate.triage_label}</span>
                 <span className="text-cyber-text-muted">{candidate.freshness}</span>
               </div>
               <div className="text-xs text-cyber-text-secondary line-clamp-2 mt-1">{candidate.quote}</div>

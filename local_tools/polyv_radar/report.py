@@ -203,13 +203,13 @@ def render_report(
                 "",
                 "这里保留低于正式门槛但可能有业务价值的记录，用于学习用户标注规律。账号名只作来源角色弱信号；历史记录只进入复活队列，不混入当前需求。",
                 "",
-                "| ID | 平台 | 类型 | 时间层 | 来源角色 | 用户 | 原话 | 规则分 | 建议动作 | 内容URL | 评论定位URL |",
-                "| --- | --- | --- | --- | --- | --- | --- | ---: | --- | --- | --- |",
+                "| ID | 平台 | 建议分类 | 类型 | 时间层 | 来源角色 | 用户 | 原话 | 规则分 | 建议动作 | 内容URL | 评论定位URL |",
+                "| --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | --- | --- |",
             ]
         )
         for row in manual_candidates[:50]:
             lines.append(
-                f"| {_cell(row.get('candidate_id'))} | {_cell(row.get('platform'))} | {_cell(row.get('candidate_kind'))} | "
+                f"| {_cell(row.get('candidate_id'))} | {_cell(row.get('platform'))} | {_cell(row.get('triage_label'))} | {_cell(row.get('candidate_kind'))} | "
                 f"{_cell(row.get('freshness'))} | {_cell(row.get('source_role'))} | {_cell(row.get('user'))} | "
                 f"{_cell(row.get('quote'))} | {row.get('rule_score', 0)} | {_cell(row.get('recommended_action'))} | "
                 f"{_link(row.get('content_url'), row.get('content_url'))} | {_link(row.get('comment_url'), row.get('comment_url'))} |"

@@ -66,6 +66,39 @@ def _reactivation_draft(quote: str, category: str) -> str:
     )
 
 
+def _triage_candidate(
+    quote: str,
+    freshness: str,
+    intent_class: str,
+    small_need: bool,
+    historical_event: bool,
+) -> tuple[str, str]:
+    """Suggest a human triage label without changing formal lead status."""
+    direct_terms = (
+        "我们公司", "我司", "老板让我", "公司需要", "正在找", "求推荐", "求方案",
+        "报价", "预算", "采购", "供应商", "服务商", "平台推荐", "选型",
+    )
+    useful_experience_terms = (
+        "用户体验", "售后服务", "性价比", "长久持续", "长期使用", "已经选好", "还没选",
+        "制造业", "大客户", "线下培训", "公开课", "一年", "万", "天课", "培训",
+    )
+    if freshness == "current":
+        if intent_class == "buyer_request" or _has_any(quote, direct_terms):
+            return "keep_current", "当前原话含有明确需求、预算、平台或选型信号"
+        if small_need:
+            return "conditional", "业务主题相关，但明确透露需求规模较小"
+        if _has_any(quote, useful_experience_terms):
+            return "keep_current", "当前原话包含平台体验、长期使用或已选型信号"
+        return "drop_low_signal", "当前主题相关，但原话缺少可行动需求"
+    if freshness == "historical":
+        if _has_any(quote, direct_terms) or _has_any(quote, useful_experience_terms):
+            return "keep_reactivation", "历史原话仍包含公司、培训规模、费用或业务场景，可先确认是否还有需求"
+        if historical_event:
+            return "conditional", "历史主题相关，但原话更像旁观或泛评价"
+        return "drop_low_signal", "历史原话没有足够的业务行动信号"
+    return "conditional", "时间或证据需要人工确认"
+
+
 def build_manual_candidates(
     contents: Iterable[ContentRecord],
     comments: Iterable[CommentRecord],
@@ -132,6 +165,13 @@ def build_manual_candidates(
             kind = "historical_reactivation" if freshness == "historical" else (
                 "conditional_provider_context" if provider_container else ("small_need" if small_need else "manual_review")
             )
+            triage_label, triage_reason = _triage_candidate(
+                quote,
+                freshness,
+                intent_class,
+                small_need,
+                historical_event,
+            )
             priority = 0
             priority += 40 if freshness == "current" else 20 if freshness == "historical" else 10
             priority += 25 if direct_need else 0
@@ -178,6 +218,8 @@ def build_manual_candidates(
                 "evidence": score.evidence_sentences or [quote],
                 "recommended_action": _candidate_action(freshness, publisher_role, small_need, historical_event),
                 "reply_draft": _reactivation_draft(quote, category) if freshness == "historical" else "",
+                "triage_label": triage_label,
+                "triage_reason": triage_reason,
                 "priority": priority,
             }
 
@@ -205,14 +247,14 @@ def write_manual_candidate_artifacts(data_root, run_id: str, candidates: Iterabl
         "",
         "这些记录低于正式候选门槛或需要人工判断来源角色，只用于学习和复核，不进入自动发送队列。",
         "",
-        "| ID | 平台 | 类型 | 时间层 | 来源角色 | 用户 | 原话 | 评分 | 建议动作 | 内容URL | 评论定位URL |",
-        "| --- | --- | --- | --- | --- | --- | --- | ---: | --- | --- | --- |",
+        "| ID | 平台 | 建议分类 | 类型 | 时间层 | 来源角色 | 用户 | 原话 | 评分 | 建议动作 | 内容URL | 评论定位URL |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | ---: | --- | --- | --- |",
     ]
     for row in rows:
         def cell(value):
             return str(value or "").replace("|", "\\|").replace("\n", " ").strip()
         lines.append(
-            f"| {cell(row['candidate_id'])} | {cell(row['platform'])} | {cell(row['candidate_kind'])} | "
+            f"| {cell(row['candidate_id'])} | {cell(row['platform'])} | {cell(row.get('triage_label'))} | {cell(row['candidate_kind'])} | "
             f"{cell(row['freshness'])} | {cell(row['source_role'])} | {cell(row['user'])} | {cell(row['quote'])} | "
             f"{row['rule_score']} | {cell(row['recommended_action'])} | [{cell(row['content_url'])}]({cell(row['content_url'])}) | "
             f"[{cell(row['comment_url'])}]({cell(row['comment_url'])}) |"
