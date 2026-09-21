@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import { isGenericPlatformRedirect } from './ego_helpers.mjs';
 
 const inputPath = process.env.POLYV_URL_INPUT;
 const outputPath = process.env.POLYV_URL_OUTPUT;
@@ -35,6 +36,9 @@ for (const url of input.urls || []) {
     if (/\/404(?:[/?#]|$)|404页面|页面不存在|内容不存在|视频不存在|笔记不存在|问题不存在|Not Found/i.test(pageText)) {
       result.status = 'not_found';
       result.reason = '页面显示不存在或 404';
+    } else if (isGenericPlatformRedirect(url, result.final_url)) {
+      result.status = 'not_found';
+      result.reason = '链接跳转到平台泛化页面，未保留目标内容路径';
     } else if (/登录后查看|请先登录|登录\/去登录|captcha|验证后继续|访问受限|安全验证|too many requests|forbidden/i.test(pageText)) {
       result.status = 'blocked';
       result.reason = '需要登录或被平台拦截';

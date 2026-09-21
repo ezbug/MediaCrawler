@@ -80,6 +80,20 @@ export function isExpectedXhsNoteUrl(url, expectedId) {
   return Boolean(match && match[1] === String(expectedId || ""));
 }
 
+export function isGenericPlatformRedirect(sourceUrl, finalUrl) {
+  try {
+    const source = new URL(sourceUrl);
+    const final = new URL(finalUrl || sourceUrl);
+    const sourcePath = source.pathname.replace(/\/+$/, '') || '/';
+    const finalPath = final.pathname.replace(/\/+$/, '') || '/';
+    const sourceIsSpecific = /^\/(?:explore|video|question|article|p|answer|user\/profile|people)\/[^/]+/i.test(sourcePath);
+    const finalIsGeneric = finalPath === '/' || /^\/(?:explore|search|home)$/i.test(finalPath);
+    return source.origin === final.origin && sourceIsSpecific && finalIsGeneric;
+  } catch (_) {
+    return false;
+  }
+}
+
 export function searchRelevance(keyword, text) {
   const normalized = normalizedSearchText(text);
   const parts = [...new Set(keywordParts(keyword))];
