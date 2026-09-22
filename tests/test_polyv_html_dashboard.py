@@ -16,7 +16,8 @@ def test_html_dashboard_renders_current_manual_candidates_and_locator_status(tmp
     )
     (review / "run-1-manual-locator.jsonl").write_text(
         '{"candidate_id":"manual-1","status":"verified","locator_method":"native_id",'
-        '"locator_url":"https://example.com/comment#1","reason":"唯一命中"}\n',
+        '"locator_url":"https://example.com/comment#1","reason":"唯一命中",'
+        '"dry_run_status":"dry_run","target_matched":true,"draft_verified":true}\n',
         encoding="utf-8",
     )
     rendered = render_html_dashboard(tmp_path, "run-1")
@@ -24,4 +25,5 @@ def test_html_dashboard_renders_current_manual_candidates_and_locator_status(tmp
     assert "定位通过" in rendered
     assert "公司需要培训平台" in rendered
     assert "Ego Lite 已定位" in rendered
+    assert "Dry-Run通过" in rendered
     assert "草稿文本" in rendered
