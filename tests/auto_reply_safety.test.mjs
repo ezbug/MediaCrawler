@@ -40,6 +40,8 @@ test("知乎回复脚本会先定位目标回答再打开评论框", async () =>
     "utf8",
   );
   assert.match(source, /ContentItem\.AnswerItem/);
+  assert.match(source, /article\.Post-Main/);
+  assert.match(source, /AuthorInfo/);
   assert.match(source, /添加评论/);
   assert.match(source, /data-zop/);
 });
