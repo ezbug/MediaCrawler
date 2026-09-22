@@ -123,6 +123,16 @@ uv run python -m local_tools.polyv_radar manual-candidates \
   --max-candidates 50
 ```
 
+跨已有非 legacy 批次按平台用户去重并生成 Q&A 候选池：
+
+```bash
+uv run python -m local_tools.polyv_radar qna-batch \
+  --config local_tools/polyv_radar/pilot.toml \
+  --run-id 20260922-qna50 --target 50 --pool-size 80
+```
+
+该入口只做离线清洗、草稿和 Ego Lite 定位输入准备，不代表已发送；它会如实保留不足目标数量的结果，不用教程、服务商自述或泛讨论补数。
+
 输出位置：
 
 - `polyv-radar-data/review/<run-id>-manual-candidates.jsonl`

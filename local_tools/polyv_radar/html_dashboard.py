@@ -64,7 +64,7 @@ def render_html_dashboard(data_root: Path, run_id: str, limit: int = 200) -> str
                 "quote": row.get("quote", ""),
                 "source_role": row.get("source_role", ""),
                 "locator_status": row.get("locator_status", ""),
-                "reply_draft": row.get("reply_draft", ""),
+                "reply_draft": row.get("reply_draft") or row.get("reply_text", ""),
                 "content_url": row.get("content_url", ""),
                 "locator_url": row.get("locator_url") or row.get("comment_url", ""),
                 "screenshot_path": row.get("screenshot_path", ""),
@@ -87,7 +87,7 @@ def render_html_dashboard(data_root: Path, run_id: str, limit: int = 200) -> str
             f"<td class='quote'>“{_text(row.get('quote'))}”</td>"
             f"<td><span class='role'>{_text(row.get('source_role') or 'unknown')}</span><div class='sub'>{_text(row.get('event_type') or row.get('category') or '未分类')}</div></td>"
             f"<td><span class='status {status_class}'>{_text(status_label)}</span><div class='sub'>{_text(row.get('locator_method'))}</div></td>"
-            f"<td class='draft'>{_text(row.get('reply_draft') or '当前记录暂无草稿；先完成人工判断')}</td>"
+            f"<td class='draft'>{_text(row.get('reply_draft') or row.get('reply_text') or '当前记录暂无草稿；先完成人工判断')}</td>"
             f"<td>{_evidence_link(data_root, row.get('screenshot_path'))}</td>"
             f"<td>{_link(row.get('locator_url') or row.get('comment_url') or row.get('content_url'), '打开定位')}<br>{_link(row.get('content_url'), '打开内容')}</td>"
             "</tr>"

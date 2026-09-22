@@ -27,6 +27,7 @@ from .approval import approve_lead
 from .daily import run_daily
 from .cleaning import clean_store
 from .manual_candidates import build_manual_candidates, write_manual_candidate_artifacts
+from .qna_batch import build_locator_rows, collect_qna_pool, write_locator_queue, write_qna_pool
 
 
 def apply_collect_overrides(config, args):
@@ -90,6 +91,11 @@ def build_parser() -> argparse.ArgumentParser:
     prefilter_parser.add_argument("--max-candidates", type=int, default=50)
     manual_parser = subparsers.choices["manual-candidates"]
     manual_parser.add_argument("--max-candidates", type=int, default=50)
+    qna_parser = subparsers.add_parser("qna-batch")
+    qna_parser.add_argument("--config", required=True)
+    qna_parser.add_argument("--run-id", required=True, help="本轮Q&A批次标识，不要求已存在SQLite runs记录")
+    qna_parser.add_argument("--target", type=int, default=50)
+    qna_parser.add_argument("--pool-size", type=int, default=80)
     enrich_parser = subparsers.choices["enrich"]
     enrich_parser.add_argument("--repo-root", default=str(Path(__file__).resolve().parents[2]))
     enrich_parser.add_argument("--taskspace", type=int, required=True)
@@ -208,6 +214,17 @@ def main(argv: list[str] | None = None) -> int:
         payload = {
             "run_id": args.run_id,
             "manual_candidate_count": len(candidates),
+            **{key: str(value) for key, value in artifacts.items()},
+        }
+    elif args.command == "qna-batch":
+        rows = collect_qna_pool(config, target=args.target, pool_size=max(args.pool_size, args.target))
+        artifacts = write_qna_pool(config.data_root, args.run_id, rows)
+        locator_input = write_locator_queue(config.data_root, args.run_id, build_locator_rows(rows))
+        payload = {
+            "run_id": args.run_id,
+            "target": args.target,
+            "pool_count": len(rows),
+            "locator_input": str(locator_input),
             **{key: str(value) for key, value in artifacts.items()},
         }
     elif args.command == "enrich":
