@@ -49,17 +49,20 @@ class DispatchItem:
 
 
 def _item_from_dict(value: dict) -> DispatchItem:
+    comment_id = str(value.get("comment_id", "")).strip()
+    source_value = str(value.get("source_type", "")).strip()
+    source_type = source_value or ("post" if not comment_id and value.get("quote") else "comment")
     item = DispatchItem(
         platform=str(value.get("platform", "")).strip(),
         url=str(value.get("url", "")).strip(),
         author=str(value.get("author", "")).strip(),
         text=str(value.get("text", "")).strip(),
         content_id=str(value.get("content_id", "")).strip(),
-        comment_id=str(value.get("comment_id", "")).strip(),
+        comment_id=comment_id,
         quote=str(value.get("quote", "")).strip(),
         content_url=str(value.get("content_url", "")).strip(),
         comment_url=str(value.get("comment_url", "")).strip(),
-        source_type=str(value.get("source_type", "comment")).strip() or "comment",
+        source_type=source_type,
     )
     if item.platform not in SUPPORTED_PLATFORMS:
         raise ValueError(f"不支持的平台：{item.platform or '空值'}")

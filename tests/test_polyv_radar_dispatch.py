@@ -10,6 +10,7 @@ from local_tools.polyv_radar.dispatch import (
     DispatchItem,
     build_dispatch_command,
     build_dispatch_queue,
+    classify_dispatch_failure,
     dispatch_queue,
     filter_previously_queued,
     load_dispatch_queue,
@@ -100,6 +101,25 @@ def test_dispatch_command_preserves_source_type() -> None:
     command = build_dispatch_command(item, taskspace=12, submit=False)
     assert "--source-type" in command
     assert command[command.index("--source-type") + 1] == "post"
+
+
+def test_legacy_content_queue_without_source_type_infers_post_level(tmp_path: Path) -> None:
+    path = tmp_path / "polyv-legacy-content-queue.jsonl"
+    path.write_text(json.dumps({
+        "platform": "xhs",
+        "url": "https://www.xiaohongshu.com/explore/note-1",
+        "author": "作者",
+        "text": "回复",
+        "quote": "活动报价",
+        "comment_id": "",
+    }, ensure_ascii=False) + "\n", encoding="utf-8")
+    assert load_dispatch_queue(path)[0].source_type == "post"
+
+
+def test_dispatch_failure_codes_separate_archive_and_evidence_errors() -> None:
+    assert classify_dispatch_failure({}, "页面不见了") == "content_unavailable"
+    assert classify_dispatch_failure({}, "Page.captureScreenshot timed out") == "screenshot_evidence_timeout"
+    assert classify_dispatch_failure({}, "未找到小红书目标评论") == "target_not_found"
 
 
 def test_dispatch_queue_preserves_target_quote_for_zhihu_matching() -> None:
