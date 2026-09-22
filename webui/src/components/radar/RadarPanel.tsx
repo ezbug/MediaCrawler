@@ -112,6 +112,7 @@ export function RadarPanel() {
             <span>需求候选 {summary.demand_candidates}</span>
             <span>Dry-Run 已执行 {summary.dry_run_completed}</span>
             <span>状态事件 {summary.status_events_distinct} / {summary.status_events_raw}</span>
+            <span>统计来源 {summary.count_source === 'manual_candidate_artifacts' ? '人工待选文件' : 'SQLite批次'}</span>
           </div>
         </>
       )}

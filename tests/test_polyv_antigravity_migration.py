@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -83,7 +84,73 @@ def test_approval_requires_locator_and_url_and_creates_queue(tmp_path: Path) -> 
     queued = store.load_outreach_queue("run-1")
     assert len(queued) == 1
     assert queued[0]["lead_status"] == "approved"
+    assert queued[0]["content_url"] == "https://www.douyin.com/video/1"
+    assert queued[0]["target_url"] == "https://www.douyin.com/video/1"
+    assert queued[0]["source_type"] == "comment"
     assert store.load_leads("run-1")[0].decision == "manual_confirmed"
+    store.close()
+
+
+def test_approval_does_not_queue_profile_url_as_comment_target(tmp_path: Path) -> None:
+    config = RadarConfig(data_root=tmp_path / "data", platforms=["xhs"], keywords={})
+    store = RadarStore(config.data_root / "radar.sqlite3")
+    store.initialize()
+    store.save_leads("run-xhs", [LeadEvidence(
+        platform="xhs", content_id="note-1", comment_id="comment-1",
+        url="https://www.xiaohongshu.com/explore/note-1",
+        comment_url="https://www.xiaohongshu.com/user/profile/user-1",
+        user="用户甲", quote="公司正在找平台报价", category="企业培训", solution="企业培训",
+        score=6, dimensions={"business_scene": 2, "project_timing": 2, "platform_intent": 2},
+        stage="model_reviewed", decision="high_value", locator_status="verified",
+    )])
+    store.close()
+
+    approve_lead(config, "run-xhs", "comment-1", url_checker=lambda _: {"status": "ok"})
+
+    store = RadarStore(config.data_root / "radar.sqlite3")
+    store.initialize()
+    queued = store.load_outreach_queue("run-xhs")[0]
+    assert queued["target_url"] == "https://www.xiaohongshu.com/explore/note-1"
+    assert queued["comment_url"] == "https://www.xiaohongshu.com/explore/note-1"
+    store.close()
+
+
+def test_old_outreach_queue_gets_target_context_columns_without_data_loss(tmp_path: Path) -> None:
+    path = tmp_path / "radar.sqlite3"
+    connection = sqlite3.connect(path)
+    connection.execute(
+        """CREATE TABLE outreach_queue (
+            queue_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id TEXT NOT NULL,
+            platform TEXT NOT NULL,
+            content_id TEXT NOT NULL,
+            comment_id TEXT NOT NULL DEFAULT '',
+            lead_status TEXT NOT NULL DEFAULT 'approved',
+            target_url TEXT NOT NULL DEFAULT '',
+            target_author TEXT NOT NULL DEFAULT '',
+            draft_text TEXT NOT NULL DEFAULT '',
+            locator_status TEXT NOT NULL DEFAULT '',
+            url_status TEXT NOT NULL DEFAULT '',
+            approved_by TEXT NOT NULL DEFAULT '',
+            approved_at TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(run_id, platform, content_id, comment_id)
+        )"""
+    )
+    connection.execute(
+        "INSERT INTO outreach_queue(run_id, platform, content_id, target_url, target_author, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("run-legacy", "xhs", "note-1", "https://www.xiaohongshu.com/explore/note-1", "用户", "now", "now"),
+    )
+    connection.commit()
+    connection.close()
+
+    store = RadarStore(path)
+    store.initialize()
+    row = store.load_outreach_queue("run-legacy")[0]
+    columns = {item[1] for item in store.connection.execute("PRAGMA table_info(outreach_queue)")}
+    assert {"content_url", "comment_url", "source_type"} <= columns
+    assert row["target_url"] == "https://www.xiaohongshu.com/explore/note-1"
     store.close()
 
 

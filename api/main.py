@@ -76,6 +76,21 @@ app.include_router(data_router, prefix="/api")
 app.include_router(websocket_router, prefix="/api")
 
 
+def _manual_artifact_counts(rows: list[dict]) -> tuple[int, int]:
+    """Provide truthful candidate-backed counts for legacy/file-only batches."""
+    content_keys = {
+        (str(row.get("platform", "")), str(row.get("content_id", "")))
+        for row in rows
+        if row.get("platform") and row.get("content_id")
+    }
+    comment_count = sum(
+        1 for row in rows
+        if str(row.get("source_type", "comment")).casefold() in {"comment", "reply"}
+        and row.get("comment_id")
+    )
+    return len(content_keys), comment_count
+
+
 @app.get("/")
 async def serve_frontend():
     """Return frontend page"""
@@ -248,8 +263,14 @@ async def radar_summary(run_id: str | None = None):
                (SELECT COUNT(*) FROM run_comments WHERE run_id = ?) AS comments""",
         (selected_run, selected_run),
     ).fetchone() if selected_run else None
-    dry_run_queue = [item for item in queue if item.get("source") == "dispatch_file"]
     manual_candidates = load_manual_candidates(data_root, selected_run, limit=500)
+    db_contents = int(run_counts["contents"]) if run_counts else 0
+    db_comments = int(run_counts["comments"]) if run_counts else 0
+    count_source = "sqlite_run_links"
+    if db_contents == 0 and db_comments == 0 and manual_candidates:
+        db_contents, db_comments = _manual_artifact_counts(manual_candidates)
+        count_source = "manual_candidate_artifacts"
+    dry_run_queue = [item for item in queue if item.get("source") == "dispatch_file"]
     manual_locator_verified = sum(item.get("locator_status") == "verified" for item in manual_candidates)
     manual_locator_failed = sum(
         bool(item.get("locator_status")) and item.get("locator_status") != "verified"
@@ -263,6 +284,13 @@ async def radar_summary(run_id: str | None = None):
         str(item.get("dispatch_status", "")) == "submitted_verified"
         for item in manual_candidates
     )
+    demand_candidates = sum(item.score >= 4 and item.decision != "reject" for item in leads)
+    if not leads and manual_candidates:
+        demand_candidates = sum(
+            int(item.get("rule_score", 0) or 0) >= 4
+            and str(item.get("triage_label", "")) != "drop_low_signal"
+            for item in manual_candidates
+        )
     result = {
         "run_id": selected_run,
         "leads": len(leads),
@@ -271,9 +299,10 @@ async def radar_summary(run_id: str | None = None):
         "filtered_leads": len(filtered),
         "manual_candidates": len(manual_candidates),
         "filtered_reasons": filter_reason_counts(filtered),
-        "contents": int(run_counts["contents"]) if run_counts else 0,
-        "comments": int(run_counts["comments"]) if run_counts else 0,
-        "demand_candidates": sum(item.score >= 4 and item.decision != "reject" for item in leads),
+        "contents": db_contents,
+        "comments": db_comments,
+        "count_source": count_source,
+        "demand_candidates": demand_candidates,
         "locator_verified": manual_locator_verified,
         "locator_failed": manual_locator_failed,
         "approved_queue": len([item for item in queue if item.get("lead_status") in {"approved", "queued"}]),
@@ -309,6 +338,13 @@ async def radar_runs(limit: int = 30):
                    (SELECT COUNT(*) FROM run_comments WHERE run_id = ?) AS comments""",
             (run_id, run_id),
         ).fetchone()
+        manual_candidates = load_manual_candidates(data_root, run_id)
+        contents = int(counts["contents"])
+        comments = int(counts["comments"])
+        count_source = "sqlite_run_links"
+        if contents == 0 and comments == 0 and manual_candidates:
+            contents, comments = _manual_artifact_counts(manual_candidates)
+            count_source = "manual_candidate_artifacts"
         result.append(
             {
                 "run_id": run_id,
@@ -316,12 +352,13 @@ async def radar_runs(limit: int = 30):
                 "finished_at": row["finished_at"],
                 "status": row["status"],
                 "platform_status": row["platform_status"],
-                "contents": int(counts["contents"]),
-                "comments": int(counts["comments"]),
+                "contents": contents,
+                "comments": comments,
+                "count_source": count_source,
                 "raw_leads": len(leads),
                 "cleaned_leads": len(cleaned),
                 "filtered_leads": len(filtered),
-                "manual_candidates": len(load_manual_candidates(data_root, run_id)),
+                "manual_candidates": len(manual_candidates),
                 "dry_run_queue": len(load_dry_run_queue(data_root, run_id)),
             }
         )

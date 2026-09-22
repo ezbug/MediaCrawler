@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from local_tools.polyv_radar.html_dashboard import render_html_dashboard
+from local_tools.polyv_radar.html_dashboard import _dispatch_status, _status, render_html_dashboard
 
 
 def test_html_dashboard_renders_current_manual_candidates_and_locator_status(tmp_path: Path) -> None:
@@ -27,3 +27,13 @@ def test_html_dashboard_renders_current_manual_candidates_and_locator_status(tmp
     assert "Ego Lite 已定位" in rendered
     assert "Dry-Run通过" in rendered
     assert "草稿文本" in rendered
+
+
+def test_html_dashboard_prefers_specific_failure_code_over_generic_status() -> None:
+    row = {
+        "dispatch_status": "target_not_found",
+        "failure_code": "target_url_normalization",
+    }
+
+    assert _status(row) == ("blocked", "目标地址规范化失败")
+    assert _dispatch_status(row) == ("blocked", "目标地址规范化失败")

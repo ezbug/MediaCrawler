@@ -61,6 +61,23 @@ def test_synthetic_internal_comment_id_is_not_native_id() -> None:
     assert comment.native_comment_id == ""
 
 
+def test_comment_profile_permalink_is_not_persisted_as_locator_url() -> None:
+    comment = normalize_comment(
+        "xhs",
+        {
+            "comment_id": "c-1",
+            "content_id": "note-1",
+            "content_url": "https://www.xiaohongshu.com/explore/note-1",
+            "comment_url": "https://www.xiaohongshu.com/user/profile/user-1",
+            "author": "用户",
+            "text": "求平台报价",
+        },
+    )
+
+    assert comment is not None
+    assert comment.comment_url == "https://www.xiaohongshu.com/explore/note-1"
+
+
 def test_locator_requires_one_author_and_quote_match() -> None:
     comments = [
         {"author": "甲", "text": "我们公司正在做线上培训"},

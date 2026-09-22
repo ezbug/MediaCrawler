@@ -250,6 +250,9 @@ class RadarStore:
                 comment_id TEXT NOT NULL DEFAULT '',
                 lead_status TEXT NOT NULL DEFAULT 'approved',
                 target_url TEXT NOT NULL DEFAULT '',
+                content_url TEXT NOT NULL DEFAULT '',
+                comment_url TEXT NOT NULL DEFAULT '',
+                source_type TEXT NOT NULL DEFAULT 'comment',
                 target_author TEXT NOT NULL DEFAULT '',
                 draft_text TEXT NOT NULL DEFAULT '',
                 locator_status TEXT NOT NULL DEFAULT '',
@@ -311,6 +314,11 @@ class RadarStore:
             },
             "model_review_calls": {
                 "reviewer_version": "TEXT NOT NULL DEFAULT ''",
+            },
+            "outreach_queue": {
+                "content_url": "TEXT NOT NULL DEFAULT ''",
+                "comment_url": "TEXT NOT NULL DEFAULT ''",
+                "source_type": "TEXT NOT NULL DEFAULT 'comment'",
             },
         }
         for table, columns in migrations.items():
@@ -834,11 +842,14 @@ class RadarStore:
         self.connection.execute(
             """INSERT INTO outreach_queue
                (run_id, platform, content_id, comment_id, lead_status, target_url,
+                content_url, comment_url, source_type,
                 target_author, draft_text, locator_status, url_status, approved_by,
                 approved_at, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(run_id, platform, content_id, comment_id) DO UPDATE SET
                 lead_status=excluded.lead_status, target_url=excluded.target_url,
+                content_url=excluded.content_url, comment_url=excluded.comment_url,
+                source_type=excluded.source_type,
                 target_author=excluded.target_author, draft_text=excluded.draft_text,
                 locator_status=excluded.locator_status, url_status=excluded.url_status,
                 approved_by=excluded.approved_by, approved_at=excluded.approved_at,
@@ -846,7 +857,8 @@ class RadarStore:
             (
                 payload.get("run_id", ""), payload.get("platform", ""), payload.get("content_id", ""),
                 payload.get("comment_id", ""), payload.get("lead_status", "approved"),
-                payload.get("target_url", ""), payload.get("target_author", ""), payload.get("draft_text", ""),
+                payload.get("target_url", ""), payload.get("content_url", ""), payload.get("comment_url", ""),
+                payload.get("source_type", "comment"), payload.get("target_author", ""), payload.get("draft_text", ""),
                 payload.get("locator_status", ""), payload.get("url_status", ""),
                 payload.get("approved_by", ""), payload.get("approved_at", ""),
                 payload.get("created_at", now), payload.get("updated_at", now),

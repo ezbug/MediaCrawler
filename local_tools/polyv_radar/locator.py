@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Iterable
 from urllib.parse import urlsplit, urlunsplit
 
+from .target_urls import normalize_comment_url
 
 VENDOR_PROFILE_TERMS = (
     "服务商", "供应商", "服务系统", "云直播", "直播服务", "一站式会务", "会展公司", "影像服务",
@@ -315,7 +316,9 @@ def locate_store(
             _lead_candidate_key(run_id, lead),
             {"status": "error", "reason": "Ego Lite未返回该候选结果"},
         )
-        locator_url_value = str(result.get("locator_url") or lead.comment_url or (lead.url if lead.source_type in {"post", "answer", "content"} else ""))
+        source_type = lead.source_type or "comment"
+        locator_candidate = str(result.get("locator_url") or lead.comment_url or "")
+        locator_url_value = normalize_comment_url(locator_candidate, lead.url, source_type) or lead.url
         locator_status = str(result.get("status", "error"))
         verified_at = str(result.get("verified_at", datetime.now(timezone.utc).isoformat()))
         updated_lead = type(lead)(
@@ -335,7 +338,7 @@ def locate_store(
                 "platform": lead.platform,
                 "content_id": lead.content_id,
                 "comment_id": lead.comment_id,
-                "source_type": lead.source_type,
+                "source_type": source_type,
                 "content_url": lead.url,
                 "comment_url": locator_url_value,
                 "locator_method": updated_lead.locator_method,

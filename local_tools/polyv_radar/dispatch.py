@@ -12,6 +12,7 @@ from typing import Callable, Iterable
 from .conversion_engine import build_conversion_pack
 from .locator import is_deliverable_lead
 from .models import LeadEvidence
+from .skill_runtime import inspect_skill_runtime, require_skill_runtime
 from .target_urls import dispatch_target_url, normalize_comment_url
 
 
@@ -333,6 +334,7 @@ def dispatch_queue(
     if max_sends is not None and max_sends <= 0:
         raise ValueError("max_sends 必须大于 0")
     results: list[dict] = []
+    runtime_status = require_skill_runtime() if submit else inspect_skill_runtime()
     last_sent_at: dict[str, float] = {}
     selected_items = list(items) if max_sends is None else list(items)[:max_sends]
     for item in selected_items:
@@ -371,6 +373,7 @@ def dispatch_queue(
                 "message": (completed.stderr or completed.stdout or "").strip()[-1000:],
                 "failure_code": status if status not in {"submitted_verified", "submitted_unverified", "dry_run"} else "",
                 "executed_at": datetime.now(timezone.utc).isoformat(),
+                "skill_runtime": runtime_status,
             }
             if submit and status == "submitted_verified":
                 last_sent_at[item.platform] = time.monotonic()
@@ -389,6 +392,7 @@ def dispatch_queue(
                 "structured_result": {},
                 "screenshot": "",
                 "executed_at": datetime.now(timezone.utc).isoformat(),
+                "skill_runtime": runtime_status,
             }
         results.append(result)
     return results

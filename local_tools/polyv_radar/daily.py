@@ -11,6 +11,7 @@ from .locator import locate_store
 from .pipeline import enrich_store, prefilter_store, review_store
 from .runner import analyze_store, collect, ingest_existing_run, report_store
 from .storage import RadarStore
+from .target_urls import dispatch_target_url, normalize_comment_url
 
 
 def _preflight() -> dict:
@@ -35,23 +36,39 @@ def _approved_items(store: RadarStore, run_id: str) -> tuple[list[dict], list[Di
         (lead.platform, lead.content_id, lead.comment_id): lead
         for lead in store.load_leads(run_id)
     }
+    eligible_rows = []
     items = []
     for row in rows:
-        if not row.get("target_url") or not row.get("target_author") or not row.get("draft_text"):
-            continue
         lead = leads.get((str(row["platform"]), str(row["content_id"]), str(row["comment_id"])))
+        source_type = str((lead.source_type if lead else row.get("source_type")) or "comment")
+        content_url = str((lead.url if lead else row.get("content_url")) or "")
+        comment_url = normalize_comment_url(
+            str((lead.comment_url if lead else row.get("comment_url")) or ""),
+            content_url,
+            source_type,
+        )
+        target_url = dispatch_target_url(content_url, comment_url, source_type)
+        if not target_url:
+            target_url = str(row.get("target_url") or "")
+        target_author = str((lead.user if lead else row.get("target_author")) or "")
+        if not target_url or not target_author or not row.get("draft_text"):
+            continue
+        eligible_rows.append(row)
         items.append(
             DispatchItem(
                 platform=str(row["platform"]),
-                url=str(row["target_url"]),
-                author=str(row["target_author"]),
+                url=target_url,
+                author=target_author,
                 text=str(row["draft_text"]),
                 content_id=str(row["content_id"]),
                 comment_id=str(row["comment_id"]),
                 quote=lead.quote if lead else "",
+                content_url=content_url or target_url,
+                comment_url=comment_url,
+                source_type=source_type,
             )
         )
-    return rows, items
+    return eligible_rows, items
 
 
 def run_daily(
@@ -90,7 +107,11 @@ def run_daily(
             status = str(result.get("lead_status", result.get("status", "failed")))
             if status == "submitted_verified":
                 store.update_outreach_queue_status(int(row["queue_id"]), "submitted_verified")
-            elif status in {"submitted_unverified", "post_not_found", "click_failed", "input_failed", "blocked"}:
+            elif status in {
+                "submitted_unverified", "post_not_found", "click_failed", "input_failed", "blocked",
+                "content_unavailable", "page_not_found", "target_not_found", "blocked_login_required",
+                "screenshot_evidence_timeout", "post_verification_missed", "dispatch_timeout", "failed",
+            }:
                 store.update_outreach_queue_status(int(row["queue_id"]), status)
             store.save_outreach_attempt({
                 "queue_id": int(row["queue_id"]),
@@ -98,7 +119,10 @@ def run_daily(
                 "platform": row["platform"],
                 "mode": "submit",
                 "status": status,
-                "structured_result": result.get("structured_result", {}),
+                "structured_result": {
+                    **(result.get("structured_result", {}) or {}),
+                    "skill_runtime": result.get("skill_runtime", {}),
+                },
                 "screenshot_path": result.get("screenshot", ""),
                 "error": result.get("message", ""),
             })

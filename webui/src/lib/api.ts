@@ -111,6 +111,7 @@ export interface RadarSummary {
   filtered_reasons: Record<string, number>
   contents: number
   comments: number
+  count_source?: string
   demand_candidates: number
   locator_verified: number
   approved_queue: number
@@ -130,6 +131,7 @@ export interface RadarRun {
   platform_status: string
   contents: number
   comments: number
+  count_source?: string
   raw_leads: number
   cleaned_leads: number
   filtered_leads: number

@@ -8,6 +8,7 @@ from .locator import is_deliverable_lead
 from .models import LeadEvidence
 from .status import transition
 from .storage import RadarStore
+from .target_urls import dispatch_target_url, normalize_comment_url
 from .url_validation import validate_url, validate_urls_with_ego
 
 
@@ -84,13 +85,18 @@ def approve_lead(
         run_id, lead.platform, lead.content_id, lead.comment_id, "approved", old_stage,
         approved_by, "人工审批；允许进入预批准队列", {"lead_id": lead_id, "url_check": url_check},
     )
+    source_type = approved.source_type or "comment"
+    comment_url = normalize_comment_url(approved.comment_url, approved.url, source_type)
     queue_id = store.queue_outreach({
         "run_id": run_id,
         "platform": approved.platform,
         "content_id": approved.content_id,
         "comment_id": approved.comment_id,
         "lead_status": "approved",
-        "target_url": approved.comment_url or approved.url,
+        "target_url": dispatch_target_url(approved.url, comment_url, source_type),
+        "content_url": approved.url,
+        "comment_url": comment_url,
+        "source_type": source_type,
         "target_author": approved.user,
         "draft_text": text,
         "locator_status": approved.locator_status,

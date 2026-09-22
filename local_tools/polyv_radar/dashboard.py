@@ -109,9 +109,10 @@ def load_dry_run_queue(data_root: Path, run_id: str) -> list[dict]:
             if result.get("reason"):
                 row["send_reason"] = str(result.get("reason", ""))
             row["failure_code"] = str(result.get("failure_code") or result.get("status", ""))
-            if row["failure_code"] == "content_unavailable":
-                row["content_state"] = "content_unavailable"
-                row["retryable"] = False
+            failure_code = row["failure_code"]
+            terminal_failures = {"content_unavailable", "page_not_found", "target_url_normalization"}
+            row["content_state"] = failure_code if failure_code in terminal_failures else "available"
+            row["retryable"] = failure_code not in terminal_failures
             structured = result.get("structured_result", {}) or {}
             row["structured_result"] = structured
             row["executed_at"] = str(result.get("executed_at", ""))
