@@ -14,7 +14,10 @@ const page = task.page('p1');
 const normalize = (value) => String(value || '').toLowerCase().replace(/[\s\u3000]+/g, ' ').trim();
 const timePattern = /刚刚|刚才|今天|昨天|\d+\s*(秒|分钟|小时|天|周|月|个月|年)前|20\d{2}[-/.]\d{1,2}[-/.]\d{1,2}/;
 const notFoundPattern = /\/404(?:[/?#]|$)|404页面|页面不存在|内容不存在|视频不存在|笔记不存在|问题不存在|当前笔记暂时无法浏览|Not Found/i;
-const blockedPattern = /登录后查看|请先登录|登录\/去登录|captcha|验证后继续|访问受限|安全验证|too many requests|forbidden/i;
+// Login prompts can coexist with publicly rendered comments. Only treat hard
+// access barriers as a blocked page; the comment matcher must inspect visible
+// content before deciding that a page cannot be located.
+const blockedPattern = /captcha|验证后继续|访问受限|安全验证|too many requests|forbidden/i;
 
 function attributes(node) {
   return Object.fromEntries(Array.from(node?.attributes || []).map((attribute) => [attribute.name, attribute.value]));
@@ -90,6 +93,7 @@ async function readPage(platform) {
     const body = document.body?.innerText || '';
     const title = document.title || '';
     const isXhs = currentPlatform === 'xhs';
+    const isZhihu = currentPlatform === 'zhihu';
     const comments = currentPlatform === 'bili'
       ? []
       : Array.from(document.querySelectorAll(
@@ -97,13 +101,25 @@ async function readPage(platform) {
             ? '[data-e2e="comment-item"]'
             : isXhs
               ? '.comments-container .comment-item'
-              : '.CommentItemV2, .CommentItem, [class*="CommentItem"]'
-        )).map((node) => {
+              : isZhihu
+                ? '.Comments-container [data-id], .CommentItemV2, .CommentItem, [class*="CommentItem"]'
+                : '.CommentItemV2, .CommentItem, [class*="CommentItem"]'
+        )).filter((node) => currentPlatform !== 'dy' || !node.parentElement?.closest('[data-e2e="comment-item"]')).map((node) => {
           const lines = (node.innerText || '').split('\n').map((line) => line.trim()).filter(Boolean);
           if (lines.length < 2) return null;
-          const authorLink = node.querySelector(isXhs ? '.author .name, a[href*="/user/profile/"]' : 'a[href*="/user/"], a[href*="/user/profile/"], a[href*="/people/"]');
+          const authorLink = node.querySelector(
+            isXhs
+              ? '.author .name, a[href*="/user/profile/"]'
+              : 'a[href*="/user/"], a[href*="/user/profile/"], a[href*="/people/"]'
+          );
           const author = authorLink?.innerText?.trim() || lines[0];
-          const contentNode = isXhs ? node.querySelector('.content .note-text, .content') : null;
+          const contentNode = isXhs
+            ? node.querySelector('.content .note-text, .content')
+            : currentPlatform === 'dy'
+              ? node.querySelector('.FduGc_lz, [data-e2e="comment-text"]')
+              : isZhihu
+                ? node.querySelector('.CommentContent')
+                : null;
           const textLines = lines.slice(1).filter((line) => line !== '...' && line !== '作者' && line !== '分享' && line !== '回复' && !/^\d+$/.test(line) && !/刚刚|刚才|今天|昨天|\d+\s*(秒|分钟|小时|天|周|月|个月|年)前|20\d{2}[-/.]\d{1,2}[-/.]\d{1,2}/.test(line));
           const text = (contentNode?.innerText || textLines.join(' ')).trim();
           if (!text) return null;
