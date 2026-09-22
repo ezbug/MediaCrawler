@@ -235,12 +235,13 @@ def write_dispatch_queue(path: Path, items: Iterable[DispatchItem]) -> None:
     )
 
 
-def build_dispatch_command(item: DispatchItem, taskspace: int, submit: bool) -> list[str]:
+def build_dispatch_command(item: DispatchItem, taskspace: int, submit: bool, page: str = "p1") -> list[str]:
     if taskspace <= 0:
         raise ValueError("必须提供有效的 Ego Lite TaskSpace 编号")
     command = [
         str(AUTO_REPLY_SCRIPT),
         "--taskspace", str(taskspace),
+        "--page", page,
         "--platform", item.platform,
         "--url", item.url,
         "--author", item.author,
@@ -288,6 +289,7 @@ def dispatch_queue(
     submit: bool = False,
     max_sends: int | None = None,
     cooldown_seconds: float = 30,
+    page: str = "p1",
     runner: Callable[..., subprocess.CompletedProcess] = subprocess.run,
     sleeper: Callable[[float], None] = time.sleep,
 ) -> list[dict]:
@@ -302,7 +304,7 @@ def dispatch_queue(
             wait_for = cooldown_seconds - (time.monotonic() - previous)
             if wait_for > 0:
                 sleeper(wait_for)
-        command = build_dispatch_command(item, taskspace, submit)
+        command = build_dispatch_command(item, taskspace, submit, page=page)
         history_size = _history_size()
         try:
             completed = runner(command, text=True, capture_output=True, check=False, timeout=180)

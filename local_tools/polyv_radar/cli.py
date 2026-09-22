@@ -153,6 +153,7 @@ def build_parser() -> argparse.ArgumentParser:
     dispatch_parser.add_argument("--config", required=True)
     dispatch_parser.add_argument("--queue", required=True)
     dispatch_parser.add_argument("--taskspace", type=int, required=True)
+    dispatch_parser.add_argument("--page", default="p1", help="Ego Lite TaskSpace 内的页面标签，例如 p2")
     dispatch_parser.add_argument("--submit", action="store_true", help="真实发送；省略时仅执行 Dry-Run")
     dispatch_parser.add_argument("--max-sends", type=int, default=0, help="最多发送条数；0表示不设任务条数上限")
     dispatch_parser.add_argument("--cooldown-seconds", type=float, default=30)
@@ -366,6 +367,7 @@ def main(argv: list[str] | None = None) -> int:
             submit=args.submit,
             max_sends=None if args.max_sends == 0 else args.max_sends,
             cooldown_seconds=args.cooldown_seconds,
+            page=args.page,
         )
         output = Path(args.output) if args.output else config.data_root / "dispatch" / f"dispatch-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.jsonl"
         write_dispatch_results(output, results)

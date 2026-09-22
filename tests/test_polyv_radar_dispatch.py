@@ -66,6 +66,10 @@ def test_dispatch_queue_uses_ego_wrapper_and_explicit_submit() -> None:
     command = build_dispatch_command(item, taskspace=12, submit=True)
     assert command[0].endswith("polyv-lead-auto-reply/scripts/auto_reply")
     assert "--taskspace" in command and "12" in command and "--submit" in command
+    assert "--page" in command and "p1" in command
+
+    p2_command = build_dispatch_command(item, taskspace=12, submit=True, page="p2")
+    assert "--page" in p2_command and "p2" in p2_command
 
     calls: list[list[str]] = []
     results = dispatch_queue(
