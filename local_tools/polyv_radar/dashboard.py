@@ -30,7 +30,15 @@ def _load_jsonl(path: Path) -> list[dict]:
 
 
 def _queue_file_is_current(path: Path, run_id: str) -> bool:
-    return path.name.startswith(f"{run_id}-") and path.suffix == ".jsonl" and not path.name.startswith("dispatch-")
+    if not (path.name.startswith(f"{run_id}-") and path.suffix == ".jsonl"):
+        return False
+    # Draft/manifest files are audit artifacts, not executable queue rows.
+    excluded_suffixes = (
+        "-all-drafts.jsonl",
+        "-submit-held.jsonl",
+        "-submit-results.jsonl",
+    )
+    return not path.name.endswith(excluded_suffixes)
 
 
 def _dispatch_key(row: dict) -> tuple[str, str, str, str]:
@@ -83,11 +91,15 @@ def load_dry_run_queue(data_root: Path, run_id: str) -> list[dict]:
         if key != ("", "", "", ""):
             latest_by_key[key] = row
     for row in queue_rows:
-        result = latest_by_key.get(_dispatch_key(row))
+        result = next(
+            (candidate for candidate in results if candidate.get("candidate_id") and candidate.get("candidate_id") == row.get("candidate_id")),
+            None,
+        ) or latest_by_key.get(_dispatch_key(row))
         if result:
             row["dry_run_status"] = str(result.get("status", "unknown"))
             row["dry_run_result_path"] = str(result.get("result_path", ""))
             row["screenshot"] = str(result.get("screenshot", ""))
+            row["send_reason"] = str(result.get("reason", ""))
             structured = result.get("structured_result", {}) or {}
             row["structured_result"] = structured
             row["executed_at"] = str(result.get("executed_at", ""))
@@ -110,11 +122,17 @@ def load_manual_candidates(data_root: Path, run_id: str, limit: int = 50) -> lis
         for row in _load_jsonl(locator_path)
         if row.get("candidate_id")
     }
+    dispatch_by_candidate = {
+        str(item.get("candidate_id")): item
+        for item in load_dry_run_queue(data_root, run_id)
+        if item.get("candidate_id")
+    }
     merged = []
     for row in rows:
         locator = locator_rows.get(str(row.get("candidate_id", "")))
+        dispatch = dispatch_by_candidate.get(str(row.get("candidate_id", "")), {})
         if not locator:
-            merged.append(row)
+            merged.append({**row, **dispatch})
             continue
         merged.append(
             {
@@ -126,6 +144,7 @@ def load_manual_candidates(data_root: Path, run_id: str, limit: int = 50) -> lis
                 "screenshot_path": locator.get("screenshot_path", ""),
                 "verified_at": locator.get("verified_at", ""),
                 "reply_evidence_status": locator.get("reply_evidence_status", ""),
+                **dispatch,
             }
         )
     return merged[: max(1, min(limit, 500))]
