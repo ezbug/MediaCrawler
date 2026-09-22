@@ -249,7 +249,12 @@ async def radar_summary(run_id: str | None = None):
         (selected_run, selected_run),
     ).fetchone() if selected_run else None
     dry_run_queue = [item for item in queue if item.get("source") == "dispatch_file"]
-    manual_candidates = load_manual_candidates(data_root, selected_run)
+    manual_candidates = load_manual_candidates(data_root, selected_run, limit=500)
+    manual_locator_verified = sum(item.get("locator_status") == "verified" for item in manual_candidates)
+    manual_locator_failed = sum(
+        bool(item.get("locator_status")) and item.get("locator_status") != "verified"
+        for item in manual_candidates
+    )
     file_verified = sum(
         bool(item.get("submitted", False) and item.get("verified", False))
         for item in dry_run_queue
@@ -265,7 +270,8 @@ async def radar_summary(run_id: str | None = None):
         "contents": int(run_counts["contents"]) if run_counts else 0,
         "comments": int(run_counts["comments"]) if run_counts else 0,
         "demand_candidates": sum(item.score >= 4 and item.decision != "reject" for item in leads),
-        "locator_verified": sum(item.locator_status == "verified" for item in leads),
+        "locator_verified": manual_locator_verified,
+        "locator_failed": manual_locator_failed,
         "approved_queue": len([item for item in queue if item.get("lead_status") in {"approved", "queued"}]),
         "dry_run_queue": len(dry_run_queue),
         "dry_run_completed": sum(item.get("dry_run_status") in {"dry_run", "failed"} for item in dry_run_queue),
