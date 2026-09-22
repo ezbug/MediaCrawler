@@ -97,6 +97,31 @@ def test_dashboard_reads_verified_send_from_structured_dispatch_result(tmp_path:
     assert rows[0]["lead_status"] == "submitted_verified"
 
 
+def test_dashboard_prefers_latest_retry_result_for_same_candidate(tmp_path: Path) -> None:
+    dispatch = tmp_path / "dispatch"
+    dispatch.mkdir()
+    queue = {
+        "candidate_id": "candidate-1",
+        "platform": "zhihu",
+        "url": "https://www.zhihu.com/question/1/answer/2",
+        "author": "aidou",
+        "text": "测试回复",
+        "content_id": "answer-1",
+        "comment_id": "comment-1",
+        "quote": "公司年会要搞线上直播",
+    }
+    (dispatch / "run-1-model.jsonl").write_text(json.dumps(queue, ensure_ascii=False) + "\n", encoding="utf-8")
+    old = {**queue, "status": "failed", "executed_at": "2026-09-22T03:00:00+00:00", "reason": "旧失败"}
+    new = {**queue, "status": "submitted_verified", "submitted": True, "verified": True, "executed_at": "2026-09-22T04:00:00+00:00"}
+    (dispatch / "dispatch-old.jsonl").write_text(json.dumps(old, ensure_ascii=False) + "\n", encoding="utf-8")
+    (dispatch / "dispatch-new.jsonl").write_text(json.dumps(new, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    rows = load_dry_run_queue(tmp_path, "run-1")
+    assert rows[0]["dry_run_status"] == "submitted_verified"
+    assert rows[0]["submitted"] is True
+    assert rows[0].get("send_reason", "") == ""
+
+
 def test_dashboard_reads_manual_candidate_pool(tmp_path: Path) -> None:
     review = tmp_path / "review"
     review.mkdir()

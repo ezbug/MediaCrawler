@@ -85,21 +85,29 @@ def load_dry_run_queue(data_root: Path, run_id: str) -> list[dict]:
     results: list[dict] = []
     for path in sorted(dispatch_root.glob("dispatch-*.jsonl")):
         results.extend(_load_jsonl(path))
+    latest_by_candidate: dict[str, dict] = {}
+    for row in results:
+        candidate_id = str(row.get("candidate_id", "")).strip()
+        if not candidate_id:
+            continue
+        previous = latest_by_candidate.get(candidate_id)
+        current_at = str(row.get("executed_at", ""))
+        previous_at = str(previous.get("executed_at", "")) if previous else ""
+        if previous is None or current_at >= previous_at:
+            latest_by_candidate[candidate_id] = row
     latest_by_key: dict[tuple[str, str, str, str], dict] = {}
     for row in results:
         key = _dispatch_key(row)
         if key != ("", "", "", ""):
             latest_by_key[key] = row
     for row in queue_rows:
-        result = next(
-            (candidate for candidate in results if candidate.get("candidate_id") and candidate.get("candidate_id") == row.get("candidate_id")),
-            None,
-        ) or latest_by_key.get(_dispatch_key(row))
+        result = latest_by_candidate.get(str(row.get("candidate_id", "")).strip()) or latest_by_key.get(_dispatch_key(row))
         if result:
             row["dry_run_status"] = str(result.get("status", "unknown"))
             row["dry_run_result_path"] = str(result.get("result_path", ""))
             row["screenshot"] = str(result.get("screenshot", ""))
-            row["send_reason"] = str(result.get("reason", ""))
+            if result.get("reason"):
+                row["send_reason"] = str(result.get("reason", ""))
             structured = result.get("structured_result", {}) or {}
             row["structured_result"] = structured
             row["executed_at"] = str(result.get("executed_at", ""))
