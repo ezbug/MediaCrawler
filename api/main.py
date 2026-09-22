@@ -30,7 +30,8 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi import HTTPException
 
 from .routers import crawler_router, data_router, websocket_router
 from local_tools.polyv_radar.storage import RadarStore
@@ -41,6 +42,7 @@ from local_tools.polyv_radar.dashboard import (
     load_manual_candidates,
     merge_dashboard_queue,
 )
+from local_tools.polyv_radar.html_dashboard import latest_run_id, render_html_dashboard
 
 # Project root directory (used for running subprocesses like uv run main.py)
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -86,6 +88,30 @@ async def serve_frontend():
         "docs": "/docs",
         "note": "WebUI not found, please build it first: cd webui && npm run build"
     }
+
+
+@app.get("/polyv-dashboard.html", response_class=HTMLResponse)
+async def serve_polyv_html_dashboard(run_id: str | None = None):
+    """Serve the Antigravity-style current HTML table dashboard."""
+    data_root = Path(os.environ.get("POLYV_RADAR_DATA_ROOT", "/Users/sexpistole111/Documents/workplace/polyv-radar-data"))
+    selected_run = run_id or latest_run_id(data_root)
+    if not selected_run:
+        raise HTTPException(status_code=404, detail="没有可用的雷达批次")
+    return HTMLResponse(render_html_dashboard(data_root, selected_run))
+
+
+@app.get("/polyv-evidence/{evidence_path:path}")
+async def serve_polyv_evidence(evidence_path: str):
+    """Serve only evidence files inside the local radar data directory."""
+    data_root = Path(os.environ.get("POLYV_RADAR_DATA_ROOT", "/Users/sexpistole111/Documents/workplace/polyv-radar-data")).resolve()
+    target = (data_root / evidence_path).resolve()
+    try:
+        target.relative_to(data_root)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="证据文件不存在") from exc
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail="证据文件不存在")
+    return FileResponse(target)
 
 
 @app.get("/api/health")

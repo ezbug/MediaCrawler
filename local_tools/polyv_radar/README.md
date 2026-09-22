@@ -22,6 +22,10 @@ POLYV_TASKSPACE_ID=<current-taskspace> uv run python -m local_tools.polyv_radar 
 
 浏览器会话必须由用户提供；TaskSpace 不存在、登录失效或页面受限时，任务会停止并记录状态，不会新建备用浏览器空间。
 
+## Antigravity 风格 HTML 大板
+
+后端启动后访问 `http://127.0.0.1:<port>/polyv-dashboard.html`。页面使用当前非 legacy 批次生成 HTML 表格，展示人工候选、时间层、建议分类、Ego Lite 定位状态、截图、回复草稿和原文链接。默认只展示草稿和证据，不代表已发送；旧 Antigravity HTML 仅保留在数据目录的 `legacy/` 历史快照中。
+
 采集按平台批处理：每个平台只启动一次 Ego Lite Node 进程，复用同一个 TaskSpace 的 `p1` 页面顺序处理该平台关键词。每个关键词前后保存页面 Snapshot，运行记录和可复用流程候选写入：
 
 ```text
