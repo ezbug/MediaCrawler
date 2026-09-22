@@ -12,6 +12,7 @@ from typing import Callable, Iterable
 from .conversion_engine import build_conversion_pack
 from .locator import is_deliverable_lead
 from .models import LeadEvidence
+from .target_urls import dispatch_target_url, normalize_comment_url
 
 
 AUTO_REPLY_SCRIPT = Path("/Users/sexpistole111/.codex/skills/polyv-lead-auto-reply/scripts/auto_reply")
@@ -28,6 +29,9 @@ class DispatchItem:
     content_id: str = ""
     comment_id: str = ""
     quote: str = ""
+    content_url: str = ""
+    comment_url: str = ""
+    source_type: str = "comment"
 
     def to_dict(self) -> dict[str, str]:
         return {
@@ -38,6 +42,9 @@ class DispatchItem:
             "content_id": self.content_id,
             "comment_id": self.comment_id,
             "quote": self.quote,
+            "content_url": self.content_url or self.url,
+            "comment_url": self.comment_url,
+            "source_type": self.source_type,
         }
 
 
@@ -50,6 +57,9 @@ def _item_from_dict(value: dict) -> DispatchItem:
         content_id=str(value.get("content_id", "")).strip(),
         comment_id=str(value.get("comment_id", "")).strip(),
         quote=str(value.get("quote", "")).strip(),
+        content_url=str(value.get("content_url", "")).strip(),
+        comment_url=str(value.get("comment_url", "")).strip(),
+        source_type=str(value.get("source_type", "comment")).strip() or "comment",
     )
     if item.platform not in SUPPORTED_PLATFORMS:
         raise ValueError(f"不支持的平台：{item.platform or '空值'}")
@@ -93,12 +103,15 @@ def build_dispatch_queue(leads: Iterable[LeadEvidence], selection: str = "manual
         result.append(
             DispatchItem(
                 platform=lead.platform,
-                url=lead.comment_url or lead.url,
+                url=dispatch_target_url(lead.url, lead.comment_url, lead.source_type),
                 author=lead.user,
                 text=build_conversion_pack(lead).reply_text,
                 content_id=lead.content_id,
                 comment_id=lead.comment_id,
                 quote=lead.quote,
+                content_url=lead.url,
+                comment_url=normalize_comment_url(lead.comment_url, lead.url, lead.source_type),
+                source_type=lead.source_type or "comment",
             )
         )
     return result
@@ -158,7 +171,27 @@ def _result_blocks_retry(row: dict) -> bool:
         "dry_run",
         "submitted_verified",
         "submitted_unverified",
+        "content_unavailable",
+        "page_not_found",
     }
+
+
+def classify_dispatch_failure(structured: dict | None, message: str) -> str:
+    """Map browser failures to stable dashboard and retry categories."""
+    status = str((structured or {}).get("status", "")).strip()
+    if status:
+        return status
+    text = str(message or "")
+    lowered = text.casefold()
+    if any(token in lowered for token in ("页面不见了", "页面不存在", "内容不存在", "404", "not found", "视频不存在", "笔记不存在")):
+        return "content_unavailable"
+    if "截图失败" in text or "capturescreenshot" in lowered or "截图超时" in text:
+        return "screenshot_evidence_timeout"
+    if "未找到" in text and "评论" in text:
+        return "target_not_found"
+    if "登录" in text:
+        return "blocked_login_required"
+    return "failed"
 
 
 def load_existing_dispatch_keys(data_root: Path) -> set[tuple[str, str, str, str]]:
@@ -246,6 +279,7 @@ def build_dispatch_command(item: DispatchItem, taskspace: int, submit: bool, pag
         "--url", item.url,
         "--author", item.author,
         "--text", item.text,
+        "--source-type", item.source_type,
     ]
     if item.quote:
         command.extend(["--quote", item.quote])
@@ -312,7 +346,7 @@ def dispatch_queue(
             if not submit:
                 status = "dry_run" if completed.returncode == 0 and (structured is None or structured.get("draft_verified", True)) else "failed"
             elif completed.returncode != 0:
-                status = str(structured.get("status")) if structured and structured.get("status") in {"blocked", "input_failed", "click_failed", "post_not_found"} else "failed"
+                status = classify_dispatch_failure(structured, completed.stderr or completed.stdout)
             elif structured and structured.get("verified") is True:
                 status = "submitted_verified"
             elif structured and structured.get("submitted") is True:
@@ -332,6 +366,7 @@ def dispatch_queue(
                 "structured_result": structured or {},
                 "screenshot": (structured or {}).get("screenshot", ""),
                 "message": (completed.stderr or completed.stdout or "").strip()[-1000:],
+                "failure_code": status if status not in {"submitted_verified", "submitted_unverified", "dry_run"} else "",
                 "executed_at": datetime.now(timezone.utc).isoformat(),
             }
             if submit and status == "submitted_verified":
@@ -340,13 +375,14 @@ def dispatch_queue(
             result = {
                 **item.to_dict(),
                 "mode": "submit" if submit else "dry_run",
-                "status": "failed",
+                "status": "dispatch_timeout" if isinstance(exc, subprocess.TimeoutExpired) else "failed",
                 "submitted": False,
                 "verified": False,
                 "draft_verified": False,
                 "target_matched": False,
                 "returncode": -1,
                 "message": str(exc),
+                "failure_code": "dispatch_timeout" if isinstance(exc, subprocess.TimeoutExpired) else "runner_error",
                 "structured_result": {},
                 "screenshot": "",
                 "executed_at": datetime.now(timezone.utc).isoformat(),

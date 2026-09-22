@@ -23,6 +23,20 @@ test("CLI defaults to dry-run and parses target fields", () => {
   assert.equal(args.taskspace, 8);
 });
 
+test("CLI preserves post-level source type for separate locator flow", () => {
+  const args = parseArgs([
+    "--platform", "xhs",
+    "--url", "https://www.xiaohongshu.com/explore/1",
+    "--source-type", "post",
+    "--author", "作者",
+    "--quote", "活动报价",
+    "--text", "测试回复",
+    "--taskspace", "8",
+  ]);
+
+  assert.equal(args.sourceType, "post");
+});
+
 test("知乎目标匹配同时要求作者和原文", () => {
   assert.equal(matchesZhihuTarget("作者 起风了\n中小企业培训数字化选型", {
     author: "起风了",
@@ -54,6 +68,16 @@ test("知乎真实发送会命中发布按钮并轮询验证", async () => {
   assert.match(source, /innerText\?\.trim\(\) === '发布'/);
   assert.match(source, /attempt < 8 && !verified/);
   assert.match(source, /if \(prepared\) await page\.keyboard\.insertText\(text\)/);
+});
+
+test("post-level targets do not reuse comment-author matching", async () => {
+  const source = await readFile(
+    "/Users/sexpistole111/.codex/skills/polyv-lead-auto-reply/scripts/auto_reply.mjs",
+    "utf8",
+  );
+  assert.match(source, /const contentLevel = \['post', 'answer', 'content'\]/);
+  assert.match(source, /author && !contentLevel/);
+  assert.match(source, /verifyXhsPostedText\(page, text, author, quote, sourceType\)/);
 });
 
 test("CLI requires an explicit Ego Lite TaskSpace", () => {

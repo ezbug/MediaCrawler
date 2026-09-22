@@ -97,6 +97,34 @@ def test_dashboard_reads_verified_send_from_structured_dispatch_result(tmp_path:
     assert rows[0]["lead_status"] == "submitted_verified"
 
 
+def test_dashboard_archives_unavailable_content_and_exposes_failure_code(tmp_path: Path) -> None:
+    dispatch = tmp_path / "dispatch"
+    dispatch.mkdir()
+    queue = {
+        "candidate_id": "candidate-404",
+        "platform": "xhs",
+        "url": "https://www.xiaohongshu.com/explore/gone",
+        "author": "作者",
+        "text": "测试回复",
+        "content_id": "gone",
+        "comment_id": "comment-1",
+        "quote": "报价",
+    }
+    (dispatch / "run-1-model.jsonl").write_text(json.dumps(queue, ensure_ascii=False) + "\n", encoding="utf-8")
+    result = {
+        **queue,
+        "status": "content_unavailable",
+        "failure_code": "content_unavailable",
+        "reason": "页面不见了",
+    }
+    (dispatch / "dispatch-1.jsonl").write_text(json.dumps(result, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    rows = load_dry_run_queue(tmp_path, "run-1")
+    assert rows[0]["failure_code"] == "content_unavailable"
+    assert rows[0]["content_state"] == "content_unavailable"
+    assert rows[0]["retryable"] is False
+
+
 def test_dashboard_prefers_latest_retry_result_for_same_candidate(tmp_path: Path) -> None:
     dispatch = tmp_path / "dispatch"
     dispatch.mkdir()

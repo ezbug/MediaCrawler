@@ -41,6 +41,7 @@ def _evidence_link(data_root: Path, path_value: object) -> str:
 
 def _status(row: dict) -> tuple[str, str]:
     dispatch_status = str(row.get("dispatch_status") or row.get("dry_run_status") or "").strip()
+    failure_code = str(row.get("failure_code") or row.get("send_reason_code") or "").strip()
     if dispatch_status == "submitted_verified" or (row.get("submitted") and row.get("verified")):
         return "sent", "已发送并回查"
     if dispatch_status == "aborted_quality_gate":
@@ -49,6 +50,14 @@ def _status(row: dict) -> tuple[str, str]:
         return "pending", "已定位待发送"
     if dispatch_status == "held":
         return "blocked", "待审不发送"
+    if dispatch_status == "content_unavailable" or failure_code == "content_unavailable":
+        return "blocked", "内容已失效，已归档"
+    if dispatch_status == "screenshot_evidence_timeout" or failure_code == "screenshot_evidence_timeout":
+        return "blocked", "截图证据超时"
+    if dispatch_status == "target_not_found" or failure_code == "target_not_found":
+        return "blocked", "目标未找到"
+    if dispatch_status == "blocked_login_required" or failure_code == "blocked_login_required":
+        return "blocked", "登录态受限"
     if dispatch_status == "failed":
         return "blocked", "发送失败，待复核"
     dry_run_status = str(row.get("dry_run_status", "")).strip()
@@ -66,12 +75,36 @@ def _status(row: dict) -> tuple[str, str]:
     return "pending", "待重新定位"
 
 
+def _dispatch_status(row: dict) -> tuple[str, str]:
+    status = str(row.get("dispatch_status") or row.get("dry_run_status") or "").strip()
+    labels = {
+        "submitted_verified": ("sent", "已发送并回查"),
+        "submitted_unverified": ("blocked", "已发送待回查"),
+        "pending_send": ("pending", "已定位待发送"),
+        "held": ("blocked", "待审不发送"),
+        "aborted_quality_gate": ("blocked", "质量门暂停"),
+        "content_unavailable": ("blocked", "内容已失效，已归档"),
+        "screenshot_evidence_timeout": ("blocked", "截图证据超时"),
+        "target_not_found": ("blocked", "目标未找到"),
+        "blocked_login_required": ("blocked", "登录态受限"),
+        "post_verification_missed": ("blocked", "帖子级回查未完成"),
+        "failed": ("blocked", "发送失败，待复核"),
+        "dry_run": ("dry", "Dry-Run通过"),
+    }
+    if status in labels:
+        return labels[status]
+    code = str(row.get("failure_code") or "").strip()
+    if code in labels:
+        return labels[code]
+    return "pending", status or "未进入发送"
+
+
 def render_html_dashboard(data_root: Path, run_id: str, limit: int = 200) -> str:
     rows = load_manual_candidates(data_root, run_id, limit)
     counts = Counter(str(row.get("triage_label", "conditional")) for row in rows)
     locator_counts = Counter(str(row.get("locator_status", "pending")) for row in rows)
     dry_run_counts = Counter(str(row.get("dry_run_status", "pending")) for row in rows)
-    dispatch_counts = Counter(str(row.get("dispatch_status", "pending")) for row in rows)
+    dispatch_counts = Counter(str(row.get("dispatch_status") or row.get("dry_run_status") or "pending") for row in rows)
     platforms = Counter(PLATFORM_NAMES.get(str(row.get("platform", "")), str(row.get("platform", "未知"))) for row in rows)
     payload = json.dumps(
         [
@@ -94,6 +127,8 @@ def render_html_dashboard(data_root: Path, run_id: str, limit: int = 200) -> str
                 "candidate_id": row.get("candidate_id", ""),
                 "dispatch_status": row.get("dispatch_status", ""),
                 "send_reason": row.get("send_reason", ""),
+                "failure_code": row.get("failure_code", ""),
+                "content_state": row.get("content_state", ""),
                 "submitted": row.get("submitted", False),
                 "verified": row.get("verified", False),
             }
@@ -115,7 +150,7 @@ def render_html_dashboard(data_root: Path, run_id: str, limit: int = 200) -> str
             f"<td class='quote'>“{_text(row.get('quote'))}”</td>"
             f"<td><span class='role'>{_text(row.get('source_role') or 'unknown')}</span><div class='sub'>{_text(row.get('event_type') or row.get('category') or '未分类')}</div></td>"
             f"<td><span class='status {status_class}'>{_text(status_label)}</span><div class='sub'>{_text(row.get('locator_method'))}</div></td>"
-            f"<td><span class='status {('sent' if row.get('dispatch_status') == 'submitted_verified' else 'blocked' if row.get('dispatch_status') in {'held', 'aborted_quality_gate', 'failed'} else 'pending')}'>{_text(row.get('dispatch_status') or '未进入发送')}</span><div class='sub'>{_text(row.get('send_reason') or '')}</div></td>"
+            f"<td><span class='status {_dispatch_status(row)[0]}'>{_text(_dispatch_status(row)[1])}</span><div class='sub'>{_text(row.get('failure_code') or row.get('send_reason') or '')}</div></td>"
             f"<td class='draft'>{_text(row.get('reply_draft') or row.get('reply_text') or '当前记录暂无草稿；先完成人工判断')}</td>"
             f"<td>{_evidence_link(data_root, row.get('screenshot_path'))}</td>"
             f"<td>{_link(row.get('locator_url') or row.get('comment_url') or row.get('content_url'), '打开定位')}<br>{_link(row.get('content_url'), '打开内容')}</td>"
@@ -148,14 +183,14 @@ def render_html_dashboard(data_root: Path, run_id: str, limit: int = 200) -> str
 <main class="wrap">
   <section class="head"><div><h1>POLYV 需求候选 HTML 大板</h1><div class="note">当前批次：{_text(run_id)} · 数据来自现有雷达和 Ego Lite 定位结果</div><div class="note">发送状态与定位状态分开记录：已发送必须有回查证据；暂停、待审和待发送记录不会被当作已发送。</div></div><div class="sub">最后生成：{_text(__import__('datetime').datetime.now().astimezone().isoformat(timespec='seconds'))}</div></section>
   <section class="stats">
-    <div class="stat">记录总数<b>{len(rows)}</b></div><div class="stat">定位通过<b>{locator_counts.get('verified', 0)}</b></div><div class="stat">已发送并回查<b>{dispatch_counts.get('submitted_verified', 0)}</b></div><div class="stat">已暂停发送<b>{dispatch_counts.get('aborted_quality_gate', 0)}</b></div><div class="stat">发送失败<b>{dispatch_counts.get('failed', 0)}</b></div><div class="stat">待发送<b>{dispatch_counts.get('pending_send', 0)}</b></div><div class="stat">待审不发送<b>{dispatch_counts.get('held', 0)}</b></div><div class="stat">当前跟进<b>{counts.get('keep_current', 0)}</b></div><div class="stat">历史唤醒<b>{counts.get('keep_reactivation', 0)}</b></div>
+    <div class="stat">记录总数<b>{len(rows)}</b></div><div class="stat">定位通过<b>{locator_counts.get('verified', 0)}</b></div><div class="stat">已发送并回查<b>{dispatch_counts.get('submitted_verified', 0)}</b></div><div class="stat">已暂停发送<b>{dispatch_counts.get('aborted_quality_gate', 0)}</b></div><div class="stat">内容已失效<b>{dispatch_counts.get('content_unavailable', 0)}</b></div><div class="stat">发送失败<b>{dispatch_counts.get('failed', 0) + dispatch_counts.get('screenshot_evidence_timeout', 0) + dispatch_counts.get('target_not_found', 0) + dispatch_counts.get('post_verification_missed', 0)}</b></div><div class="stat">待发送<b>{dispatch_counts.get('pending_send', 0)}</b></div><div class="stat">待审不发送<b>{dispatch_counts.get('held', 0)}</b></div><div class="stat">当前跟进<b>{counts.get('keep_current', 0)}</b></div><div class="stat">历史唤醒<b>{counts.get('keep_reactivation', 0)}</b></div>
   </section>
-  <section class="toolbar"><button id="all" class="active" onclick="filterRows('all')">全部 ({len(rows)})</button>{platform_buttons}<button id="verified" onclick="filterRows('verified')">定位通过 ({locator_counts.get('verified', 0)})</button><button id="sent" onclick="filterRows('sent')">已发送 ({dispatch_counts.get('submitted_verified', 0)})</button><button id="paused" onclick="filterRows('paused')">已暂停 ({dispatch_counts.get('aborted_quality_gate', 0)})</button><button id="send_failed" onclick="filterRows('send_failed')">发送失败 ({dispatch_counts.get('failed', 0)})</button><button id="pending_send" onclick="filterRows('pending_send')">待发送 ({dispatch_counts.get('pending_send', 0)})</button><button id="held" onclick="filterRows('held')">待审不发送 ({dispatch_counts.get('held', 0)})</button><button id="dry_run" onclick="filterRows('dry_run')">Dry-Run通过 ({dry_run_counts.get('dry_run', 0)})</button><button id="dry_failed" onclick="filterRows('dry_failed')">Dry-Run失败 ({dry_run_counts.get('failed', 0)})</button><button id="current" onclick="filterRows('current')">当前跟进 ({counts.get('keep_current', 0)})</button><button id="historical" onclick="filterRows('historical')">历史唤醒 ({counts.get('keep_reactivation', 0)})</button></section>
+  <section class="toolbar"><button id="all" class="active" onclick="filterRows('all')">全部 ({len(rows)})</button>{platform_buttons}<button id="verified" onclick="filterRows('verified')">定位通过 ({locator_counts.get('verified', 0)})</button><button id="sent" onclick="filterRows('sent')">已发送 ({dispatch_counts.get('submitted_verified', 0)})</button><button id="paused" onclick="filterRows('paused')">已暂停 ({dispatch_counts.get('aborted_quality_gate', 0)})</button><button id="content_unavailable" onclick="filterRows('content_unavailable')">内容失效 ({dispatch_counts.get('content_unavailable', 0)})</button><button id="send_failed" onclick="filterRows('send_failed')">发送问题 ({dispatch_counts.get('failed', 0) + dispatch_counts.get('screenshot_evidence_timeout', 0) + dispatch_counts.get('target_not_found', 0) + dispatch_counts.get('post_verification_missed', 0)})</button><button id="pending_send" onclick="filterRows('pending_send')">待发送 ({dispatch_counts.get('pending_send', 0)})</button><button id="held" onclick="filterRows('held')">待审不发送 ({dispatch_counts.get('held', 0)})</button><button id="dry_run" onclick="filterRows('dry_run')">Dry-Run通过 ({dry_run_counts.get('dry_run', 0)})</button><button id="dry_failed" onclick="filterRows('dry_failed')">Dry-Run失败 ({dry_run_counts.get('failed', 0)})</button><button id="current" onclick="filterRows('current')">当前跟进 ({counts.get('keep_current', 0)})</button><button id="historical" onclick="filterRows('historical')">历史唤醒 ({counts.get('keep_reactivation', 0)})</button></section>
   <section class="table-wrap"><table><thead><tr><th>#</th><th>平台</th><th>用户</th><th>时间层</th><th>建议分类</th><th>完整原话</th><th>来源与业务</th><th>定位状态</th><th>发送状态</th><th>回复草稿</th><th>截图</th><th>链接</th></tr></thead><tbody id="rows">{''.join(body_rows)}</tbody></table></section>
 </main>
 <script>
 const data={payload};
-function filterRows(kind, value='') {{ document.querySelectorAll('button').forEach(x=>x.classList.remove('active')); const id=kind==='platform'?'platform-'+value:kind; document.getElementById(id)?.classList.add('active'); document.querySelectorAll('#rows tr').forEach((row,i)=>{{const item=data[i]; let show=kind==='all'||(kind==='platform'&&item.platform===value)||(kind==='verified'&&item.locator_status==='verified')||(kind==='sent'&&item.dispatch_status==='submitted_verified')||(kind==='paused'&&item.dispatch_status==='aborted_quality_gate')||(kind==='send_failed'&&item.dispatch_status==='failed')||(kind==='pending_send'&&item.dispatch_status==='pending_send')||(kind==='held'&&item.dispatch_status==='held')||(kind==='dry_run'&&item.dry_run_status==='dry_run'&&item.target_matched&&item.draft_verified)||(kind==='dry_failed'&&item.dry_run_status==='failed')||(kind==='current'&&item.triage_label==='keep_current')||(kind==='historical'&&item.triage_label==='keep_reactivation'); row.style.display=show?'':'none';}}); }}
+function filterRows(kind, value='') {{ document.querySelectorAll('button').forEach(x=>x.classList.remove('active')); const id=kind==='platform'?'platform-'+value:kind; document.getElementById(id)?.classList.add('active'); document.querySelectorAll('#rows tr').forEach((row,i)=>{{const item=data[i]; const sendStatus=item.dispatch_status||item.dry_run_status||''; let show=kind==='all'||(kind==='platform'&&item.platform===value)||(kind==='verified'&&item.locator_status==='verified')||(kind==='sent'&&sendStatus==='submitted_verified')||(kind==='paused'&&sendStatus==='aborted_quality_gate')||(kind==='content_unavailable'&&sendStatus==='content_unavailable')||(kind==='send_failed'&&['failed','screenshot_evidence_timeout','target_not_found','post_verification_missed'].includes(sendStatus))||(kind==='pending_send'&&sendStatus==='pending_send')||(kind==='held'&&sendStatus==='held')||(kind==='dry_run'&&item.dry_run_status==='dry_run'&&item.target_matched&&item.draft_verified)||(kind==='dry_failed'&&item.dry_run_status==='failed')||(kind==='current'&&item.triage_label==='keep_current')||(kind==='historical'&&item.triage_label==='keep_reactivation'); row.style.display=show?'':'none';}}); }}
 </script>
 </body></html>"""
 

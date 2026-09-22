@@ -16,6 +16,7 @@ from local_tools.polyv_radar.dispatch import (
     write_dispatch_queue,
 )
 from local_tools.polyv_radar.models import LeadEvidence
+from local_tools.polyv_radar.target_urls import dispatch_target_url, normalize_comment_url
 
 
 def _lead(**updates) -> LeadEvidence:
@@ -44,6 +45,14 @@ def test_build_dispatch_queue_selects_verified_reviewed_leads_only() -> None:
 
     assert len(build_dispatch_queue([manual, model, skipped], "manual")) == 1
     assert len(build_dispatch_queue([manual, model, skipped], "model")) == 1
+
+
+def test_comment_dispatch_opens_content_url_and_normalizes_profile_locator() -> None:
+    content = "https://www.xiaohongshu.com/explore/note-1"
+    profile = "https://www.xiaohongshu.com/user/profile/user-1"
+    assert normalize_comment_url(profile, content, "comment") == content
+    assert dispatch_target_url(content, profile, "comment") == content
+    assert dispatch_target_url(content, content, "post") == content
 
 
 def test_model_dispatch_rejects_generic_author_editorial_content() -> None:
@@ -78,6 +87,19 @@ def test_dispatch_queue_uses_ego_wrapper_and_explicit_submit() -> None:
     )
     assert calls == [command]
     assert results[0]["status"] == "submitted_unverified"
+
+
+def test_dispatch_command_preserves_source_type() -> None:
+    item = DispatchItem(
+        "xhs",
+        "https://www.xiaohongshu.com/explore/note-1",
+        "作者",
+        "回复",
+        source_type="post",
+    )
+    command = build_dispatch_command(item, taskspace=12, submit=False)
+    assert "--source-type" in command
+    assert command[command.index("--source-type") + 1] == "post"
 
 
 def test_dispatch_queue_preserves_target_quote_for_zhihu_matching() -> None:

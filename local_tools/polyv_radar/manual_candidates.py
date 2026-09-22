@@ -19,6 +19,7 @@ from .scoring import (
     freshness_bucket,
     score_purchase_evidence,
 )
+from .target_urls import normalize_comment_url
 
 
 def _key(value: object) -> str:
@@ -194,7 +195,11 @@ def build_manual_candidates(
                 "content_id": content.content_id,
                 "content_title": content.title,
                 "content_url": content.url,
-                "comment_url": comment.comment_url or content.url,
+                "comment_url": normalize_comment_url(
+                    comment.comment_url,
+                    content.url,
+                    comment.source_type or "comment",
+                ),
                 "comment_id": comment.comment_id,
                 "native_comment_id": comment.native_comment_id,
                 "parent_comment_id": comment.parent_comment_id,

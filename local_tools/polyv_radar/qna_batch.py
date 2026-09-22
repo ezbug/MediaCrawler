@@ -11,6 +11,7 @@ from .config import RadarConfig
 from .manual_candidates import build_manual_candidates
 from .scoring import classify_account_role, classify_category, classify_event, classify_publisher_role, freshness_bucket
 from .storage import RadarStore
+from .target_urls import normalize_comment_url
 
 
 BUSINESS_TERMS = (
@@ -236,7 +237,11 @@ def _fallback_comment_candidate(content, comment, config: RadarConfig, run_id: s
         "content_id": content.content_id,
         "content_title": content.title,
         "content_url": content.url,
-        "comment_url": comment.comment_url or content.url,
+        "comment_url": normalize_comment_url(
+            comment.comment_url,
+            content.url,
+            comment.source_type or "comment",
+        ),
         "comment_id": comment.comment_id,
         "native_comment_id": comment.native_comment_id,
         "parent_comment_id": comment.parent_comment_id or comment.native_parent_id,
