@@ -214,3 +214,19 @@ uv run python -m local_tools.polyv_radar daily \
 - `<run-id>-locator-checks.json`
 
 计入交付表的记录必须满足评分至少 4、企业场景及项目/选型/价格/交付证据成立、页面和原话可在 Ego Lite 中重新找到，并且同一用户或同一企业不重复。评论筛选窗口为 90 天；时间无法确认的评论不自动获得近期项目加分。
+
+## Grok Bot 项目交接
+
+用 `handoff-export` 生成只读、内容寻址的本地快照。重复运行同一输入会复用同一快照；队列、回复历史、候选源、截图或 Git 提交变化时会生成新快照，不覆盖旧文件。`--dry-run` 只计算统计与哈希，不写文件。
+
+```bash
+uv run python -m local_tools.polyv_radar handoff-export \
+  --config local_tools/polyv_radar/pilot.toml \
+  --campaign polyv-100 --dry-run
+
+uv run python -m local_tools.polyv_radar handoff-export \
+  --config local_tools/polyv_radar/pilot.toml \
+  --campaign polyv-100
+```
+
+输出在 `polyv-radar-data/handoff/<campaign>/snapshots/<snapshot_id>/`，包含 `manifest.json`、`lead-ledger.jsonl` 和 `manifest.sha256`。发送完成数要求严格队列、发送结果与 `reply_history.jsonl` 对同一平台、目标链接、作者及回复文本逐条匹配；截图预览状态另行记录，不把发送前预览当成发布后截图。详细文件地图、快照验收方法及 Grok 接收边界见 [GROK_HANDOFF.md](GROK_HANDOFF.md)。
