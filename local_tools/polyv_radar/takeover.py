@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,6 +23,19 @@ def _read_json(path: Path) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError(f"expected JSON object: {path}")
     return payload
+
+
+def _git_revision(worktree: Path) -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(worktree), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return result.stdout.strip() or None
 
 
 def _count_priority(rows: list[dict[str, Any]], pending_pool: int = 0) -> dict[str, int]:
@@ -100,6 +114,9 @@ def build_takeover(data_root: Path, campaign: str = "polyv-100") -> dict[str, An
             "worktree": "/Users/sexpistole111/Documents/workplace/MediaCrawler/.worktrees/polyv-antigravity-inherit",
             "branch": "codex/polyv-antigravity-inherit",
             "data_root": str(data_root),
+            "git_revision": _git_revision(
+                Path("/Users/sexpistole111/Documents/workplace/MediaCrawler/.worktrees/polyv-antigravity-inherit")
+            ),
         },
         "source": {
             "grok_sync_json": str(sync_path),
@@ -148,6 +165,7 @@ def write_takeover(data_root: Path, campaign: str = "polyv-100") -> tuple[Path, 
         "# Codex 接管基线",
         "",
         f"- 生成时间：`{result['generated_at']}`",
+        f"- Git SHA：`{result['project']['git_revision'] or 'unknown'}`",
         f"- 交接状态：`{'READY' if result['ready'] else 'BLOCKED'}`",
         f"- Grok 同步哈希校验：`{'通过' if result['verification']['grok_deliverables_hashes_match'] else '失败'}`",
         "",
