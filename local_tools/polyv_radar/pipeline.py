@@ -10,8 +10,21 @@ from .config import RadarConfig
 from .enrichment import choose_enrichment_candidates, run_profile_enrichment
 from .locator import lead_exclusion_reason
 from .models import CommentRecord, ContentRecord, LeadAssessment, LeadEvidence
-from .review import run_codex_review
-from .scoring import SOLUTIONS, classify_category, score_purchase_evidence
+from .review import (
+    REVIEWER_VERSION,
+    candidate_evidence_hash,
+    candidate_review_id,
+    review_candidates_resilient,
+)
+from .scoring import (
+    SOLUTIONS,
+    classify_category,
+    classify_intent,
+    classify_publisher_role,
+    freshness_bucket,
+    has_content_demand_signal,
+    score_purchase_evidence,
+)
 from .storage import RadarStore
 
 
@@ -19,7 +32,15 @@ def _key(value: str) -> str:
     return "".join(str(value or "").casefold().split())
 
 
-def _lead_from_score(content: ContentRecord, comment: CommentRecord | None, result) -> LeadEvidence:
+def _lead_from_score(
+    content: ContentRecord,
+    comment: CommentRecord | None,
+    result,
+    *,
+    now: datetime | None = None,
+    recent_days: int = 90,
+    max_age_days: int = 730,
+) -> LeadEvidence:
     quote = comment.text if comment else content.text
     profile_url = (comment.author_url if comment else "") or content.creator_url or content.author_url
     author_id = (comment.author_id if comment else "") or content.author_id
@@ -33,6 +54,13 @@ def _lead_from_score(content: ContentRecord, comment: CommentRecord | None, resu
         source_type = "post"
     else:
         source_type = "content"
+    intent_class, intent_reason = classify_intent(content, comment)
+    published_at = (comment.published_at if comment and comment.published_at else None) or content.published_at
+    freshness = freshness_bucket(published_at, now, recent_days, max_age_days)
+    source_role, _ = classify_publisher_role(content)
+    candidate_kind = "historical_reactivation" if freshness == "historical" else (
+        "conditional_provider_context" if source_role == "likely_provider" else "current_demand"
+    )
     return LeadEvidence(
         platform=content.platform,
         content_id=content.content_id,
@@ -53,11 +81,22 @@ def _lead_from_score(content: ContentRecord, comment: CommentRecord | None, resu
         dimensions=result.dimensions,
         stage="prefilter",
         rejection_reason=result.rejected_reason,
+        intent_class=intent_class,
+        intent_reason=intent_reason,
         author_id=author_id,
         source_type=source_type,
         comment_url=comment.comment_url if comment else "",
         parent_comment_id=comment.parent_comment_id if comment else "",
         native_comment_id=comment.native_comment_id if comment else "",
+        published_at=published_at.isoformat() if published_at else (comment.published_at_raw if comment else ""),
+        freshness=freshness,
+        source_role=source_role,
+        candidate_kind=candidate_kind,
+        recommended_action=(
+            "历史复活：先确认现在是否仍有需求，再说明POLYV可以结合场景提供定制方案，邀请私信沟通。"
+            if freshness == "historical"
+            else "进入人工复核：补充主页、公开身份和需求定位证据。"
+        ),
     )
 
 
@@ -69,7 +108,10 @@ def build_prefilter_leads(
     min_score: int = 4,
     excluded_author_names: Iterable[str] = (),
     recent_days: int = 90,
+    negative_terms: Iterable[str] = (),
+    max_age_days: int = 730,
 ) -> list[LeadEvidence]:
+    effective_now = now or datetime.now(timezone.utc)
     content_by_key = {(item.platform, item.content_id): item for item in contents}
     comments_by_content: dict[tuple[str, str], list[CommentRecord]] = defaultdict(list)
     for comment in comments:
@@ -79,15 +121,36 @@ def build_prefilter_leads(
     excluded = tuple(item.casefold() for item in excluded_author_names if item)
     for key, content in content_by_key.items():
         related = comments_by_content.get(key, [])
-        records = [(content, comment) for comment in related] or [(content, None)]
+        # Keep a post-level candidate only when the post contains a direct
+        # demand signal; ordinary posts remain context for comment scoring.
+        records = []
+        if has_content_demand_signal(content):
+            records.append((content, None))
+        records.extend((content, comment) for comment in related)
         for item, comment in records:
+            published_at = (comment.published_at if comment and comment.published_at else None) or item.published_at
+            if freshness_bucket(published_at, effective_now, recent_days, max_age_days) == "stale":
+                continue
             author_name = (comment.author if comment else content.author).casefold()
             if any(token in author_name for token in excluded):
                 continue
-            result = score_purchase_evidence(item, comment, now=now, recent_days=recent_days)
+            result = score_purchase_evidence(
+                item,
+                comment,
+                now=effective_now,
+                recent_days=recent_days,
+                negative_terms=negative_terms,
+            )
             if result.score < min_score:
                 continue
-            lead = _lead_from_score(item, comment, result)
+            lead = _lead_from_score(
+                item,
+                comment,
+                result,
+                now=effective_now,
+                recent_days=recent_days,
+                max_age_days=max_age_days,
+            )
             identity = lead.author_id or lead.profile_url or lead.user
             dedupe_key = (lead.platform, _key(identity), _key(lead.quote))
             existing = best.get(dedupe_key)
@@ -135,6 +198,9 @@ def candidate_bundle(store: RadarStore, run_id: str, leads: Iterable[LeadEvidenc
                 "quote": lead.quote,
                 "content_title": lead.content_title,
                 "event_type": lead.event_type,
+                "intent_class": lead.intent_class,
+                "intent_reason": lead.intent_reason,
+                "rule_dimensions": dict(lead.dimensions),
                 "profile_url": lead.profile_url,
                 "profile": {
                     "display_name": profile.get("display_name", ""),
@@ -146,6 +212,8 @@ def candidate_bundle(store: RadarStore, run_id: str, leads: Iterable[LeadEvidenc
                 "sources": sources,
             }
         )
+        bundle[-1]["evidence_hash"] = candidate_evidence_hash(bundle[-1])
+        bundle[-1]["reviewer_version"] = REVIEWER_VERSION
     return bundle
 
 
@@ -159,6 +227,8 @@ def prefilter_store(config: RadarConfig, run_id: str, max_candidates: int = 50) 
         min_score=config.min_lead_score,
         excluded_author_names=config.excluded_author_names,
         recent_days=config.recent_days,
+        negative_terms=config.taxonomy_negative_terms,
+        max_age_days=config.max_lead_age_days,
     )
     store.save_leads(run_id, leads)
     path = config.data_root / "review" / f"{run_id}-prefilter.json"
@@ -168,12 +238,12 @@ def prefilter_store(config: RadarConfig, run_id: str, max_candidates: int = 50) 
     return leads
 
 
-def enrich_store(config: RadarConfig, repo_root: Path, run_id: str) -> dict:
+def enrich_store(config: RadarConfig, repo_root: Path, run_id: str, taskspace: int | None = None) -> dict:
     store = RadarStore(config.data_root / "radar.sqlite3")
     store.initialize()
     leads = store.load_leads(run_id)
     store.close()
-    return run_profile_enrichment(config, repo_root, run_id, choose_enrichment_candidates(leads))
+    return run_profile_enrichment(config, repo_root, run_id, choose_enrichment_candidates(leads), taskspace=taskspace)
 
 
 def review_store(
@@ -187,11 +257,49 @@ def review_store(
     leads = store.load_leads(run_id)
     bundle = candidate_bundle(store, run_id, leads)
     profiles = {(row["platform"], row["author_id"]): row for row in store.load_profiles(run_id)}
-    assessments = []
+    runner = runner or __import__("subprocess").run
+    assessment_rows = store.connection.execute(
+        "SELECT payload FROM lead_assessments WHERE run_id = ?", (run_id,)
+    ).fetchall()
+    cached: dict[str, dict] = {}
+    for row in assessment_rows:
+        try:
+            payload = json.loads(row[0])
+        except json.JSONDecodeError:
+            continue
+        if payload.get("reviewer_version") and payload.get("evidence_hash") and payload.get("model_status") in {
+            "model_verified", "model_rejected", "model_cached"
+        }:
+            cached_key = "|".join(
+                str(value or "") for value in (
+                    payload.get("platform", ""), payload.get("content_id", ""), payload.get("comment_id", "")
+                )
+            ).strip("|")
+            cached[cached_key] = payload
+
+    pending_bundle = [
+        candidate for candidate in bundle
+        if cached.get(candidate_review_id(candidate), {}).get("evidence_hash") != candidate.get("evidence_hash")
+        or cached.get(candidate_review_id(candidate), {}).get("reviewer_version") != candidate.get("reviewer_version")
+    ]
+    review_results, telemetry = review_candidates_resilient(pending_bundle, codex=codex, runner=runner)
+    for call in telemetry:
+        store.save_model_review_call(run_id, call)
+
+    stats = {
+        "high_value": 0, "review": 0, "rejected": 0, "model_fallback": 0,
+        "model_verified": 0, "model_rejected": 0, "model_cached": 0,
+        "model_pending_timeout": 0, "model_pending_invalid": 0,
+        "human_review_required": 0, "model_calls": len(telemetry),
+    }
     reviewed: list[LeadEvidence] = []
-    stats = {"high_value": 0, "review": 0, "rejected": 0, "model_fallback": 0}
     for lead, candidate in zip(leads, bundle):
-        payload, status = run_codex_review(candidate, codex=codex, runner=runner or __import__("subprocess").run)
+        cached_payload = cached.get(candidate_review_id(candidate))
+        if cached_payload and cached_payload.get("evidence_hash") == candidate.get("evidence_hash") and cached_payload.get("reviewer_version") == candidate.get("reviewer_version"):
+            payload, status = cached_payload, "model_cached"
+            stats["model_cached"] += 1
+        else:
+            payload, status = review_results.get(candidate_review_id(candidate), (None, "model_pending_timeout"))
         profile = profiles.get((lead.platform, lead.author_id), {})
         profile_updates = {
             "company": profile.get("company", lead.company),
@@ -202,6 +310,8 @@ def review_store(
         }
         if payload is None:
             stats["model_fallback"] += 1
+            pending_status = status if status in {"model_pending_timeout", "model_pending_invalid"} else "model_pending_timeout"
+            stats[pending_status] += 1
             assessment = LeadAssessment(
                 run_id=run_id,
                 platform=lead.platform,
@@ -213,19 +323,23 @@ def review_store(
                 identity_confidence=profile.get("identity_confidence", "low"),
                 evidence=[{"dimension": "rule", "quote": lead.quote, "url": lead.url}],
                 decision="review",
-                reason="模型复核未完成，保留规则结果并要求人工核验",
-                model_status=status,
+                reason="模型复核未完成，保留规则结果并进入人工复核队列",
+                model_status=pending_status,
+                evidence_hash=candidate.get("evidence_hash", ""),
+                reviewer_version=REVIEWER_VERSION,
             )
             reviewed_lead = LeadEvidence(
                 **{
                     **lead.to_dict(),
-                    "stage": "model_fallback",
+                    "stage": pending_status,
                     "decision": "review",
                     "identity_confidence": profile.get("identity_confidence", "low"),
                     **profile_updates,
                 }
             )
         else:
+            model_status = "model_rejected" if payload.get("decision") == "reject" else "model_verified"
+            stats[model_status] += 1
             assessment = LeadAssessment(
                 run_id=run_id,
                 platform=lead.platform,
@@ -238,7 +352,9 @@ def review_store(
                 evidence=payload["evidence"],
                 decision=payload["decision"],
                 reason=payload["reason"],
-                model_status=status,
+                model_status=model_status,
+                evidence_hash=candidate.get("evidence_hash", ""),
+                reviewer_version=REVIEWER_VERSION,
             )
             reviewed_lead = LeadEvidence(
                 **{
@@ -261,15 +377,16 @@ def review_store(
             reviewed_lead.decision = "reject"
             reviewed_lead.stage = "model_rejected"
             reviewed_lead.rejection_reason = exclusion
+        if assessment.decision == "review":
+            stats["human_review_required"] += 1
         if assessment.decision == "high_value" and assessment.score >= config.min_lead_score:
             stats["high_value"] += 1
         elif assessment.decision == "review":
             stats["review"] += 1
         else:
             stats["rejected"] += 1
-        assessments.append(assessment)
+        store.save_assessments([assessment])
+        store.upsert_lead(run_id, reviewed_lead)
         reviewed.append(reviewed_lead)
-    store.save_assessments(assessments)
-    store.save_leads(run_id, reviewed)
     store.close()
     return stats

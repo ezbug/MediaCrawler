@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { filterSearchResults, isExpectedXhsNoteUrl, loadUntilStable, parseDisplayedTime, profileIdFromUrl, waitForResults } from './ego_helpers.mjs';
+import { filterSearchResults, isExpectedXhsNoteUrl, loadUntilStable, parseDisplayedTime, profileIdFromUrl, waitForResults, xhsDetailReady } from './ego_helpers.mjs';
 
 // Support env vars or CLI arguments
 const args = process.argv.slice(2);
@@ -13,7 +13,7 @@ await fs.mkdir(outputDir, { recursive: true });
 
 const taskspaceId = Number(process.env.POLYV_TASKSPACE_ID);
 if (!Number.isInteger(taskspaceId) || taskspaceId <= 0) throw new Error('需要有效的 POLYV_TASKSPACE_ID');
-const task = await takeOverTaskSpace(taskspaceId);
+const task = await taskSpace(taskspaceId);
 
 const page = task.page("p1");
 
@@ -72,38 +72,67 @@ for (let i = 0; i < targetNotes.length; i++) {
   try {
     await page.goto(n.url);
     await page.waitForLoadState({ timeout: 15000 }).catch(() => {});
-    await page.waitForSelector('#detail-title, #detail-desc', { timeout: 15000 }).catch(() => {});
+    const detailDeadline = Date.now() + 15000;
+    let detailReady = false;
+    while (Date.now() < detailDeadline) {
+      const state = await page.evaluate(() => ({
+        path: window.location.pathname,
+        title: document.querySelector('#detail-title')?.innerText?.trim() || '',
+        authorHref: document.querySelector('#noteContainer .author-container a[href*="/user/profile/"], #noteContainer .author-wrapper a[href*="/user/profile/"]')?.href || '',
+      }));
+      if (xhsDetailReady(state, n)) {
+        detailReady = true;
+        break;
+      }
+      await page.waitForTimeout(250);
+    }
+    if (!detailReady) {
+      console.error(`  -> Detail page did not become ready for ${n.id}; skipped.`);
+      continue;
+    }
+    await page.waitForSelector('#noteContainer .author-container a[href*="/user/profile/"], #noteContainer .author-wrapper a[href*="/user/profile/"], #noteContainer .name', { timeout: 5000 }).catch(() => {});
     const detailUrl = await page.url();
     if (!isExpectedXhsNoteUrl(detailUrl, n.id)) {
       console.error(`  -> Skipped redirected note ${n.id}; final URL: ${detailUrl}`);
       continue;
     }
-    await loadUntilStable(page, '.parent-comment, .comment-item', maxComments);
+    await loadUntilStable(page, '.parent-comment, .comment-item', maxComments, 2, 14, 300);
 
     const pageData = await page.evaluate(() => {
       const titleEl = document.querySelector('#detail-title');
       const descEl = document.querySelector('#detail-desc');
-      const authorLink = document.querySelector('.author-container a, a[href*="/user/profile/"]');
-      const authorEl = authorLink || document.querySelector('.author-container, .name, [class*="author"]');
+      const noteContainer = document.querySelector('#noteContainer') || document;
+      const authorContainer = noteContainer.querySelector('.author-container, .author-wrapper');
+      const authorLink = authorContainer?.querySelector('a[href*="/user/profile/"]') || null;
+      const authorEl = authorContainer?.querySelector('.name, .username') || authorContainer;
       const tags = Array.from(document.querySelectorAll('a[href*="/tag/"], a[href*="/search/"]'))
         .map(a => a.innerText.trim())
         .filter(t => t.startsWith('#'));
 
-      const commentNodes = document.querySelectorAll('.parent-comment, .comment-item');
+      // Read the actual comment nodes once. The outer .parent-comment wrapper
+      // also contains replies, so treating it as a comment loses author/id
+      // information and makes parent-child targeting unreliable.
+      const commentNodes = document.querySelectorAll('.comments-container .comment-item');
       const parsedComments = [];
       const seenComments = new Set();
       for (let idx = 0; idx < commentNodes.length; idx++) {
         const el = commentNodes[idx];
         const lines = el.innerText.split('\n').map(s => s.trim()).filter(Boolean);
         if (lines.length < 2) continue;
-        const authorLink = el.querySelector('a[href*="/user/profile/"]');
+        const authorLink = el.querySelector('.author .name, a[href*="/user/profile/"]');
         const author = authorLink?.innerText?.trim() || lines[0];
-        let text = lines[1];
+        const contentEl = el.querySelector('.content .note-text, .content');
+        let text = contentEl?.innerText?.trim() || lines[1];
         if (text === '作者' && lines.length > 2) text = lines[2];
         const publishedAtRaw = [...lines].reverse().find(line => /刚刚|刚才|今天|昨天|\d+\s*(秒|分钟|小时|天|周|月|个月|年)前|20\d{2}[-/.]\d{1,2}[-/.]\d{1,2}/.test(line)) || "";
-        const nativeCommentId = el.getAttribute('data-comment-id') || el.getAttribute('data-cid') || el.getAttribute('data-id') || "";
-        const nativeParentId = el.getAttribute('data-root-id') || el.getAttribute('data-parent-id') || "";
-        const commentLink = el.querySelector('a[href*="comment"], a[href*="reply"]');
+        const nativeCommentId = el.getAttribute('data-comment-id') || el.getAttribute('data-cid') || el.getAttribute('data-id') || el.id?.replace(/^comment-/, '') || "";
+        const parentWrapper = el.closest('.parent-comment');
+        const rootNode = parentWrapper?.querySelector(':scope > .comment-item:not(.comment-item-sub)');
+        const rootId = rootNode?.getAttribute('data-comment-id') || rootNode?.getAttribute('data-cid') || rootNode?.getAttribute('data-id') || rootNode?.id?.replace(/^comment-/, '') || "";
+        const isReply = el.classList.contains('comment-item-sub');
+        const nativeParentId = el.getAttribute('data-root-id') || el.getAttribute('data-parent-id') || (isReply ? rootId : "");
+        const commentBaseUrl = location.href.split('#')[0];
+        const commentUrl = nativeCommentId ? `${commentBaseUrl}#comment-${nativeCommentId}` : "";
 
         // Deduplicate identical author+text
         const key = `${author}:${text}`;
@@ -122,12 +151,12 @@ for (let i = 0; i < targetNotes.length; i++) {
           comment_id: `xhs_cm_${idx}_${Date.now()}`,
           native_comment_id: nativeCommentId,
           native_parent_id: nativeParentId,
-          comment_url: commentLink?.href || "",
+          comment_url: commentUrl,
           source_type: nativeParentId ? "reply" : "comment",
           published_at_raw: publishedAtRaw,
           author,
           author_url: authorLink?.href || "",
-          parent_comment_id: el.getAttribute('data-parent-id') || "",
+          parent_comment_id: nativeParentId,
           text,
           likes
         });
@@ -138,6 +167,7 @@ for (let i = 0; i < targetNotes.length; i++) {
         desc: descEl ? descEl.innerText.trim() : "",
         author: authorEl ? authorEl.innerText.split('\n')[0].trim() : "小红书用户",
         author_url: authorLink?.href || "",
+        page_url: location.href,
         tags,
         comments: parsedComments
       };
@@ -153,7 +183,9 @@ for (let i = 0; i < targetNotes.length; i++) {
       content_id: n.id,
       title: pageData.title || n.title || "小红书笔记",
       text: (pageData.desc || pageData.title || n.title),
-      url: detailUrl.split('?')[0],
+      // XHS detail pages require the short-lived xsec_token for a later
+      // Ego Lite re-open. Keep the exact navigated URL for evidence checks.
+      url: pageData.page_url || detailUrl,
       author: pageData.author || "小红书创作者",
       author_url: pageData.author_url || "",
       author_id: profileIdFromUrl(pageData.author_url, "xhs"),

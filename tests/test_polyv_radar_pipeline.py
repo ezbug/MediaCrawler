@@ -12,13 +12,27 @@ from local_tools.polyv_radar.enrichment import (
     choose_enrichment_candidates,
     classify_identity_confidence,
     extract_company_role,
+    _clean_profile_text,
+    _run_ego_json_script,
 )
-from local_tools.polyv_radar.ego_crawl_all import build_ego_launcher
+from local_tools.polyv_radar.ego_crawl_all import build_ego_batch_launcher, build_ego_launcher, run_ego_crawlers
 from local_tools.polyv_radar.models import LeadEvidence, ProfilePost, ProfileSnapshot
-from local_tools.polyv_radar.pipeline import candidate_bundle
-from local_tools.polyv_radar.review import enforce_review_gates, parse_review_payload, review_schema, run_codex_review
-from local_tools.polyv_radar.scoring import score_purchase_evidence
+from local_tools.polyv_radar.manual_candidates import build_manual_candidates
+from local_tools.polyv_radar.pipeline import candidate_bundle, review_store
+from local_tools.polyv_radar.review import (
+    build_review_batch_prompt,
+    candidate_review_id,
+    enforce_review_gates,
+    parse_review_payload,
+    review_batch_schema,
+    review_schema,
+    run_codex_review,
+    run_codex_review_batch,
+    review_candidates_resilient,
+)
+from local_tools.polyv_radar.scoring import classify_intent, freshness_bucket, score_purchase_evidence
 from local_tools.polyv_radar.storage import RadarStore
+from local_tools.polyv_radar.workflow import load_workflow_run
 
 
 def _content(text: str = "企业培训与经销商大会"):
@@ -77,6 +91,167 @@ def test_purchase_evidence_scores_active_business_event_high() -> None:
     assert result.rejected_reason == ""
 
 
+def test_freshness_separates_current_historical_and_stale() -> None:
+    now = datetime(2026, 9, 22, tzinfo=timezone.utc)
+    assert freshness_bucket(now - timedelta(days=30), now) == "current"
+    assert freshness_bucket(now - timedelta(days=120), now) == "historical"
+    assert freshness_bucket(datetime(2021, 12, 24, tzinfo=timezone.utc), now) == "stale"
+    assert freshness_bucket(None, now) == "unknown"
+
+
+def test_manual_candidates_keep_historical_and_provider_context_but_drop_stale_and_technical() -> None:
+    now = datetime(2026, 9, 22, tzinfo=timezone.utc)
+    provider = normalize_content(
+        "xhs",
+        {
+            "note_id": "provider-post",
+            "title": "线上学习平台",
+            "desc": "企业培训平台功能介绍",
+            "nickname": "某某企业培训平台",
+            "time": (now - timedelta(days=30)).isoformat(),
+            "note_url": "https://www.xiaohongshu.com/explore/provider-post",
+        },
+        "线上学习平台",
+    )
+    provider_comment = normalize_comment(
+        "xhs",
+        {
+            "comment_id": "provider-comment",
+            "note_id": "provider-post",
+            "content": "主要就是用户体验、售后服务、性价比，平台要长久持续能用",
+            "nickname": "Poon",
+            "create_time": (now - timedelta(days=30)).isoformat(),
+        },
+    )
+    historical = normalize_content(
+        "xhs",
+        {
+            "note_id": "historical-post",
+            "title": "公司请老师来培训",
+            "desc": "企业培训活动",
+            "nickname": "普通用户",
+            "time": (now - timedelta(days=180)).isoformat(),
+            "note_url": "https://www.xiaohongshu.com/explore/historical-post",
+        },
+        "公司培训",
+    )
+    historical_comment = normalize_comment(
+        "xhs",
+        {
+            "comment_id": "historical-comment",
+            "note_id": "historical-post",
+            "content": "我们公司请的，20万3小时",
+            "nickname": "爱呀爱呀",
+            "create_time": (now - timedelta(days=180)).isoformat(),
+        },
+    )
+    stale = normalize_content(
+        "zhihu",
+        {
+            "content_id": "stale-post",
+            "title": "企业培训平台求推荐",
+            "content_text": "正处于企业培训课程采购阶段",
+            "user_nickname": "李惹惹",
+            "created_time": datetime(2021, 12, 24, tzinfo=timezone.utc).isoformat(),
+            "content_url": "https://www.zhihu.com/question/stale-post/answer/1",
+        },
+        "企业培训",
+    )
+    stale_comment = normalize_comment(
+        "zhihu",
+        {
+            "comment_id": "stale-comment",
+            "content_id": "stale-post",
+            "content": "正处于企业培训课程的询价和采购阶段",
+            "user_nickname": "李惹惹",
+            "created_time": datetime(2021, 12, 24, tzinfo=timezone.utc).isoformat(),
+        },
+    )
+    technical = normalize_comment(
+        "xhs",
+        {
+            "comment_id": "technical-comment",
+            "note_id": "provider-post",
+            "content": "这一套系统专业的名字叫什么来着",
+            "nickname": "技术兴趣用户",
+            "create_time": (now - timedelta(days=30)).isoformat(),
+        },
+    )
+
+    rows = build_manual_candidates(
+        [provider, historical, stale],
+        [provider_comment, historical_comment, stale_comment, technical],
+        now=now,
+        max_age_days=730,
+    )
+    ids = {row["candidate_id"] for row in rows}
+    assert "manual-xhs-provider-post-provider-comment" in ids
+    assert "manual-xhs-historical-post-historical-comment" in ids
+    assert "manual-zhihu-stale-post-stale-comment" not in ids
+    assert all("technical-comment" not in row["candidate_id"] for row in rows)
+    provider_row = next(row for row in rows if row["candidate_id"].endswith("provider-comment"))
+    historical_row = next(row for row in rows if row["candidate_id"].endswith("historical-comment"))
+    assert provider_row["candidate_kind"] == "conditional_provider_context"
+    assert historical_row["candidate_kind"] == "historical_reactivation"
+    assert historical_row["reply_draft"]
+    assert provider_row["content_id"]
+    assert "native_comment_id" in provider_row
+    assert provider_row["triage_label"] == "keep_current"
+    assert historical_row["triage_label"] == "keep_reactivation"
+
+
+def test_manual_candidates_drop_generic_procurement_and_provider_commenters() -> None:
+    now = datetime(2026, 9, 22, tzinfo=timezone.utc)
+    generic = normalize_content(
+        "xhs",
+        {
+            "note_id": "generic-post",
+            "title": "从零学习做采购",
+            "desc": "采购需求和供应商报价课程",
+            "nickname": "普通用户",
+            "time": now.isoformat(),
+            "note_url": "https://www.xiaohongshu.com/explore/generic-post",
+        },
+        "采购课程",
+    )
+    generic_comment = normalize_comment(
+        "xhs",
+        {
+            "comment_id": "generic-comment",
+            "note_id": "generic-post",
+            "content": "公司最近采购预算怎么做",
+            "nickname": "普通用户",
+            "create_time": now.isoformat(),
+        },
+    )
+    provider_comment = normalize_comment(
+        "xhs",
+        {
+            "comment_id": "provider-comment",
+            "note_id": "generic-post",
+            "content": "有需求可以来了解一下小鹅通企学院",
+            "nickname": "小鹅教头",
+            "create_time": now.isoformat(),
+        },
+    )
+    rows = build_manual_candidates([generic], [generic_comment, provider_comment], now=now)
+    assert rows == []
+
+
+def test_generic_budget_question_does_not_count_as_buyer_evidence() -> None:
+    content = _content("发布会直播搭建的全过程")
+    comment = _comment("这些东西整出来预算大概多少")
+
+    assert content is not None and comment is not None
+    result = score_purchase_evidence(content, comment)
+
+    assert result.dimensions["business_scene"] == 2
+    assert result.dimensions["platform_intent"] == 0
+    assert result.dimensions["delivery_inquiry"] == 0
+    assert result.score == 2
+    assert "不进入模型复核" in result.rejected_reason
+
+
 def test_generic_sdk_question_is_capped_without_business_scene() -> None:
     content = _content("直播 SDK 开发教程")
     comment = _comment("直播 SDK 怎么实现")
@@ -100,6 +275,155 @@ def test_generic_comment_does_not_inherit_purchase_intent_from_video_title() -> 
     assert result.dimensions["platform_intent"] == 0
     assert result.dimensions["delivery_inquiry"] == 0
     assert result.score == 2
+
+
+def test_intent_gate_separates_provider_guide_and_buyer_comment() -> None:
+    provider = _content("AI企业培训怎么报价，平台选型指南")
+    buyer = _comment("我们公司下个月要做员工培训，求平台报价")
+
+    assert provider is not None and buyer is not None
+    assert classify_intent(provider)[0] in {"provider_content", "guide_content"}
+    assert classify_intent(provider, buyer)[0] == "buyer_request"
+
+
+def test_review_resilience_keeps_successful_chunk_when_next_call_times_out() -> None:
+    candidates = [
+        {
+            "platform": "dy",
+            "content_id": f"video-{index}",
+            "comment_id": f"comment-{index}",
+            "quote": "公司下个月需要培训平台，求报价",
+            "sources": [{"url": f"https://example.com/{index}", "text": "公司下个月需要培训平台，求报价"}],
+            "rule_dimensions": {"business_scene": 2, "project_timing": 2, "platform_intent": 2, "delivery_inquiry": 0, "identity": 0},
+            "profile": {"identity_confidence": "low"},
+        }
+        for index in range(3)
+    ]
+    calls = []
+    commands = []
+
+    def fake_runner(command, **kwargs):
+        calls.append(kwargs["input"])
+        commands.append(command)
+        prompt = kwargs["input"]
+        if "DATA_JSON:\n[" in prompt:
+            data = json.loads(prompt.split("DATA_JSON:\n", 1)[1])
+            if data[0]["content_id"] == "video-2":
+                raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+            reviews = [
+                {
+                    "candidate_id": item["candidate_id"],
+                    "score": 4,
+                    "dimensions": {"business_scene": 2, "project_timing": 2, "platform_intent": 0, "delivery_inquiry": 0, "identity": 0},
+                    "event_type": "员工培训",
+                    "identity_confidence": "low",
+                    "evidence": [{"dimension": "business_scene", "quote": item["quote"], "url": item["sources"][0]["url"]}],
+                    "decision": "high_value",
+                    "reason": "存在企业场景和近期项目",
+                }
+                for item in data
+            ]
+            return subprocess.CompletedProcess(command, 0, json.dumps({"reviews": reviews}), "")
+        raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+
+    results, telemetry = review_candidates_resilient(candidates, runner=fake_runner)
+
+    assert results["dy|video-0|comment-0"][1] == "model_verified"
+    assert results["dy|video-1|comment-1"][1] == "model_verified"
+    assert results["dy|video-2|comment-2"][1] == "model_pending_timeout"
+    assert any(item["status"] == "timeout" for item in telemetry)
+    assert all(command[command.index("--model") + 1] == "gpt-5.6-luna" for command in commands)
+    assert all("model_reasoning_effort='low'" in command for command in commands)
+    assert calls
+
+
+def test_review_command_forces_low_reasoning_effort() -> None:
+    candidate = {
+        "platform": "dy",
+        "content_id": "video-1",
+        "comment_id": "comment-1",
+        "quote": "公司下个月需要培训平台，求报价",
+        "sources": [{"url": "https://example.com/1", "text": "公司下个月需要培训平台，求报价"}],
+        "profile": {"identity_confidence": "low"},
+    }
+    captured = {}
+
+    def fake_runner(command, **kwargs):
+        captured["command"] = command
+        payload = {"score": 0, "dimensions": {name: 0 for name in ("business_scene", "project_timing", "platform_intent", "delivery_inquiry", "identity")}, "event_type": "员工培训", "identity_confidence": "low", "evidence": [], "decision": "review", "reason": "证据不足"}
+        return subprocess.CompletedProcess(command, 0, json.dumps(payload), "")
+
+    run_codex_review(candidate, runner=fake_runner)
+
+    assert captured["command"][captured["command"].index("--model") + 1] == "gpt-5.6-luna"
+    assert "model_reasoning_effort='low'" in captured["command"]
+
+
+def test_review_store_persists_partial_results_and_reuses_evidence_cache(tmp_path: Path) -> None:
+    from local_tools.polyv_radar.config import RadarConfig
+
+    config = RadarConfig(data_root=tmp_path, platforms=["dy"], keywords={}, min_lead_score=4)
+    lead = LeadEvidence(
+        platform="dy",
+        content_id="video-cache",
+        comment_id="comment-cache",
+        url="https://example.com/cache",
+        user="买方用户",
+        quote="我们公司下个月需要培训平台，求报价",
+        category="企业培训",
+        solution="企业培训方向",
+        score=6,
+        dimensions={"business_scene": 2, "project_timing": 2, "platform_intent": 2, "delivery_inquiry": 0, "identity": 0},
+        author_id="buyer-1",
+    )
+    store = RadarStore(tmp_path / "radar.sqlite3")
+    store.initialize()
+    second_lead = LeadEvidence(
+        platform="dy",
+        content_id="video-cache-2",
+        comment_id="comment-cache-2",
+        url="https://example.com/cache-2",
+        user="第二个买方用户",
+        quote="老板让我找员工培训平台并问报价",
+        category="企业培训",
+        solution="企业培训方向",
+        score=6,
+        dimensions={"business_scene": 2, "project_timing": 2, "platform_intent": 2, "delivery_inquiry": 0, "identity": 0},
+        author_id="buyer-2",
+    )
+    store.save_leads("run-cache", [lead, second_lead])
+    store.close()
+    calls = []
+
+    def fake_runner(command, **kwargs):
+        calls.append(command)
+        rows = json.loads(kwargs["input"].split("DATA_JSON:\n", 1)[1])
+        reviews = [
+            {
+                "candidate_id": row["candidate_id"],
+                "score": 6,
+                "dimensions": {"business_scene": 2, "project_timing": 2, "platform_intent": 2, "delivery_inquiry": 0, "identity": 0},
+                "event_type": "员工培训",
+                "identity_confidence": "low",
+                "evidence": [{"dimension": "business_scene", "quote": row["quote"], "url": row["sources"][0]["url"]}],
+                "decision": "high_value",
+                "reason": "企业场景和项目证据成立",
+            }
+            for row in rows
+        ]
+        return subprocess.CompletedProcess(command, 0, json.dumps({"reviews": reviews}), "")
+
+    first = review_store(config, "run-cache", runner=fake_runner)
+    second = review_store(config, "run-cache", runner=fake_runner)
+
+    assert first["model_calls"] == 1
+    assert second["model_calls"] == 0
+    assert second["model_cached"] == 2
+    assert len(calls) == 1
+    check_store = RadarStore(tmp_path / "radar.sqlite3")
+    check_store.initialize()
+    assert len(check_store.load_leads("run-cache")) == 2
+    check_store.close()
 
 
 def test_business_event_terms_are_not_treated_as_ad_or_medical_negatives() -> None:
@@ -130,6 +454,18 @@ def test_identity_extraction_requires_explicit_company_text() -> None:
     assert classify_identity_confidence("", "", [], verified=True) == "high"
 
 
+def test_profile_cleaning_drops_xhs_shell_without_dropping_real_bio() -> None:
+    cleaned = _clean_profile_text(
+        "首页\n直播\n通知\n红尘无味\n小红书号：490558472\n男士勿扰！！！\n31岁\n65\n关注\n"
+        "沪ICP备13030189号 | 营业执照"
+    )
+
+    assert "首页" not in cleaned
+    assert "直播｜通知" not in cleaned
+    assert "男士勿扰！！！" in cleaned
+    assert "沪ICP备" not in cleaned
+
+
 def test_candidate_enrichment_is_capped_and_deduplicated() -> None:
     candidates = [
         LeadEvidence(
@@ -152,6 +488,41 @@ def test_candidate_enrichment_is_capped_and_deduplicated() -> None:
 
     assert len(selected) == 50
     assert len({item.author_id for item in selected}) == 50
+
+
+def test_ego_json_enrichment_uses_module_safe_entrypoint(tmp_path: Path) -> None:
+    script = tmp_path / "profile.mjs"
+    script.write_text("", encoding="utf-8")
+    input_path = tmp_path / "input.json"
+    output_path = tmp_path / "output.json"
+    input_path.write_text("[]", encoding="utf-8")
+    calls = []
+
+    class Completed:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_runner(command, **kwargs):
+        calls.append((command, kwargs))
+        output_path.write_text("{}", encoding="utf-8")
+        return Completed()
+
+    ok, _ = _run_ego_json_script(
+        script,
+        input_path,
+        output_path,
+        "POLYV_PROFILE_INPUT",
+        "POLYV_PROFILE_OUTPUT",
+        taskspace=3,
+        runner=fake_runner,
+    )
+
+    assert ok is True
+    assert calls[0][0] == ["ego-browser", "nodejs"]
+    assert calls[0][1]["input"].startswith("process.env.POLYV_PROFILE_INPUT")
+    assert "await import(\"file://" in calls[0][1]["input"]
+    assert str(script.resolve()) in calls[0][1]["input"]
 
 
 def test_prefilter_excludes_configured_first_party_author() -> None:
@@ -192,6 +563,8 @@ def test_existing_database_migration_preserves_rows(tmp_path: Path) -> None:
     assert row["content_id"] == "old-1"
     assert row["author_id"] == ""
     assert store.connection.execute("SELECT name FROM sqlite_master WHERE name='profiles'").fetchone()
+    review_columns = {item[1] for item in store.connection.execute("PRAGMA table_info(model_review_calls)")}
+    assert "reviewer_version" in review_columns
     store.close()
 
 
@@ -356,6 +729,47 @@ def test_review_gate_demotes_high_score_without_business_evidence() -> None:
     assert gated["decision"] == "review"
 
 
+def test_review_gate_cannot_invent_recent_or_delivery_evidence() -> None:
+    payload = {
+        "score": 8,
+        "dimensions": {
+            "business_scene": 2,
+            "project_timing": 2,
+            "platform_intent": 2,
+            "delivery_inquiry": 2,
+            "identity": 2,
+        },
+        "event_type": "公司年会",
+        "identity_confidence": "high",
+        "evidence": [],
+        "decision": "high_value",
+        "reason": "模型原始判断",
+    }
+
+    gated = enforce_review_gates(
+        payload,
+        {
+            "rule_dimensions": {
+                "business_scene": 2,
+                "project_timing": 1,
+                "platform_intent": 1,
+                "delivery_inquiry": 0,
+                "identity": 0,
+            },
+            "profile": {"identity_confidence": "medium"},
+        },
+    )
+
+    assert gated["dimensions"] == {
+        "business_scene": 2,
+        "project_timing": 1,
+        "platform_intent": 1,
+        "delivery_inquiry": 0,
+        "identity": 0,
+    }
+    assert gated["score"] == 4
+
+
 def test_codex_review_runner_rejects_untrusted_source_urls() -> None:
     candidate = {
         "quote": "公司下个月需要培训平台",
@@ -380,6 +794,105 @@ def test_codex_review_runner_rejects_untrusted_source_urls() -> None:
     assert parsed is not None and parsed["decision"] == "high_value"
 
 
+def test_codex_batch_review_validates_each_candidate_and_uses_stable_ids() -> None:
+    candidates = [
+        {
+            "platform": "dy",
+            "content_id": f"video-{index}",
+            "comment_id": f"comment-{index}",
+            "quote": "公司下个月需要培训平台",
+            "sources": [{"url": f"https://example.com/post-{index}", "text": "公司下个月需要培训平台"}],
+            "rule_dimensions": {
+                "business_scene": 2,
+                "project_timing": 2,
+                "platform_intent": 0,
+                "delivery_inquiry": 0,
+                "identity": 0,
+            },
+            "profile": {"identity_confidence": "low"},
+        }
+        for index in range(2)
+    ]
+
+    def fake_runner(command, **kwargs):
+        prompt = kwargs["input"]
+        assert "必须为每个 candidate_id 返回且只返回一条 review" in prompt
+        data = json.loads(prompt.split("DATA_JSON:\n", 1)[1])
+        reviews = []
+        for item in data:
+            reviews.append(
+                {
+                    "candidate_id": item["candidate_id"],
+                    "score": 4,
+                    "dimensions": {
+                        "business_scene": 2,
+                        "project_timing": 2,
+                        "platform_intent": 0,
+                        "delivery_inquiry": 0,
+                        "identity": 0,
+                    },
+                    "event_type": "员工培训",
+                    "identity_confidence": "low",
+                    "evidence": [
+                        {
+                            "dimension": "business_scene",
+                            "quote": "公司下个月需要培训平台",
+                            "url": item["sources"][0]["url"],
+                        }
+                    ],
+                    "decision": "high_value",
+                    "reason": "存在企业场景和近期项目",
+                }
+            )
+        return subprocess.CompletedProcess(command, 0, json.dumps({"reviews": reviews}), "")
+
+    result = run_codex_review_batch(candidates, runner=fake_runner)
+
+    assert set(result) == {candidate_review_id(item) for item in candidates}
+    assert all(status == "model_verified" for _, status in result.values())
+    assert all(payload and payload["score"] == 4 for payload, _ in result.values())
+    assert review_batch_schema()["properties"]["reviews"]["items"]["required"][0] == "candidate_id"
+
+
+def test_codex_batch_review_falls_back_only_for_missing_or_invalid_rows() -> None:
+    candidates = [
+        {
+            "platform": "zhihu",
+            "content_id": f"answer-{index}",
+            "comment_id": "",
+            "quote": "公司正在筹备线上招商会，求平台报价",
+            "sources": [{"url": f"https://example.com/answer-{index}", "text": "公司正在筹备线上招商会，求平台报价"}],
+            "rule_dimensions": {name: 0 for name in ("business_scene", "project_timing", "platform_intent", "delivery_inquiry", "identity")},
+            "profile": {"identity_confidence": "low"},
+        }
+        for index in range(2)
+    ]
+
+    def fake_runner(command, **kwargs):
+        data = json.loads(kwargs["input"].split("DATA_JSON:\n", 1)[1])
+        first = data[0]
+        valid = {
+            "candidate_id": first["candidate_id"],
+            "score": 0,
+            "dimensions": {name: 0 for name in ("business_scene", "project_timing", "platform_intent", "delivery_inquiry", "identity")},
+            "event_type": "线上招商会",
+            "identity_confidence": "low",
+            "evidence": [],
+            "decision": "review",
+            "reason": "证据不足",
+        }
+        invalid = {"candidate_id": data[1]["candidate_id"], "score": 4}
+        return subprocess.CompletedProcess(command, 0, json.dumps({"reviews": [valid, invalid]}), "")
+
+    result = run_codex_review_batch(candidates, runner=fake_runner)
+
+    first_id = candidate_review_id(candidates[0])
+    second_id = candidate_review_id(candidates[1])
+    assert result[first_id][1] == "model_verified"
+    assert result[first_id][0]["score"] == 0
+    assert result[second_id] == (None, "model_invalid")
+
+
 def test_config_contains_event_query_volume() -> None:
     config = load_config(Path("local_tools/polyv_radar/pilot.toml"))
     total = sum(len(config.get_keywords_for_platform(platform)) for platform in config.platforms)
@@ -390,9 +903,75 @@ def test_config_contains_event_query_volume() -> None:
     assert config.min_lead_score == 4
 
 
+def test_config_uses_complete_antigravity_core_taxonomy() -> None:
+    config = load_config(Path("local_tools/polyv_radar/pilot.toml"))
+
+    assert config.taxonomy_snapshot is not None
+    assert config.taxonomy_snapshot.version == "2.0.0"
+    assert config.taxonomy_snapshot.query_count == 27
+    assert len(config.taxonomy_snapshot.query_map()) == 27
+    assert config.taxonomy_tiers == ("tier1_primary", "tier2_verify_demand")
+    assert len(config.taxonomy_keywords) == 22
+    queries = set(config.taxonomy_keywords.values())
+    assert "公司年会 异地员工 视频方案" in queries
+    assert "经销商大会 全国渠道 技术服务" in queries
+    assert "医学学术会议 视频平台 服务商" in queries
+    assert "招商大会 全国经销商 技术支持" in queries
+    assert "主持人" in config.taxonomy_negative_terms
+    assert "方案征集" in config.taxonomy_intent_terms["commercial_actions"]
+
+
 def test_ego_launcher_uses_configured_collection_limits(tmp_path: Path) -> None:
     launcher = build_ego_launcher(Path("crawler.mjs"), "经销商大会", 15, 30, tmp_path)
 
     assert '"经销商大会"' in launcher
     assert '"15"' in launcher
     assert '"30"' in launcher
+
+
+def test_ego_batch_launcher_reuses_one_taskspace_and_batches_keywords(tmp_path: Path) -> None:
+    launcher = build_ego_batch_launcher(
+        Path("local_tools/polyv_radar/ego_dy_crawler.mjs"),
+        ["公司年会直播", "员工线上培训"],
+        15,
+        30,
+        tmp_path / "dy",
+        23,
+        tmp_path / "snapshots",
+    )
+
+    assert "POLYV_TASKSPACE_ID" in launcher
+    assert "POLYV_BATCH_KEYWORDS" in launcher
+    assert "公司年会直播" in launcher and "员工线上培训" in launcher
+    assert "ego_platform_batch.mjs" in launcher
+    assert "POLYV_BATCH_RESULT_PATH" in launcher
+    assert '"15"' in launcher and '"30"' in launcher
+
+
+def test_ego_collection_launches_one_process_per_platform_and_persists_workflow(tmp_path: Path, monkeypatch) -> None:
+    calls: list[dict] = []
+
+    def fake_run(command, **kwargs):
+        calls.append({"command": command, "input": kwargs.get("input", "")})
+        return subprocess.CompletedProcess(command, 0, "batch-complete", "")
+
+    monkeypatch.setattr("local_tools.polyv_radar.ego_crawl_all.subprocess.run", fake_run)
+    config = load_config(Path("local_tools/polyv_radar/pilot.toml"))
+    config = config.__class__(
+        data_root=tmp_path / "data",
+        platforms=["dy"],
+        keywords={"年会": "公司年会直播", "培训": "员工线上培训"},
+        max_contents=2,
+        max_comments=3,
+    )
+
+    result = run_ego_crawlers("workflow-run", ["dy"], config, Path.cwd(), config.data_root, 23)
+
+    assert result == {"dy": True}
+    assert len(calls) == 1
+    assert "POLYV_BATCH_KEYWORDS" in calls[0]["input"]
+    workflow = load_workflow_run(config.data_root, "workflow-run")
+    assert workflow is not None
+    assert workflow["mode"] == "ego_snapshot_batch"
+    assert workflow["platforms"][0]["keywords"] == ["公司年会直播", "员工线上培训"]
+    assert (config.data_root / "workflow-runs" / "workflow-run" / "workflow-candidate.json").is_file()

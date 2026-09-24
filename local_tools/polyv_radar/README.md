@@ -6,12 +6,53 @@
 
 首轮配置位于 `local_tools/polyv_radar/pilot.toml`，运行数据位于仓库外的 `polyv-radar-data/`。
 
+关键词同步：`polyv_radar_keyword_taxonomy.json` 是从 Antigravity
+`polyv_radar_keyword_taxonomy.json` 原样保存的 v2.0.0 快照。配置会自动加载
+Tier 1 核心场景和 Tier 2 验证场景，包含公司年会、员工大会、经销商大会、
+合作伙伴大会、新品发布会、行业峰会、医学会议、招商会、订货会等企业活动词，
+以及六类业务场景、岗位画像、采购信号和负向词。第二轮 `hunt` 会加入 Tier 3
+实验查询和每个平台的第一人称长尾词。查询中的 `+` 只在提交平台搜索时规范为空格，
+原始词库快照不被改写。
+
+## 双漏斗与 Codex 接管
+
+机构公开需求与社媒公开回复是两个独立漏斗。机构需求按官方来源、主体、项目状态和
+POLYV匹配分为 P0/P1/P2/待核；它们不计入社媒100条回复目标。社媒漏斗仍需先证明抽取结果
+来自真实评论容器，再进入买方原话、定位、Dry-Run和明确授权发送流程。详细规则见
+`references/institutional_demand_funnel.md`。
+
+Grok 完成一轮活动后，将 `grok-to-codex-latest.json` 与 `.md` 写入数据目录。Codex 可用
+以下入口校验源文件哈希、重算计数并生成自己的接管基线；它不会修改 Grok 的原始账本：
+
+```bash
+uv run python -m local_tools.polyv_radar takeover-sync \
+  --config local_tools/polyv_radar/pilot.toml \
+  --campaign polyv-100
+```
+
+输出位于 `polyv-radar-data/grok-work/polyv-100/codex-takeover-latest.{json,md}`。
+
 ```bash
 POLYV_TASKSPACE_ID=<current-taskspace> uv run python -m local_tools.polyv_radar collect \
-  --config local_tools/polyv_radar/pilot.toml
+  --config local_tools/polyv_radar/pilot.toml \
+  --taskspace <current-taskspace>
 ```
 
 浏览器会话必须由用户提供；TaskSpace 不存在、登录失效或页面受限时，任务会停止并记录状态，不会新建备用浏览器空间。
+
+## Antigravity 风格 HTML 大板
+
+后端启动后访问 `http://127.0.0.1:<port>/polyv-dashboard.html`。页面使用当前非 legacy 批次生成 HTML 表格，展示人工候选、时间层、建议分类、Ego Lite 定位状态、截图、回复草稿和原文链接。默认只展示草稿和证据，不代表已发送；旧 Antigravity HTML 仅保留在数据目录的 `legacy/` 历史快照中。
+
+采集按平台批处理：每个平台只启动一次 Ego Lite Node 进程，复用同一个 TaskSpace 的 `p1` 页面顺序处理该平台关键词。每个关键词前后保存页面 Snapshot，运行记录和可复用流程候选写入：
+
+```text
+polyv-radar-data/workflow-runs/<run-id>/workflow-run.json
+polyv-radar-data/workflow-runs/<run-id>/workflow-candidate.json
+polyv-radar-data/workflow-runs/<run-id>/snapshots/
+```
+
+`workflow-candidate.json` 只代表待人工审查的流程候选，不会自动修改 Skill 或执行外联。批量 DOM、Shadow DOM 和评论树操作仍在同一 TaskSpace 内通过 `ego-browser` 的 `page.evaluate()` 完成。
 
 只测试一个平台和关键词时，可以覆盖配置文件中的范围和数量：
 
@@ -25,6 +66,21 @@ uv run python -m local_tools.polyv_radar collect \
   --task-timeout-seconds 180
 ```
 
+指定完整词库层级运行时，可以显式加入实验层：
+
+```bash
+uv run python -m local_tools.polyv_radar collect \
+  --config local_tools/polyv_radar/pilot.toml \
+  --platform xhs \
+  --taxonomy-tier tier1_primary \
+  --taxonomy-tier tier2_verify_demand \
+  --taxonomy-tier tier3_experimental \
+  --taskspace <current-taskspace>
+```
+
+传入 `--keyword` 的命令仍然是聚焦测试，默认暂时关闭词库扩展；需要在自定义关键词
+上叠加词库时，同时传入 `--taxonomy-tier`。
+
 采集完成后，使用输出中的 `run_id` 分析和生成报告：
 
 ```bash
@@ -34,8 +90,20 @@ uv run python -m local_tools.polyv_radar analyze \
 
 uv run python -m local_tools.polyv_radar report \
   --config local_tools/polyv_radar/pilot.toml \
-  --run-id <run-id>
+  --run-id <run-id> \
+  --taskspace <current-taskspace>
 ```
+
+模型复核采用可续跑的小批模式：每批最多 2 条候选，默认使用
+`gpt-5.6-luna + low`，批次超时后只对受影响记录单条重试一次；连续两次失败会熔断，
+剩余记录进入 `model_pending_timeout` 或 `model_pending_invalid` 人工复核队列。每条结果
+立即落库，缓存键包含候选、证据哈希和复核版本，重复运行不会覆盖已完成的其他候选。
+模型通过、模型待审和模型拒绝在报告中分开统计；待审记录即使规则分数达标，也只能生成
+明确标注“模型复核未完成”的人工草稿，不能直接进入自动发送队列。
+
+模型调用和噪声分类可从报告漏斗查看。报告会区分 `buyer_request`、`provider_content`、
+`guide_content`、`general_discussion` 和 `irrelevant`；服务商或教程内容仍可作为评论容器，
+但发布者不会直接成为潜客。标题只提供业务场景，评论自身必须提供项目、选型、价格或交付证据。
 
 如果任务被手动中断或单个关键词超过 `pilot.toml` 中的 `task_timeout_seconds`，先恢复已经写入的 JSONL，再执行分析：
 
@@ -45,7 +113,9 @@ uv run python -m local_tools.polyv_radar ingest \
   --run-id <run-id>
 ```
 
-规则层可生成回复队列。默认 `dispatch` 只执行 Dry-Run；传入 `--submit` 后，会通过指定的 Ego Lite TaskSpace 自动逐条发布公开回复。每条均由发送脚本执行目标作者匹配、截图、去重、30 秒冷却、每日上限和发布后原文复核；失败不会自动重试或改发到顶层评论框。四个平台任务串行运行；平台登录失效、超时或非零退出会记录为部分失败，并保留已抓到的数据。
+规则层可生成回复队列。默认 `dispatch` 只执行 Dry-Run；传入 `--submit` 后，会通过指定的 Ego Lite TaskSpace 自动逐条发布公开回复。每条均由发送脚本执行目标作者匹配、截图、去重、30 秒冷却和发布后原文复核；发送数量由本次命令的显式配置决定，失败不会自动重试或改发到顶层评论框。四个平台任务串行运行；平台登录失效、超时或非零退出会记录为部分失败，并保留已抓到的数据。
+
+真实提交前，雷达会校验外部 `polyv-lead-auto-reply` 运行时的行为标记并记录 SHA-256。队列同时保存 `content_url`、规范化后的 `comment_url` 和 `source_type`，评论目标统一打开内容页；外部 Skill 文件、Cookie 和 TaskSpace 凭据不进入仓库。
 
 生成队列并自动发送公开回复：
 
@@ -62,19 +132,57 @@ uv run python -m local_tools.polyv_radar dispatch \
 
 `--selection manual` 只包含人工确认高价值记录；`--selection model` 包含模型复核通过且评论定位已验证的记录。当前自动发送范围仅为公开评论回复；私信开场和资料建议继续写入报告，供后续流程使用。
 
+## 人工待选线索
+
+正式评分门槛以下、但可能有学习价值的记录会单独保存，不会进入公开回复队列：
+
+```bash
+uv run python -m local_tools.polyv_radar manual-candidates \
+  --config local_tools/polyv_radar/pilot.toml \
+  --run-id <run-id> \
+  --max-candidates 50
+```
+
+跨已有非 legacy 批次按平台用户去重并生成 Q&A 候选池：
+
+```bash
+uv run python -m local_tools.polyv_radar qna-batch \
+  --config local_tools/polyv_radar/pilot.toml \
+  --run-id 20260922-qna50 --target 50 --pool-size 80
+```
+
+该入口只做离线清洗、草稿和 Ego Lite 定位输入准备，不代表已发送；它会如实保留不足目标数量的结果，不用教程、服务商自述或泛讨论补数。
+
+输出位置：
+
+- `polyv-radar-data/review/<run-id>-manual-candidates.jsonl`
+- `polyv-radar-data/reports/<run-id>-manual-candidates.md`
+
+时间层分为 `current`（90天内）、`historical`（90天至730天）、`stale`（超过730天）和 `unknown`。历史记录只生成“确认现在是否仍有需求”的复活草稿；账号名只作来源角色提示，不能单独证明企业身份。服务商帖子可作为评论容器，但服务商评论者会从潜客待选池排除。
+
 原生和混合后端基准已停用，避免产生不在 Ego Lite 中的页面操作。
 
-报告生成时会自动校验报告里的原文、主页和外部证据链接，并额外写出 `*-url-checks.json`。也可以只对已有批次重新生成带校验结果的报告：
+报告生成时会自动校验报告里的原文、主页和外部证据链接，并额外写出 `*-url-checks.json`。文件型历史批次在大板上会明确显示统计来源，不把人工待选条数冒充 SQLite 原始采集量。也可以只对已有批次重新生成带校验结果的报告：
 
 ```bash
 uv run python -m local_tools.polyv_radar validate-urls \
   --config local_tools/polyv_radar/pilot.toml \
-  --run-id <run-id>
+  --run-id <run-id> \
+  --taskspace <current-taskspace>
 ```
 
 ## 可核验潜客寻找
 
-`locate` 和 `hunt` 的页面访问、评论展开、主页调查与链接校验全部通过 Ego Lite TaskSpace 8 完成。默认只读，不发表评论或发送私信；评论没有平台直链时，报告会同时保留内容 URL、作者、完整原话和父评论关系。
+`locate` 和 `hunt` 的页面访问、评论展开、主页调查与链接校验全部通过用户显式提供的 Ego Lite TaskSpace 完成，不固定会话编号。默认只读，不发表评论或发送私信；评论没有平台直链时，报告会同时保留内容 URL、作者、完整原话和父评论关系。
+
+对历史自动回复批次，可使用 `clean` 生成逐条发送证据账本。它只把当前回复历史中同时满足 live、submitted、verified 且截图存在的记录标为已验证发送；旧 `pushed`、旧截图和旧日志会单独保留为未验证证据。
+
+```bash
+uv run python -m local_tools.polyv_radar clean \
+  --config local_tools/polyv_radar/pilot.toml \
+  --run-id <run-id> \
+  --reply-evidence <reply-evidence.json>
+```
 
 对已有批次执行评论定位和报告校验：
 
@@ -82,7 +190,7 @@ uv run python -m local_tools.polyv_radar validate-urls \
 uv run python -m local_tools.polyv_radar locate \
   --config local_tools/polyv_radar/pilot.toml \
   --run-id <run-id> \
-  --taskspace 8
+  --taskspace <current-taskspace>
 ```
 
 执行最多两轮的候选寻找，不足目标时自动增加长尾业务事件查询；`--run-id` 会先复用旧批次，不重复抓取第一轮：
@@ -91,11 +199,31 @@ uv run python -m local_tools.polyv_radar locate \
 uv run python -m local_tools.polyv_radar hunt \
   --config local_tools/polyv_radar/pilot.toml \
   --collector ego \
-  --taskspace 8 \
+  --taskspace <current-taskspace> \
   --target-leads 20 \
   --max-candidates 80 \
   --max-batches 2
 ```
+
+历史接管与每日任务：
+
+```bash
+uv run python -m local_tools.polyv_radar import-antigravity \
+  --config local_tools/polyv_radar/pilot.toml \
+  --source "/Users/sexpistole111/Documents/GOODS/polyv寻客爬虫" \
+  --session-id fef7c447-4c3d-4177-b1a5-10a55d3307da
+
+uv run python -m local_tools.polyv_radar approve \
+  --config local_tools/polyv_radar/pilot.toml \
+  --run-id <run-id> --lead-id <lead-id> \
+  --taskspace <current-taskspace>
+
+uv run python -m local_tools.polyv_radar daily \
+  --config local_tools/polyv_radar/pilot.toml \
+  --taskspace <current-taskspace>
+```
+
+审批会再次通过同一 Ego Lite TaskSpace 验证内容页面；普通 HTTP `403` 不等同于页面失效。作者为平台泛化占位名、内容超过 90 天、或攻略/选型文章缺少第一人称项目证据时，不会进入发送队列。真实发送必须同时显式传入 `--submit` 和用户当前 TaskSpace，私信始终只生成草稿。
 
 最终交付文件位于数据目录的 `reports/`：
 
@@ -104,3 +232,19 @@ uv run python -m local_tools.polyv_radar hunt \
 - `<run-id>-locator-checks.json`
 
 计入交付表的记录必须满足评分至少 4、企业场景及项目/选型/价格/交付证据成立、页面和原话可在 Ego Lite 中重新找到，并且同一用户或同一企业不重复。评论筛选窗口为 90 天；时间无法确认的评论不自动获得近期项目加分。
+
+## Grok Bot 项目交接
+
+用 `handoff-export` 生成只读、内容寻址的本地快照。重复运行同一输入会复用同一快照；队列、回复历史、候选源、截图或 Git 提交变化时会生成新快照，不覆盖旧文件。`--dry-run` 只计算统计与哈希，不写文件。
+
+```bash
+uv run python -m local_tools.polyv_radar handoff-export \
+  --config local_tools/polyv_radar/pilot.toml \
+  --campaign polyv-100 --dry-run
+
+uv run python -m local_tools.polyv_radar handoff-export \
+  --config local_tools/polyv_radar/pilot.toml \
+  --campaign polyv-100
+```
+
+输出在 `polyv-radar-data/handoff/<campaign>/snapshots/<snapshot_id>/`，包含 `manifest.json`、`lead-ledger.jsonl` 和 `manifest.sha256`。发送完成数要求严格队列、发送结果与 `reply_history.jsonl` 对同一平台、目标链接、作者及回复文本逐条匹配；截图预览状态另行记录，不把发送前预览当成发布后截图。详细文件地图、快照验收方法及 Grok 接收边界见 [GROK_HANDOFF.md](GROK_HANDOFF.md)。

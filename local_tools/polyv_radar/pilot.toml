@@ -10,8 +10,15 @@ sub_comments = true
 task_timeout_seconds = 180
 min_lead_score = 4
 recent_days = 90
+# 90天内是当前需求；90天到2年进入历史复活队列；超过2年淘汰。
+max_lead_age_days = 730
 collector_backend = "ego"
 platform_workers = 1
+# Exact byte-for-byte snapshot of Antigravity's v2.0.0 taxonomy. Tier 3 is
+# available for the second hunt wave; the first wave stays on the core tiers.
+taxonomy_enabled = true
+taxonomy_path = "polyv_radar_keyword_taxonomy.json"
+taxonomy_tiers = ["tier1_primary", "tier2_verify_demand"]
 
 [filters]
 excluded_author_names = ["保利威", "POLYV"]

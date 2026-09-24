@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { cardTitleFromText, filterSearchResults, isExpectedXhsNoteUrl, parseDisplayedTime, searchRelevance } from '../local_tools/polyv_radar/ego_helpers.mjs';
+import { cardTitleFromText, extractPublishedTimeText, filterSearchResults, isExpectedXhsNoteUrl, isGenericPlatformRedirect, normalizeZhihuCommentLines, parseDisplayedTime, requiresSearchLogin, searchRelevance, xhsDetailReady } from '../local_tools/polyv_radar/ego_helpers.mjs';
 
 test('extracts the title from a Douyin search card', () => {
   const title = cardTitleFromText('01:14\n57\n神鹏品牌全国经销商大会圆满召开\n@郑州三邦机电（周晓峰）\n3周前');
@@ -12,9 +12,32 @@ test('does not treat Bilibili metadata as a title', () => {
   assert.equal(cardTitleFromText('1257\n0\n01:12'), '');
 });
 
+test('distinguishes a Douyin login gate from an empty search result', () => {
+  assert.equal(requiresSearchLogin('登录后即可搜索更多精彩视频\n扫码登录', 0), true);
+  assert.equal(requiresSearchLogin('登录后即可搜索更多精彩视频', 2), false);
+  assert.equal(requiresSearchLogin('没有找到相关视频', 0), false);
+});
+
 test('rejects an XHS detail redirect to a different note', () => {
   assert.equal(isExpectedXhsNoteUrl('https://www.xiaohongshu.com/explore/68d922490000000013009d19', '635e3e26000000001601bdac'), false);
   assert.equal(isExpectedXhsNoteUrl('https://www.xiaohongshu.com/explore/635e3e26000000001601bdac', '635e3e26000000001601bdac'), true);
+});
+
+test('rejects a specific content URL redirected to a generic platform page', () => {
+  assert.equal(
+    isGenericPlatformRedirect(
+      'https://www.xiaohongshu.com/explore/note-1#comment-comment-1',
+      'https://www.xiaohongshu.com/explore',
+    ),
+    true,
+  );
+  assert.equal(
+    isGenericPlatformRedirect(
+      'https://www.xiaohongshu.com/user/profile/user-1',
+      'https://www.xiaohongshu.com/user/profile/user-1',
+    ),
+    false,
+  );
 });
 
 test('accepts business event results with selection intent', () => {
@@ -76,4 +99,28 @@ test('parses displayed relative comment time instead of crawl time', () => {
   assert.equal(parseDisplayedTime('60天前·北京', now).toISOString(), '2026-07-17T12:00:00.000Z');
   assert.equal(parseDisplayedTime('91天前', now).toISOString(), '2026-06-16T12:00:00.000Z');
   assert.equal(parseDisplayedTime('未知时间', now), null);
+});
+
+test('extracts an explicit page publication or edit date', () => {
+  assert.equal(
+    extractPublishedTimeText('编辑于 2026-04-13 09:38\n企业培训平台选型'),
+    '编辑于 2026-04-13 09:38',
+  );
+});
+
+test('知乎评论文本从动态评论块中保留完整原话', () => {
+  assert.equal(
+    normalizeZhihuCommentLines(['lumina', '公司培训课程被录屏了，想问有什么平台能处理？', '01-26 · 美国', '回复', '喜欢'], 'lumina'),
+    '公司培训课程被录屏了，想问有什么平台能处理？',
+  );
+});
+
+test('小红书详情就绪不要求作者必须变化', () => {
+  assert.equal(
+    xhsDetailReady(
+      { path: '/explore/note-2', title: '新品发布会直播', authorHref: 'https://www.xiaohongshu.com/user/profile/same' },
+      { id: 'note-2', title: '新品发布会直播', previousAuthorHref: 'https://www.xiaohongshu.com/user/profile/same' },
+    ),
+    true,
+  );
 });

@@ -19,16 +19,25 @@ _COMPANY_RE = re.compile(
 )
 _ROLE_RE = re.compile(r"(?P<role>[^|｜\n]{2,30}(?:负责人|总监|经理|主管|专员|顾问|架构师|工程师|老师|主任))")
 _PROFILE_FOOTER_TERMS = (
-    "ICP备案", "营业执照", "增值电信", "网络文化经营许可证", "公网安备", "违法不良信息举报",
+    "ICP备", "ICP备案", "营业执照", "增值电信", "网络文化经营许可证", "公网安备", "违法不良信息举报",
     "互联网药品信息", "医疗器械网络交易", "地址:", "电话:", "版权所有", "行吟信息科技",
 )
+_PROFILE_NAV_LINES = {
+    "首页", "点点", "ai", "red", "直播", "发布", "通知", "消息", "我", "更多", "关于我们",
+    "活动", "笔记", "收藏", "关注", "粉丝", "获赞与收藏", "专辑", "文件", "ta还没有收藏任何内容哦",
+}
 
 
 def _clean_profile_text(text: str) -> str:
     lines = []
     for line in re.split(r"[\n|｜]+", text or ""):
         line = re.sub(r"\s+", " ", line).strip()
-        if line and not any(term.casefold() in line.casefold() for term in _PROFILE_FOOTER_TERMS):
+        if (
+            line
+            and line.casefold() not in _PROFILE_NAV_LINES
+            and not re.fullmatch(r"[\d,.万亿+ ]+", line)
+            and not any(term.casefold() in line.casefold() for term in _PROFILE_FOOTER_TERMS)
+        ):
             lines.append(line)
     return "｜".join(lines)
 
@@ -77,12 +86,18 @@ def _run_ego_json_script(
     output_path: Path,
     input_var: str,
     output_var: str,
+    taskspace: int | None = None,
     runner=subprocess.run,
 ) -> tuple[bool, str]:
+    if taskspace is None:
+        if runner is subprocess.run:
+            raise ValueError("主页/站外调查必须显式提供用户已登录的 Ego Lite TaskSpace")
+        taskspace = 1  # test doubles never open a browser; production CLI is explicit
     launcher = (
         f"process.env.{input_var} = {json.dumps(str(input_path))};\n"
         f"process.env.{output_var} = {json.dumps(str(output_path))};\n"
-        f"await import({json.dumps(str(script_path))});\n"
+        f"process.env.POLYV_TASKSPACE_ID = {json.dumps(str(taskspace))};\n"
+        f"await import({json.dumps(script_path.resolve().as_uri())});\n"
     )
     try:
         result = runner(
@@ -104,6 +119,7 @@ def run_profile_enrichment(
     repo_root: Path,
     run_id: str,
     leads: Iterable[LeadEvidence],
+    taskspace: int | None = None,
     runner=subprocess.run,
 ) -> dict[str, int | str]:
     selected = [item for item in choose_enrichment_candidates(leads) if item.author_id and item.profile_url]
@@ -137,6 +153,7 @@ def run_profile_enrichment(
         output_path,
         "POLYV_PROFILE_INPUT",
         "POLYV_PROFILE_OUTPUT",
+        taskspace=taskspace,
         runner=runner,
     )
     if not profile_ok:
@@ -211,6 +228,7 @@ def run_profile_enrichment(
             web_output,
             "POLYV_WEB_INPUT",
             "POLYV_WEB_OUTPUT",
+            taskspace=taskspace,
             runner=runner,
         )
         if web_ok:

@@ -85,6 +85,8 @@ class LeadEvidence:
     stage: str = "legacy"
     decision: str = ""
     rejection_reason: str = ""
+    intent_class: str = "unknown"
+    intent_reason: str = ""
     author_id: str = ""
     source_type: str = "comment"
     comment_url: str = ""
@@ -94,6 +96,11 @@ class LeadEvidence:
     locator_verified_at: str = ""
     locator_reason: str = ""
     native_comment_id: str = ""
+    published_at: str = ""
+    freshness: str = "unknown"
+    source_role: str = "unknown"
+    candidate_kind: str = "current_demand"
+    recommended_action: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -154,3 +161,7 @@ class LeadAssessment:
     decision: str = "reject"
     reason: str = ""
     model_status: str = "rule"
+    evidence_hash: str = ""
+    reviewer_version: str = ""
+    reviewer_attempts: int = 0
+    review_latency_seconds: float = 0.0

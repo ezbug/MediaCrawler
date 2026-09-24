@@ -1,0 +1,221 @@
+from __future__ import annotations
+
+import json
+from collections import Counter
+from pathlib import Path
+from typing import Iterable
+
+from .dispatch import SUPPORTED_PLATFORMS
+from .locator import is_deliverable_lead, lead_exclusion_reason, normalize_locator_text
+
+
+def _load_jsonl(path: Path) -> list[dict]:
+    if not path.is_file():
+        return []
+    rows: list[dict] = []
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return rows
+    for line in lines:
+        if not line.strip():
+            continue
+        try:
+            value = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            rows.append(value)
+    return rows
+
+
+def _queue_file_is_current(path: Path, run_id: str) -> bool:
+    if not (path.name.startswith(f"{run_id}-") and path.suffix == ".jsonl"):
+        return False
+    # Draft/manifest files are audit artifacts, not executable queue rows.
+    excluded_suffixes = (
+        "-all-drafts.jsonl",
+        "-submit-held.jsonl",
+        "-submit-results.jsonl",
+    )
+    return not path.name.endswith(excluded_suffixes)
+
+
+def _dispatch_key(row: dict) -> tuple[str, str, str, str]:
+    return (
+        str(row.get("platform", "")),
+        str(row.get("content_id", "")),
+        str(row.get("comment_id", "")),
+        str(row.get("author", row.get("target_author", ""))),
+    )
+
+
+def load_dry_run_queue(data_root: Path, run_id: str) -> list[dict]:
+    """Read file-based dispatch queues without mutating the database.
+
+    Dispatch queues are deliberately kept as files because they are an audit
+    input to the dashboard, not proof that a public reply was sent.
+    """
+    dispatch_root = Path(data_root) / "dispatch"
+    queue_rows: list[dict] = []
+    for path in sorted(dispatch_root.glob(f"{run_id}-*.jsonl")):
+        if not _queue_file_is_current(path, run_id):
+            continue
+        selection = path.stem.removeprefix(f"{run_id}-")
+        for index, row in enumerate(_load_jsonl(path)):
+            if not row.get("platform") or row.get("platform") not in SUPPORTED_PLATFORMS:
+                continue
+            queue_rows.append(
+                {
+                    **row,
+                    "queue_id": f"file:{path.name}:{index + 1}",
+                    "run_id": run_id,
+                    "selection": selection,
+                    "source": "dispatch_file",
+                    "queue_path": str(path),
+                    "lead_status": "dry_run_ready",
+                    "dry_run_status": "pending",
+                    "submitted": False,
+                }
+            )
+
+    if not queue_rows:
+        return []
+
+    results: list[dict] = []
+    for path in sorted(dispatch_root.glob("dispatch-*.jsonl")):
+        results.extend(_load_jsonl(path))
+    latest_by_candidate: dict[str, dict] = {}
+    for row in results:
+        candidate_id = str(row.get("candidate_id", "")).strip()
+        if not candidate_id:
+            continue
+        previous = latest_by_candidate.get(candidate_id)
+        current_at = str(row.get("executed_at", ""))
+        previous_at = str(previous.get("executed_at", "")) if previous else ""
+        if previous is None or current_at >= previous_at:
+            latest_by_candidate[candidate_id] = row
+    latest_by_key: dict[tuple[str, str, str, str], dict] = {}
+    for row in results:
+        key = _dispatch_key(row)
+        if key != ("", "", "", ""):
+            latest_by_key[key] = row
+    for row in queue_rows:
+        result = latest_by_candidate.get(str(row.get("candidate_id", "")).strip()) or latest_by_key.get(_dispatch_key(row))
+        if result:
+            row["dry_run_status"] = str(result.get("status", "unknown"))
+            row["dry_run_result_path"] = str(result.get("result_path", ""))
+            row["screenshot"] = str(result.get("screenshot", ""))
+            if result.get("reason"):
+                row["send_reason"] = str(result.get("reason", ""))
+            row["failure_code"] = str(result.get("failure_code") or result.get("status", ""))
+            failure_code = row["failure_code"]
+            terminal_failures = {"content_unavailable", "page_not_found", "target_url_normalization"}
+            row["content_state"] = failure_code if failure_code in terminal_failures else "available"
+            row["retryable"] = failure_code not in terminal_failures
+            structured = result.get("structured_result", {}) or {}
+            row["structured_result"] = structured
+            row["executed_at"] = str(result.get("executed_at", ""))
+            row["submitted"] = bool(result.get("submitted", structured.get("submitted", False)))
+            row["verified"] = bool(result.get("verified", structured.get("verified", False)))
+            row["draft_verified"] = bool(result.get("draft_verified", structured.get("draft_verified", False)))
+            row["target_matched"] = bool(result.get("target_matched", structured.get("target_matched", False)))
+            if row["submitted"] and row["verified"]:
+                row["lead_status"] = "submitted_verified"
+    return queue_rows
+
+
+def load_manual_candidates(data_root: Path, run_id: str, limit: int = 50) -> list[dict]:
+    """Read the human-label pool generated by the radar report stage."""
+    path = Path(data_root) / "review" / f"{run_id}-manual-candidates.jsonl"
+    rows = _load_jsonl(path)
+    locator_path = Path(data_root) / "review" / f"{run_id}-manual-locator.jsonl"
+    locator_rows = {
+        str(row.get("candidate_id", "")): row
+        for row in _load_jsonl(locator_path)
+        if row.get("candidate_id")
+    }
+    dispatch_by_candidate = {
+        str(item.get("candidate_id")): item
+        for item in load_dry_run_queue(data_root, run_id)
+        if item.get("candidate_id")
+    }
+    merged = []
+    for row in rows:
+        locator = locator_rows.get(str(row.get("candidate_id", "")))
+        dispatch = dispatch_by_candidate.get(str(row.get("candidate_id", "")), {})
+        if not locator:
+            merged.append({**row, **dispatch})
+            continue
+        merged.append(
+            {
+                **row,
+                "locator_status": locator.get("status", ""),
+                "locator_method": locator.get("locator_method", ""),
+                "locator_url": locator.get("locator_url", ""),
+                "locator_reason": locator.get("reason", ""),
+                "screenshot_path": locator.get("screenshot_path", ""),
+                "verified_at": locator.get("verified_at", ""),
+                "reply_evidence_status": locator.get("reply_evidence_status", ""),
+                **dispatch,
+            }
+        )
+    return merged[: max(1, min(limit, 500))]
+
+
+def clean_dashboard_leads(leads: Iterable, min_score: int = 4) -> tuple[list, list[dict]]:
+    """Return the strict, read-only dashboard view and filter audit rows."""
+    cleaned = []
+    filtered: list[dict] = []
+    seen_identities: set[str] = set()
+    seen_companies: set[str] = set()
+    for lead in leads:
+        reason = ""
+        if lead.score < min_score:
+            reason = f"评分低于{min_score}分"
+        elif lead.decision == "reject":
+            reason = lead.rejection_reason or "规则或模型判定为排除"
+        elif not is_deliverable_lead(lead, min_score):
+            reason = lead_exclusion_reason(lead) or "未同时满足场景、项目/选型证据、定位和URL验链"
+        else:
+            identity = normalize_locator_text(lead.author_id or lead.profile_url or f"{lead.platform}:{lead.user}")
+            company = normalize_locator_text(lead.company)
+            if identity and identity in seen_identities:
+                reason = "同一平台用户重复"
+            elif company and company in seen_companies:
+                reason = "同一企业重复"
+            else:
+                if identity:
+                    seen_identities.add(identity)
+                if company:
+                    seen_companies.add(company)
+                cleaned.append(lead)
+        if reason:
+            filtered.append(
+                {
+                    "platform": lead.platform,
+                    "content_id": lead.content_id,
+                    "comment_id": lead.comment_id,
+                    "user": lead.user,
+                    "score": lead.score,
+                    "reason": reason,
+                }
+            )
+    return cleaned, filtered
+
+
+def filter_reason_counts(filtered: Iterable[dict]) -> dict[str, int]:
+    return dict(Counter(str(row.get("reason", "未知原因")) for row in filtered))
+
+
+def merge_dashboard_queue(sql_rows: Iterable[dict], dry_run_rows: Iterable[dict]) -> list[dict]:
+    """Merge SQLite approval rows and file queues, preferring SQLite records."""
+    merged: list[dict] = []
+    seen: set[tuple[str, str, str, str]] = set()
+    for row in list(sql_rows) + list(dry_run_rows):
+        key = _dispatch_key(row)
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(dict(row))
+    return merged

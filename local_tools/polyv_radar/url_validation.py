@@ -106,12 +106,17 @@ def validate_urls_with_ego(
     urls: list[str],
     repo_root: Path,
     work_dir: Path,
+    taskspace: int | None = None,
     runner=subprocess.run,
     timeout: int = 240,
 ) -> tuple[dict[str, dict], str]:
     unique = sorted({str(url).strip() for url in urls if str(url).strip()})[:200]
     if not unique:
         return {}, ""
+    if taskspace is None:
+        if runner is subprocess.run:
+            raise ValueError("URL校验必须显式提供用户已登录的 Ego Lite TaskSpace")
+        taskspace = 1  # test doubles never open a browser; production CLI is explicit
     work_dir.mkdir(parents=True, exist_ok=True)
     input_path = work_dir / "url-check-input.json"
     output_path = work_dir / "url-check-output.json"
@@ -121,7 +126,8 @@ def validate_urls_with_ego(
     launcher = (
         f"process.env.POLYV_URL_INPUT = {json.dumps(str(input_path))};\n"
         f"process.env.POLYV_URL_OUTPUT = {json.dumps(str(output_path))};\n"
-        f"await import({json.dumps(str(script_path))});\n"
+        f"process.env.POLYV_TASKSPACE_ID = {json.dumps(str(taskspace))};\n"
+        f"await import({json.dumps(script_path.resolve().as_uri())});\n"
     )
     try:
         result = runner(
