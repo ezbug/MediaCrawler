@@ -29,6 +29,7 @@ from .cleaning import clean_store
 from .manual_candidates import build_manual_candidates, write_manual_candidate_artifacts
 from .qna_batch import build_locator_rows, collect_qna_pool, write_locator_queue, write_qna_pool
 from .handoff import export_handoff
+from .takeover import write_takeover
 
 
 def apply_collect_overrides(config, args):
@@ -187,6 +188,9 @@ def build_parser() -> argparse.ArgumentParser:
     handoff_parser.add_argument("--results", help="发送结果 JSONL；省略时使用匹配的 live 结果")
     handoff_parser.add_argument("--quality-review", help="质量复核 JSONL；省略时读取数据目录 review/<campaign>-quality-review.jsonl")
     handoff_parser.add_argument("--dry-run", action="store_true", help="只计算基线和哈希，不写入快照")
+    takeover_parser = subparsers.add_parser("takeover-sync")
+    takeover_parser.add_argument("--config", required=True)
+    takeover_parser.add_argument("--campaign", default="polyv-100")
     return parser
 
 
@@ -358,6 +362,16 @@ def main(argv: list[str] | None = None) -> int:
             quality_review_path=Path(args.quality_review) if args.quality_review else None,
             write=not args.dry_run,
         )
+    elif args.command == "takeover-sync":
+        json_path, markdown_path, result = write_takeover(config.data_root, args.campaign)
+        payload = {
+            "campaign": args.campaign,
+            "ready": result["ready"],
+            "json_path": str(json_path),
+            "markdown_path": str(markdown_path),
+            "counts": result["counts"],
+            "priority_counts": result["priority_counts"],
+        }
     elif args.command == "prepare-dispatch":
         store = RadarStore(config.data_root / "radar.sqlite3")
         store.initialize()

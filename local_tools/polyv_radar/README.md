@@ -14,6 +14,24 @@ Tier 1 核心场景和 Tier 2 验证场景，包含公司年会、员工大会�
 实验查询和每个平台的第一人称长尾词。查询中的 `+` 只在提交平台搜索时规范为空格，
 原始词库快照不被改写。
 
+## 双漏斗与 Codex 接管
+
+机构公开需求与社媒公开回复是两个独立漏斗。机构需求按官方来源、主体、项目状态和
+POLYV匹配分为 P0/P1/P2/待核；它们不计入社媒100条回复目标。社媒漏斗仍需先证明抽取结果
+来自真实评论容器，再进入买方原话、定位、Dry-Run和明确授权发送流程。详细规则见
+`references/institutional_demand_funnel.md`。
+
+Grok 完成一轮活动后，将 `grok-to-codex-latest.json` 与 `.md` 写入数据目录。Codex 可用
+以下入口校验源文件哈希、重算计数并生成自己的接管基线；它不会修改 Grok 的原始账本：
+
+```bash
+uv run python -m local_tools.polyv_radar takeover-sync \
+  --config local_tools/polyv_radar/pilot.toml \
+  --campaign polyv-100
+```
+
+输出位于 `polyv-radar-data/grok-work/polyv-100/codex-takeover-latest.{json,md}`。
+
 ```bash
 POLYV_TASKSPACE_ID=<current-taskspace> uv run python -m local_tools.polyv_radar collect \
   --config local_tools/polyv_radar/pilot.toml \

@@ -6,6 +6,8 @@
 - Grok Bot 负责验收快照、组织多 Bot 协作并推进 100 条任务。
 - 快照文件只读、不可覆盖。Grok 不得回写 `manifest.json`、`lead-ledger.jsonl`、发送队列、`reply_history.jsonl` 或旧批次记录；运行期间由 Grok 协调者维护独立工作账本，子 Bot 只返回各自结果，不并发写总账。
 - Grok 的本地应用位于 `/Applications/Grok Bot.app`，本机进程报告版本 `0.58.0`。项目文件权限、模型/API 状态和多 Bot 能力尚未验证；首次接手应通过 Grok 支持的界面检查，不能从应用进程存在推断权限可用。
+- 机构公开需求与社媒公开回复是独立漏斗。Grok 的 `grok-to-codex-latest.{json,md}` 是活动交接输入；Codex 使用 `takeover-sync` 重算计数并生成 `codex-takeover-latest.{json,md}`，不覆盖 Grok 原始账本或不可变快照。
+- 当前机构批次交付目标为可核验需求记录，不等同于开放商机；机构记录不得补入社媒100条回复计数。
 
 ## 本机文件地图
 
