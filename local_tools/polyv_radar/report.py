@@ -80,6 +80,7 @@ def render_report(
     failures: dict[str, str],
     funnel_stats: dict | None = None,
     url_checks: dict[str, dict] | None = None,
+    manual_candidates: Iterable[dict] | None = None,
 ) -> str:
     leads = sorted(leads, key=lambda item: (-item.score, item.platform, item.content_id))
     top_contents = list(top_contents)
@@ -92,6 +93,11 @@ def render_report(
         "| --- | --- | ---: | ---: | ---: | ---: |",
     ]
     for platform, status in platform_status.items():
+        if not isinstance(status, dict):
+            lines.append(
+                f"| {_cell(platform)} | {_cell(status)} | - | - | - | - |"
+            )
+            continue
         lines.append(
             f"| {_cell(platform)} | {_cell(status.get('status'))} | "
             f"{status.get('contents', 0)} | {status.get('comments', 0)} | "
@@ -145,9 +151,17 @@ def render_report(
                 f"| 公开来源 | {funnel_stats.get('external_evidence', 0)} |",
                 f"| 模型通过 | {funnel_stats.get('model_passed', funnel_stats.get('high_value', 0))} |",
                 f"| 证据不足 | {funnel_stats.get('evidence_insufficient', funnel_stats.get('review', 0))} |",
+                f"| 人工待选线索 | {funnel_stats.get('manual_candidates', 0)} |",
+                f"| 模型复核超时待审 | {funnel_stats.get('model_pending_timeout', 0)} |",
+                f"| 模型输出无效待审 | {funnel_stats.get('model_pending_invalid', 0)} |",
                 f"| Ego Lite 定位通过 | {funnel_stats.get('locator_verified', 0)} |",
                 f"| 可核验需求候选 | {funnel_stats.get('deliverable', 0)} |",
                 f"| 人工确认高价值 | {funnel_stats.get('manual_confirmed', 0)} |",
+                f"| 状态事件原始行 | {funnel_stats.get('status_events_raw', 0)} |",
+                f"| 状态事件去重后 | {funnel_stats.get('status_events_distinct', 0)} |",
+                f"| 模型调用次数 | {funnel_stats.get('model_calls', 0)} |",
+                f"| 模型调用总耗时（秒） | {funnel_stats.get('model_call_seconds', 0)} |",
+                f"| 模型调用失败次数 | {funnel_stats.get('model_call_failures', 0)} |",
             ]
         )
         query_stats = funnel_stats.get("query_stats", [])
@@ -165,14 +179,53 @@ def render_report(
                 lines.append(
                     f"| {_cell(item['keyword'])} | {item['contents']} | {item['comments']} | {item['leads']} | {item.get('candidate_rate', 0):.2%} |"
                 )
+        noise_counts = funnel_stats.get("noise_counts", {})
+        if noise_counts:
+            lines.extend(
+                [
+                    "",
+                    "### 噪声分类",
+                    "",
+                    "| 类型 | 数量 |",
+                    "| --- | ---: |",
+                ]
+            )
+            for name, count in sorted(noise_counts.items(), key=lambda item: (-item[1], item[0])):
+                lines.append(f"| {_cell(name)} | {count} |")
 
     threshold = int(funnel_stats.get("threshold", 4)) if funnel_stats else 4
-    review_candidates = [
-        lead
-        for lead in leads
-        if lead.stage == "model_fallback"
-        or lead.decision == "review"
-    ]
+    manual_candidates = list(manual_candidates or [])
+    if manual_candidates:
+        lines.extend(
+            [
+                "",
+                "## 人工待选线索（先让人工标注，不进入发送队列）",
+                "",
+                "这里保留低于正式门槛但可能有业务价值的记录，用于学习用户标注规律。账号名只作来源角色弱信号；历史记录只进入复活队列，不混入当前需求。",
+                "",
+                "| ID | 平台 | 建议分类 | 类型 | 时间层 | 来源角色 | 用户 | 原话 | 规则分 | 建议动作 | 内容URL | 评论定位URL |",
+                "| --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | --- | --- |",
+            ]
+        )
+        for row in manual_candidates[:50]:
+            lines.append(
+                f"| {_cell(row.get('candidate_id'))} | {_cell(row.get('platform'))} | {_cell(row.get('triage_label'))} | {_cell(row.get('candidate_kind'))} | "
+                f"{_cell(row.get('freshness'))} | {_cell(row.get('source_role'))} | {_cell(row.get('user'))} | "
+                f"{_cell(row.get('quote'))} | {row.get('rule_score', 0)} | {_cell(row.get('recommended_action'))} | "
+                f"{_link(row.get('content_url'), row.get('content_url'))} | {_link(row.get('comment_url'), row.get('comment_url'))} |"
+            )
+        for row in manual_candidates[:10]:
+            if row.get("reply_draft"):
+                lines.extend(
+                    [
+                        "",
+                        f"### 历史复活草稿：{_cell(row.get('candidate_id'))}",
+                        f"> {row['reply_draft']}",
+                    ]
+                )
+    elif funnel_stats is not None:
+        lines.extend(["", "## 人工待选线索（先让人工标注，不进入发送队列）", "", "当前没有符合人工待选规则的记录。"])
+    review_candidates = [lead for lead in leads if lead.stage.startswith("model_pending") or lead.decision == "review"]
     demand_candidates = [
         lead
         for lead in leads
@@ -259,8 +312,19 @@ def render_report(
     )
     from .conversion_engine import build_conversion_pack
 
-    for index, lead in enumerate(top_contents[:10], start=1):
+    draft_candidates = [
+        lead for lead in leads
+        if (lead.stage == "model_reviewed" and lead.decision == "high_value")
+        or lead.stage.startswith("model_pending")
+    ]
+    draft_candidates = [
+        lead for lead in draft_candidates
+        if lead.locator_status == "verified"
+        and (not url_checks or url_checks.get(lead.url, {}).get("status") == "ok")
+    ]
+    for index, lead in enumerate(draft_candidates[:10], start=1):
         pack = build_conversion_pack(lead)
+        draft_label = "人工复核草稿（模型复核未完成，不得自动发送）" if lead.stage.startswith("model_pending") else "公域回复草稿"
         lines.extend(
             [
                 "",
@@ -270,7 +334,7 @@ def render_report(
                 f"- **目标用户/原话**：@{_cell(lead.user)}：\"{_cell(lead.quote)}\"",
                 f"- **匹配需求/方向**：{_cell(lead.category)} -> {_cell(lead.solution)}",
                 "",
-                "#### 公域回复草稿",
+                f"#### {draft_label}",
                 f"> {pack.reply_text}",
                 "",
                 "#### 承接内容选题",

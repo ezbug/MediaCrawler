@@ -155,13 +155,37 @@ KNOWLEDGE_BASE = {
 }
 
 
+def _safe_public_reply(lead: LeadEvidence) -> str:
+    """Create a fact-bounded public reply for the automated queue.
+
+    The richer knowledge base remains available for human review, but public
+    replies must not turn unverified capabilities, cases, or metrics into
+    claims about POLYV.
+    """
+    quote = lead.quote.strip().replace("\n", " ")[:80]
+    category_guidance = {
+        "企业培训": "先把培训对象、人数、内容权限、学习记录和交付时间列清，再比较平台的内容分发和管理方式",
+        "企业直播": "先把活动时间、预计人数、观看对象、互动方式和应急安排列清，再比较平台方案",
+        "私域直播": "先把触达渠道、观看权限、互动方式和数据承接要求列清，再比较平台是否匹配现有流程",
+        "视频点播": "先把视频规模、观看范围、权限要求和终端场景列清，再确认托管、播放和集成方案",
+        "视频安全": "先把观看权限、内容分发、下载限制和泄露追溯要求列清，再向平台确认具体安全能力",
+        "AI视频": "先把课件来源、内容审核、产出数量和交付时间列清，再比较制作工具与视频平台的衔接方式",
+        "技术集成": "先把已有系统、接入端、接口要求、并发预期和交付周期列清，再比较集成方案",
+        "出海": "先把覆盖地区、语言、观看对象、活动时间和服务要求列清，再向平台确认可支持范围",
+    }
+    guidance = category_guidance.get(lead.category, "先把业务场景、人数、权限、交付时间和预算范围列清，再比较平台方案")
+    return (
+        f"看到你提到“{quote}”。这类需求建议{guidance}。"
+        "POLYV 可以作为待比较的方案之一，具体能力、交付方式和报价需要结合实际场景确认。"
+        "如果方便，可以补充活动时间、预计人数和最看重的要求，我再帮你整理一份选型核对清单。"
+    )
+
+
 def build_conversion_pack(lead: LeadEvidence) -> ConversionPack:
     category = lead.category if lead.category in KNOWLEDGE_BASE else "企业培训"
     kb = KNOWLEDGE_BASE[category]
 
-    # Personalize reply
-    quote_snippet = lead.quote.strip().replace("\n", " ")[:40]
-    reply = f"针对你提到的“{quote_snippet}...”的情况，{kb['reply_template']}"
+    reply = _safe_public_reply(lead)
 
     return ConversionPack(
         reply_text=reply,

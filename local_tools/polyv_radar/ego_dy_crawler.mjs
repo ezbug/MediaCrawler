@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { cardTitleFromText, filterSearchResults, loadUntilStable, parseDisplayedTime, profileIdFromUrl, waitForResults } from './ego_helpers.mjs';
+import { cardTitleFromText, filterSearchResults, loadUntilStable, parseDisplayedTime, profileIdFromUrl, requiresSearchLogin, waitForResults } from './ego_helpers.mjs';
 
 const args = process.argv.slice(2);
 const keyword = process.env.KEYWORD || args[0] || "企业直播平台推荐";
@@ -12,7 +12,7 @@ await fs.mkdir(outputDir, { recursive: true });
 
 const taskspaceId = Number(process.env.POLYV_TASKSPACE_ID);
 if (!Number.isInteger(taskspaceId) || taskspaceId <= 0) throw new Error('需要有效的 POLYV_TASKSPACE_ID');
-const task = await takeOverTaskSpace(taskspaceId);
+const task = await taskSpace(taskspaceId);
 
 const page = task.page("p1");
 
@@ -23,6 +23,15 @@ await page.waitForLoadState({ timeout: 15000 }).catch(() => {});
 await page.goto(searchUrl);
 await page.waitForLoadState({ timeout: 15000 }).catch(() => {});
 await waitForResults(page, 'a[href*="/video/"]');
+const searchPageState = await page.evaluate(() => ({
+  bodyText: document.body?.innerText || "",
+  resultCount: document.querySelectorAll('a[href*="/video/"]').length,
+}));
+const loginRequired = requiresSearchLogin(searchPageState.bodyText, searchPageState.resultCount);
+if (loginRequired) {
+  console.error(`[EgoCrawler] Douyin search requires login in the current Ego Lite TaskSpace for "${keyword}".`);
+  process.exitCode = 3;
+}
 
 // Extract search results
 const rawCandidateVideos = await page.evaluate(() => {
@@ -68,7 +77,7 @@ const candidateVideos = rawCandidateVideos.map((video) => {
 const relevantVideos = filterSearchResults(keyword, candidateVideos);
 const targetVideos = relevantVideos.slice(0, maxContents);
 console.log(`[EgoCrawler] Found ${candidateVideos.length} raw candidates, ${relevantVideos.length} relevant, selected ${targetVideos.length} videos.`);
-if (relevantVideos.length === 0) {
+if (relevantVideos.length === 0 && !loginRequired) {
   console.error(`[EgoCrawler] No relevant video candidates found for "${keyword}".`);
   process.exitCode = 2;
 }

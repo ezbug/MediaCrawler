@@ -101,4 +101,101 @@ export const envApi = {
   check: () => api.get<EnvCheckResult>('/env/check'),
 }
 
+export interface RadarSummary {
+  run_id: string
+  leads: number
+  raw_leads: number
+  cleaned_leads: number
+  filtered_leads: number
+  manual_candidates: number
+  filtered_reasons: Record<string, number>
+  contents: number
+  comments: number
+  count_source?: string
+  demand_candidates: number
+  locator_verified: number
+  approved_queue: number
+  dry_run_queue: number
+  dry_run_completed: number
+  real_sent: number
+  status_events_raw: number
+  status_events_distinct: number
+  attempts: Record<string, number>
+}
+
+export interface RadarRun {
+  run_id: string
+  started_at: string
+  finished_at: string | null
+  status: string
+  platform_status: string
+  contents: number
+  comments: number
+  count_source?: string
+  raw_leads: number
+  cleaned_leads: number
+  filtered_leads: number
+  dry_run_queue: number
+}
+
+export interface RadarLead {
+  platform: string
+  user: string
+  quote: string
+  score: number
+  stage: string
+  decision: string
+  url: string
+  comment_url?: string
+  locator_status: string
+  event_type?: string
+  identity_confidence?: string
+}
+
+export interface RadarQueueItem {
+  queue_id: string | number
+  run_id?: string
+  platform: string
+  url: string
+  author: string
+  text: string
+  quote?: string
+  lead_status?: string
+  source?: string
+  selection?: string
+  dry_run_status?: string
+  screenshot?: string
+  submitted?: boolean
+}
+
+export interface RadarManualCandidate {
+  candidate_id: string
+  platform: string
+  triage_label: string
+  candidate_kind: string
+  freshness: string
+  source_role: string
+  user: string
+  quote: string
+  rule_score: number
+  recommended_action: string
+  content_url: string
+  comment_url: string
+  locator_status?: string
+  locator_method?: string
+  locator_url?: string
+  locator_reason?: string
+  screenshot_path?: string
+  reply_evidence_status?: string
+}
+
+export const radarApi = {
+  getRuns: (limit = 30) => api.get<{ runs: RadarRun[] }>('/radar/runs', { params: { limit } }),
+  getSummary: (runId?: string) => api.get<RadarSummary>('/radar/summary', { params: runId ? { run_id: runId } : {} }),
+  getLeads: (runId: string, limit = 20, view: 'cleaned' | 'all' = 'cleaned') =>
+    api.get<{ run_id: string; leads: RadarLead[]; raw_count: number; cleaned_count: number; filtered_count: number }>('/radar/leads', { params: { run_id: runId, limit, view } }),
+  getQueue: (runId: string) => api.get<{ queue: RadarQueueItem[] }>('/radar/queue', { params: { run_id: runId } }),
+  getManualCandidates: (runId: string, limit = 50) => api.get<{ run_id: string; candidates: RadarManualCandidate[] }>('/radar/manual-candidates', { params: { run_id: runId, limit } }),
+}
+
 export default api

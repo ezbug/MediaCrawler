@@ -14,44 +14,54 @@ from .storage import RadarStore
 
 LONG_TAIL_KEYWORDS = {
     "dy": {
+        "第一人称培训询价": "我们公司 员工培训 平台 报价",
+        "第一人称活动筹备": "我们公司 发布会 直播 平台",
+        "老板找方案": "老板让我找 直播平台 报价",
         "活动人数与并发": "公司活动 3000人直播 平台支持并发",
-        "项目时间与报价": "下个月 企业直播 项目 报价",
-        "私有化交付": "企业直播 私有化部署 交付周期 报价",
-        "培训供应商": "全国门店培训 直播平台 服务商",
     },
     "xhs": {
-        "活动筹备": "企业活动直播 3000人 平台报价",
-        "培训选型": "企业培训直播 供应商 交付周期",
-        "安全需求": "企业课程 防下载 防录屏 平台",
-        "接口需求": "企业直播 SDK 接入 APP 报价",
+        "第一人称活动筹备": "我们公司 活动 直播 平台 报价",
+        "第一人称培训选型": "我们公司 员工培训 平台",
+        "安全需求": "公司课程 防下载 防录屏 平台",
+        "接口需求": "公司APP 接入直播 SDK 报价",
     },
     "bili": {
-        "大并发项目": "企业直播 3000人 并发 方案",
-        "私有化项目": "视频直播 私有化部署 项目报价",
-        "培训交付": "企业培训平台 供应商 交付周期",
-        "安全集成": "课程防盗录 加密播放器 API 集成",
+        "第一人称并发项目": "我们公司 3000人 活动 平台 并发",
+        "第一人称私有化": "我们公司 视频 私有化部署 项目报价",
+        "培训交付": "公司员工培训平台 供应商 交付周期",
+        "安全集成": "公司课程防盗录 加密播放器 API 集成",
     },
     "zhihu": {
-        "预算报价": "企业直播平台 预算 报价 采购",
-        "项目周期": "公司下个月发布会直播 平台 服务商",
-        "培训选型": "企业培训平台 供应商 私有化部署",
-        "并发接口": "直播平台 支持3000人 API 接入",
+        "第一人称预算报价": "我们公司 活动 平台 预算 报价",
+        "项目周期": "我们公司下个月发布会 平台 服务商",
+        "第一人称培训选型": "我们公司 员工培训平台 供应商",
+        "并发接口": "公司直播平台 支持3000人 API 接入",
     },
 }
 
 
 def _with_long_tail(config: RadarConfig) -> RadarConfig:
-    merged: dict[str, dict[str, str]] = {}
-    remaining = 15
-    for platform in config.platforms:
-        if remaining <= 0:
-            break
-        values = LONG_TAIL_KEYWORDS.get(platform, {})
-        selected = list(values.items())[:remaining]
-        if selected:
-            merged[platform] = dict(selected)
-            remaining -= len(selected)
-    return replace(config, platform_keywords=merged)
+    # The second hunt wave is deliberately separate from the core taxonomy:
+    # it adds first-person wording and the experimental Antigravity tier to
+    # every selected platform. The old implementation shared one global
+    # budget, which silently starved later platforms.
+    merged = {
+        platform: dict(LONG_TAIL_KEYWORDS.get(platform, {}))
+        for platform in config.platforms
+        if LONG_TAIL_KEYWORDS.get(platform)
+    }
+    taxonomy_keywords = (
+        config.taxonomy_snapshot.query_map(("tier3_experimental",))
+        if config.taxonomy_snapshot
+        else {}
+    )
+    return replace(
+        config,
+        platform_keywords=merged,
+        taxonomy_enabled=bool(config.taxonomy_snapshot),
+        taxonomy_tiers=("tier3_experimental",),
+        taxonomy_keywords=taxonomy_keywords,
+    )
 
 
 def _process_run(
@@ -67,13 +77,13 @@ def _process_run(
     if skip_crawl:
         ingest_existing_run(config, run_id)
     else:
-        collect(config, repo_root, collector=collector, run_id=run_id)
+        collect(config, repo_root, collector=collector, run_id=run_id, taskspace=taskspace)
     analyze_store(config, run_id)
     prefilter_store(config, run_id, max_candidates)
-    enrichment = enrich_store(config, repo_root, run_id)
+    enrichment = enrich_store(config, repo_root, run_id, taskspace=taskspace)
     review = review_store(config, run_id, codex=codex)
     locator = locate_store(config, repo_root, run_id, max_candidates, taskspace)
-    report_path = report_store(config, run_id, f"hunt-{run_id.split('-')[-1] or 'wave'}")
+    report_path = report_store(config, run_id, f"hunt-{run_id.split('-')[-1] or 'wave'}", taskspace=taskspace)
     return {
         "run_id": run_id,
         "enrichment": enrichment,
@@ -117,7 +127,7 @@ def run_hunt(
     config: RadarConfig,
     repo_root: Path,
     collector: str = "ego",
-    taskspace: int = 8,
+    taskspace: int | None = None,
     target_leads: int = 20,
     max_candidates: int = 80,
     max_batches: int = 2,
@@ -126,6 +136,8 @@ def run_hunt(
 ) -> dict:
     if collector != "ego":
         raise ValueError("hunt 为保护登录态，当前只允许使用 Ego Lite collector=ego")
+    if taskspace is None or int(taskspace) <= 0:
+        raise ValueError("hunt 必须显式传入 --taskspace；不使用固定会话")
     target_leads = max(0, int(target_leads))
     max_candidates = max(1, int(max_candidates))
     max_batches = max(1, min(2, int(max_batches)))

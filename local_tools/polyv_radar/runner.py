@@ -12,10 +12,12 @@ from typing import Callable, Iterable
 from .adapters import normalize_comment, normalize_content
 from .config import RadarConfig
 from .models import CommentRecord, ContentRecord, LeadEvidence
+from .manual_candidates import build_manual_candidates, write_manual_candidate_artifacts
 from .report import render_report, write_report, write_verified_lead_artifacts
-from .scoring import score_lead
+from .scoring import has_content_demand_signal, score_lead
 from .storage import RadarStore
 from .url_validation import dump_url_checks, validate_urls_with_ego
+from .workflow import load_workflow_run
 
 
 @dataclass
@@ -356,6 +358,7 @@ def collect(
     runner: Callable[..., subprocess.CompletedProcess] = subprocess.run,
     collector: str | None = None,
     run_id: str | None = None,
+    taskspace: int | None = None,
 ) -> CollectionResult:
     run_id = run_id or datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     selected_modes = {
@@ -371,26 +374,54 @@ def collect(
 
     from .ego_crawl_all import run_ego_crawlers
 
+    if taskspace is None or int(taskspace) <= 0:
+        raise ValueError("collect 必须显式传入 --taskspace；所有浏览器操作统一使用用户提供的 Ego Lite 会话")
+
     started = datetime.now(timezone.utc)
-    results = run_ego_crawlers(run_id, config.platforms, config, repo_root, config.data_root)
+    results = run_ego_crawlers(run_id, config.platforms, config, repo_root, config.data_root, int(taskspace))
     finished = datetime.now(timezone.utc)
     result = ingest_existing_run(config, run_id)
     store = RadarStore(result.store_path)
     store.initialize()
-    for platform, success in results.items():
-        for keyword in config.get_keywords_for_platform(platform).values():
+    workflow = load_workflow_run(config.data_root, run_id)
+    workflow_tasks = [
+        task
+        for platform in (workflow or {}).get("platforms", [])
+        for task in platform.get("tasks", [])
+        if isinstance(task, dict)
+    ]
+    if workflow_tasks:
+        for task in workflow_tasks:
+            task_started = datetime.fromisoformat(str(task["started_at"]))
+            task_finished = datetime.fromisoformat(str(task["finished_at"]))
             store.save_crawl_task(
                 _task_record(
                     run_id,
-                    platform,
-                    keyword,
+                    str(task.get("platform", "")),
+                    str(task.get("keyword", "")),
                     "ego",
-                    started,
-                    finished,
-                    status="success" if success else "partial",
-                    error="" if success else "Ego任务失败",
+                    task_started,
+                    task_finished,
+                    task,
+                    "success" if task.get("status") == "success" else "partial",
+                    str(task.get("error", "")),
                 )
             )
+    else:
+        for platform, success in results.items():
+            for keyword in config.get_keywords_for_platform(platform).values():
+                store.save_crawl_task(
+                    _task_record(
+                        run_id,
+                        platform,
+                        keyword,
+                        "ego",
+                        started,
+                        finished,
+                        status="success" if success else "partial",
+                        error="" if success else "Ego任务失败",
+                    )
+                )
     store.close()
     return result
 
@@ -406,6 +437,12 @@ def ingest_existing_run(
     store_path = config.data_root / "radar.sqlite3"
     store = RadarStore(store_path)
     store.initialize()
+    workflow = load_workflow_run(config.data_root, run_id) or {}
+    workflow_platforms = {
+        str(item.get("platform")): item
+        for item in workflow.get("platforms", [])
+        if isinstance(item, dict) and item.get("platform")
+    }
     platform_status: dict[str, dict] = {}
     failures: dict[str, str] = {}
     store.clear_run_links(run_id)
@@ -426,11 +463,19 @@ def ingest_existing_run(
             status["contents"] = details["dedup_contents"]
             status["comments"] = details["dedup_comments"]
             status["tasks"] = len(details["by_keyword"]) or (1 if list(platform_root.rglob("*.jsonl")) else 0)
+        workflow_status = workflow_platforms.get(platform, {})
         if status["tasks"] and status["contents"]:
             status["status"] = "success"
+            if workflow_status.get("status") == "partial":
+                status["status"] = "partial"
+                failures[platform] = str(
+                    workflow_status.get("error") or "任务部分完成，已恢复已落盘数据"
+                )
         if status["tasks"] and not status["contents"]:
             status["status"] = "partial"
-            failures[platform] = "任务被中断或未完成，已恢复已落盘数据"
+            failures[platform] = str(
+                workflow_status.get("error") or "任务被中断或未完成，已恢复已落盘数据"
+            )
         platform_status[platform] = status
     existing_run = store.connection.execute(
         "SELECT started_at, finished_at FROM runs WHERE run_id = ?", (run_id,)
@@ -457,6 +502,8 @@ def analyze_records(
     category_by_keyword: dict[str, str] | None = None,
     min_score: int = 4,
     recent_days: int = 90,
+    negative_terms: Iterable[str] = (),
+    max_age_days: int = 730,
 ) -> list[LeadEvidence]:
     content_by_key = {(item.platform, item.content_id): item for item in contents}
     comments_by_content: dict[tuple[str, str], list[CommentRecord]] = {}
@@ -466,18 +513,21 @@ def analyze_records(
     leads_by_key: dict[tuple[str, str, str, str], LeadEvidence] = {}
     for key, content in content_by_key.items():
         related_comments = comments_by_content.get(key, [])
-        if related_comments:
-            for comment in related_comments:
-                category_hint = category_by_keyword.get(comment.source_keyword)
-                lead = score_lead(content, comment, now, category_hint, recent_days)
-                if lead.score >= min_score:
-                    key = (lead.platform, lead.content_id, _text_key(lead.user), _text_key(lead.quote))
-                    existing = leads_by_key.get(key)
-                    if existing is None or lead.score > existing.score:
-                        leads_by_key[key] = lead
-        else:
-            category_hint = category_by_keyword.get(content.source_keywords[0]) if content.source_keywords else None
-            lead = score_lead(content, None, now, category_hint, recent_days)
+        # A post can itself be the demand signal, but generic content must not
+        # become a lead merely because it has comments.
+        records = []
+        if has_content_demand_signal(content):
+            records.append((content, None))
+        records.extend((content, comment) for comment in related_comments)
+        for item, comment in records:
+            published_at = (comment.published_at if comment and comment.published_at else None) or item.published_at
+            from .scoring import freshness_bucket
+            if freshness_bucket(published_at, now, recent_days, max_age_days) == "stale":
+                continue
+            category_hint = category_by_keyword.get(
+                comment.source_keyword if comment else (content.source_keywords[0] if content.source_keywords else "")
+            )
+            lead = score_lead(item, comment, now, category_hint, recent_days, negative_terms, max_age_days)
             if lead.score >= min_score:
                 key = (lead.platform, lead.content_id, _text_key(lead.user), _text_key(lead.quote))
                 existing = leads_by_key.get(key)
@@ -508,6 +558,8 @@ def analyze_store(config: RadarConfig, run_id: str, now: datetime | None = None)
         config.category_by_keyword,
         config.min_lead_score,
         config.recent_days,
+        config.taxonomy_negative_terms,
+        config.max_lead_age_days,
     )
     store.save_leads(run_id, leads)
     write_review_queue(config.data_root / "review" / f"{run_id}.jsonl", leads)
@@ -515,11 +567,12 @@ def analyze_store(config: RadarConfig, run_id: str, now: datetime | None = None)
     return leads
 
 
-def report_store(config: RadarConfig, run_id: str, output_suffix: str = "") -> Path:
+def report_store(config: RadarConfig, run_id: str, output_suffix: str = "", taskspace: int | None = None) -> Path:
     store = RadarStore(config.data_root / "radar.sqlite3")
     store.initialize()
     leads = store.load_leads(run_id)
-    from .locator import lead_exclusion_reason
+    from .locator import VENDOR_EXCLUSION_REASON, lead_exclusion_reason
+    from .scoring import classify_intent
 
     # Older batches predate profile fields and vendor filtering. Hydrate them
     # from the batch-scoped profile table before rendering any deliverable list.
@@ -545,6 +598,16 @@ def report_store(config: RadarConfig, run_id: str, output_suffix: str = "") -> P
             hydrated.decision = "reject"
             hydrated.stage = "model_rejected"
             hydrated.rejection_reason = exclusion
+        elif (
+            not exclusion
+            and hydrated.decision == "reject"
+            and hydrated.rejection_reason == VENDOR_EXCLUSION_REASON
+        ):
+            # Re-enrichment may remove a profile-shell false positive. Clear
+            # only this derived filter; model or rule rejections remain intact.
+            hydrated.decision = ""
+            hydrated.stage = "prefiltered"
+            hydrated.rejection_reason = ""
         hydrated_leads.append(hydrated)
     if hydrated_leads:
         store.save_leads(run_id, hydrated_leads)
@@ -554,7 +617,9 @@ def report_store(config: RadarConfig, run_id: str, output_suffix: str = "") -> P
     failures = {
         key: "未抓取到有效内容或需要登录"
         for key, value in platform_status.items()
-        if value.get("contents", 0) == 0 and value.get("tasks", 0)
+        if isinstance(value, dict)
+        and value.get("contents", 0) == 0
+        and value.get("tasks", 0)
     }
     lead_author_keys = {(lead.platform, lead.author_id) for lead in leads if lead.author_id}
     profile_rows = store.load_profiles(run_id)
@@ -574,14 +639,16 @@ def report_store(config: RadarConfig, run_id: str, output_suffix: str = "") -> P
     raw_contents = sum(int(item.get("raw_contents", 0) or 0) for item in tasks)
     raw_comments = sum(int(item.get("raw_comments", 0) or 0) for item in tasks)
     for platform, status in platform_status.items():
+        if not isinstance(status, dict):
+            continue
         platform_tasks = [item for item in tasks if item.get("platform") == platform]
         duration = max((float(item.get("duration_seconds", 0) or 0) for item in platform_tasks), default=0.0)
         if not duration and wall_seconds and len(platform_status) == 1:
             duration = wall_seconds
-        per_minute = max(duration / 60, 1e-9)
+        per_minute = duration / 60 if duration > 0 else 0.0
         status["duration_seconds"] = duration
-        status["contents_per_minute"] = status.get("contents", 0) / per_minute
-        status["comments_per_minute"] = status.get("comments", 0) / per_minute
+        status["contents_per_minute"] = status.get("contents", 0) / per_minute if per_minute else 0.0
+        status["comments_per_minute"] = status.get("comments", 0) / per_minute if per_minute else 0.0
         status["raw_contents"] = sum(int(item.get("raw_contents", 0) or 0) for item in platform_tasks)
         status["raw_comments"] = sum(int(item.get("raw_comments", 0) or 0) for item in platform_tasks)
         status["backends"] = sorted({str(item.get("backend", "")) for item in platform_tasks if item.get("backend")})
@@ -602,6 +669,21 @@ def report_store(config: RadarConfig, run_id: str, output_suffix: str = "") -> P
         ),
         "external_evidence": int(store.connection.execute("SELECT COUNT(*) FROM external_evidence WHERE run_id = ?", (run_id,)).fetchone()[0]),
     }
+    noise_counts: dict[str, int] = {}
+    contents_for_run = store.iter_contents(run_id)
+    content_lookup = {(item.platform, item.content_id): item for item in contents_for_run}
+    for content in contents_for_run:
+        intent_class, _ = classify_intent(content)
+        if intent_class != "buyer_request":
+            noise_counts[intent_class] = noise_counts.get(intent_class, 0) + 1
+    for comment in store.iter_comments(run_id):
+        content = content_lookup.get((comment.platform, comment.content_id))
+        if content is None:
+            continue
+        intent_class, _ = classify_intent(content, comment)
+        if intent_class != "buyer_request":
+            noise_counts[intent_class] = noise_counts.get(intent_class, 0) + 1
+    counts["noise_counts"] = noise_counts
     query_counts: dict[str, dict[str, int]] = {}
     for content in store.iter_contents(run_id):
         for keyword in content.source_keywords:
@@ -618,18 +700,45 @@ def report_store(config: RadarConfig, run_id: str, output_suffix: str = "") -> P
     for item in query_counts.values():
         item["candidate_rate"] = item["leads"] / item["contents"] if item["contents"] else 0.0
     counts["query_stats"] = sorted(query_counts.values(), key=lambda item: (-item["leads"], -item["comments"], item["keyword"]))
+    current_lead_keys = {(lead.platform, lead.content_id, lead.comment_id) for lead in leads}
     assessment_rows = store.connection.execute("SELECT payload FROM lead_assessments WHERE run_id = ?", (run_id,)).fetchall()
     for row in assessment_rows:
         payload = json.loads(row[0])
+        if (str(payload.get("platform", "")), str(payload.get("content_id", "")), str(payload.get("comment_id", ""))) not in current_lead_keys:
+            continue
         if payload.get("decision") == "high_value" and payload.get("score", 0) >= config.min_lead_score:
             counts["high_value"] = counts.get("high_value", 0) + 1
         if payload.get("decision") == "review":
             counts["review"] = counts.get("review", 0) + 1
         if payload.get("decision") == "manual_confirmed":
             counts["manual_confirmed"] = counts.get("manual_confirmed", 0) + 1
+        status = str(payload.get("model_status", ""))
+        if status in {"model_pending_timeout", "model_pending_invalid"}:
+            counts[status] = counts.get(status, 0) + 1
     counts["model_passed"] = counts.get("high_value", 0)
     counts["evidence_insufficient"] = counts.get("review", 0)
     counts["task_count"] = len(tasks)
+    counts["status_events_raw"] = store.count_status_events(run_id, distinct=False)
+    counts["status_events_distinct"] = store.count_status_events(run_id, distinct=True)
+    # Keep all attempts for this run in the audit metric: historical replay is
+    # intentionally cumulative, while reviewer_version identifies each policy
+    # generation for later comparison.
+    model_calls = store.load_model_review_calls(run_id)
+    counts["model_calls"] = len(model_calls)
+    counts["model_call_seconds"] = round(sum(float(item.get("duration_seconds", 0) or 0) for item in model_calls), 3)
+    counts["model_call_failures"] = sum(
+        1 for item in model_calls if item.get("status") not in {"ok", "partial", "model_verified"}
+    )
+    manual_candidates = build_manual_candidates(
+        store.iter_contents(run_id),
+        store.iter_comments(run_id),
+        max_candidates=50,
+        recent_days=config.recent_days,
+        max_age_days=config.max_lead_age_days,
+        excluded_author_names=config.excluded_author_names,
+        negative_terms=config.taxonomy_negative_terms,
+    )
+    counts["manual_candidates"] = len(manual_candidates)
     from .locator import select_deliverable_leads
 
     counts["locator_verified"] = sum(1 for lead in leads if lead.locator_status == "verified")
@@ -641,6 +750,7 @@ def report_store(config: RadarConfig, run_id: str, output_suffix: str = "") -> P
         report_urls[:200],
         Path(__file__).resolve().parents[2],
         config.data_root / "url_checks" / run_id,
+        taskspace=taskspace,
     )
     if url_check_log:
         failures["url_validation"] = url_check_log
@@ -662,7 +772,20 @@ def report_store(config: RadarConfig, run_id: str, output_suffix: str = "") -> P
     )
     suffix = f"-{output_suffix.strip('-')}" if output_suffix.strip('-') else ""
     report_path = config.data_root / "reports" / f"{run_id}{suffix}.md"
-    write_report(report_path, render_report(run_id, leads, top_contents, platform_status, failures, counts, url_checks))
+    write_manual_candidate_artifacts(config.data_root, run_id, manual_candidates)
+    write_report(
+        report_path,
+        render_report(
+            run_id,
+            leads,
+            top_contents,
+            platform_status,
+            failures,
+            counts,
+            url_checks,
+            manual_candidates,
+        ),
+    )
     dump_url_checks(config.data_root / "reports" / f"{run_id}{suffix}-url-checks.json", url_checks)
     locator_checks = store.load_comment_locators(run_id)
     verified_leads = select_deliverable_leads(leads, 20, config.min_lead_score)
