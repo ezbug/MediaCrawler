@@ -167,7 +167,7 @@ def dispatch_key(value: DispatchItem | dict) -> tuple[str, str, str, str]:
         author = value.get("author", value.get("target_author", ""))
         content_id = value.get("content_id", "")
         comment_id = value.get("comment_id", value.get("native_comment_id", ""))
-        quote = value.get("quote", value.get("original_text", ""))
+        quote = value.get("quote") or value.get("original_text") or value.get("target_quote") or ""
         source_type = value.get("source_type", "comment")
         author_id = value.get("author_id", value.get("user_id", ""))
         content_url = value.get("content_url", "")

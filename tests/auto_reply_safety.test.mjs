@@ -4,6 +4,10 @@ import { readFile } from "node:fs/promises";
 import {
   parseArgs,
   isDuplicateReply,
+  isDuplicateTarget,
+  targetIdentity,
+  postedTextOutsideEditor,
+  classifyFailure,
   assertReplyRateLimit,
   matchesZhihuTarget,
 } from "/Users/sexpistole111/.codex/skills/polyv-lead-auto-reply/scripts/auto_reply.mjs";
@@ -146,4 +150,128 @@ test("rate limit enforces cooldown while allowing an explicit optional cap", () 
   }));
   assert.doesNotThrow(() => assertReplyRateLimit(daily, "dy", now));
   assert.throws(() => assertReplyRateLimit(daily, "dy", now, { dailyLimit: 5 }), /每日最多5条/);
+});
+
+// --- Hermes takeover fixes: dedupe identity, click/verify split, editor text ---
+
+test("改文案不能绕过去重：同一目标换稿仍然判重", () => {
+  const history = [{
+    platform: "zhihu",
+    target_url: "https://zhuanlan.zhihu.com/p/1",
+    target_author: "lumina",
+    target_quote: "有没有防录屏的视频分享平台？",
+    reply_text: "第一版文案",
+    mode: "live",
+    submitted: true,
+    clicked: true,
+    verified: true,
+  }];
+
+  // same target, completely different wording
+  assert.equal(isDuplicateTarget(history, {
+    platform: "zhihu",
+    url: "https://zhuanlan.zhihu.com/p/1",
+    author: "lumina",
+    quote: "有没有防录屏的视频分享平台？",
+  }), true);
+
+  // the old text-based key would NOT have caught this
+  assert.equal(isDuplicateReply(history, {
+    platform: "zhihu",
+    url: "https://zhuanlan.zhihu.com/p/1",
+    author: "lumina",
+    text: "第二版换了个说法的文案",
+  }), false);
+});
+
+test("同一页面不同评论目标不算重复", () => {
+  const history = [{
+    platform: "zhihu",
+    target_url: "https://zhuanlan.zhihu.com/p/1989299790115275469",
+    target_author: "lumina",
+    target_quote: "同学，这种‘切屏录制’的情况确实防不胜防。",
+    reply_text: "回复回答",
+    mode: "live",
+    submitted: true,
+  }];
+
+  assert.equal(isDuplicateTarget(history, {
+    platform: "zhihu",
+    url: "https://zhuanlan.zhihu.com/p/1989299790115275469",
+    author: "lumina",
+    quote: "有没有防录屏的视频分享平台？",
+  }), false);
+});
+
+test("点击后未核验也不会重发（结果不明只回查）", () => {
+  const history = [{
+    platform: "zhihu",
+    target_url: "https://zhuanlan.zhihu.com/p/2041988765355331922",
+    target_author: "Video TV",
+    target_quote: "直播平台怎么选",
+    reply_text: "已点击但回查失败",
+    mode: "live",
+    clicked: true,
+    submitted: true,
+    verified: false,
+    status: "submitted_unverified",
+  }];
+
+  assert.equal(isDuplicateTarget(history, {
+    platform: "zhihu",
+    url: "https://zhuanlan.zhihu.com/p/2041988765355331922",
+    author: "Video TV",
+    quote: "直播平台怎么选",
+  }), true);
+});
+
+test("编辑器里的文本不算已发布", () => {
+  const reply = "企业内训建议把SOP拆成微课";
+  // text still sitting in the composer only
+  assert.equal(postedTextOutsideEditor(`草稿区 ${reply}`, reply, reply), false);
+  // text rendered in the page body and the editor is empty
+  assert.equal(postedTextOutsideEditor(`评论区 ${reply}`, "", reply), true);
+  // text present in AND out of the editor must still count as a draft
+  assert.equal(postedTextOutsideEditor(`评论区 ${reply}`, `编辑器 ${reply}`, reply), false);
+  // empty needle is never a match
+  assert.equal(postedTextOutsideEditor("anything", "", ""), false);
+});
+
+test("草稿记录不阻止后续真实发送（dry_run 仍可发）", () => {
+  const history = [{
+    platform: "zhihu",
+    target_url: "https://zhuanlan.zhihu.com/p/1",
+    target_author: "lumina",
+    target_quote: "报价多少",
+    reply_text: "dry run 文案",
+    mode: "dry_run",
+    clicked: false,
+    submitted: false,
+    verified: false,
+  }];
+
+  assert.equal(isDuplicateTarget(history, {
+    platform: "zhihu",
+    url: "https://zhuanlan.zhihu.com/p/1",
+    author: "lumina",
+    quote: "报价多少",
+  }), false);
+});
+
+test("targetIdentity 忽略回复文案但保留原话", () => {
+  const base = { platform: "dy", url: "https://www.douyin.com/video/1", author: "用户", quote: "预算多少" };
+  assert.equal(
+    targetIdentity(base),
+    targetIdentity({ ...base }),
+  );
+  assert.notEqual(
+    targetIdentity(base),
+    targetIdentity({ ...base, quote: "另一个问题" }),
+  );
+});
+
+test("失败分类覆盖落账所需的全部失败码", () => {
+  assert.equal(classifyFailure("无法定位dy回复输入框"), "input_unavailable");
+  assert.equal(classifyFailure("检测到同一目标已触达，已阻止重复回评（去重不依赖文案）"), "duplicate_blocked");
+  assert.equal(classifyFailure("点击发送后未验证到相同评论文本，已记录为未确认发送"), "clicked_unverified");
 });
