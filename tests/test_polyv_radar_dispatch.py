@@ -11,6 +11,7 @@ from local_tools.polyv_radar.dispatch import (
     build_dispatch_command,
     build_dispatch_queue,
     classify_dispatch_failure,
+    dispatch_key,
     dispatch_queue,
     filter_previously_queued,
     load_dispatch_queue,
@@ -221,3 +222,28 @@ def test_live_reply_history_suppresses_duplicate(monkeypatch: pytest.MonkeyPatch
 
     assert kept == []
     assert len(skipped) == 1
+
+
+def test_dispatch_identity_ignores_reply_wording_and_tracking_query() -> None:
+    first = DispatchItem(
+        "xhs",
+        "https://www.xiaohongshu.com/explore/note-1?xsec_token=old&xsec_source=pc_feed",
+        "作者",
+        "第一版回复",
+        content_id="note-1",
+        comment_id="comment-1",
+        author_id="user-1",
+        quote="正在找企业培训平台",
+    )
+    second = DispatchItem(
+        "xhs",
+        "https://www.xiaohongshu.com/explore/note-1?xsec_token=new&xsec_source=pc_feed",
+        "作者",
+        "第二版回复",
+        content_id="note-1",
+        comment_id="comment-1",
+        author_id="user-1",
+        quote="正在找企业培训平台",
+    )
+
+    assert dispatch_key(first) == dispatch_key(second)

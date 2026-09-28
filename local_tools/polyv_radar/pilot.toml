@@ -21,7 +21,7 @@ taxonomy_path = "polyv_radar_keyword_taxonomy.json"
 taxonomy_tiers = ["tier1_primary", "tier2_verify_demand"]
 
 [filters]
-excluded_author_names = ["保利威", "POLYV"]
+excluded_author_names = ["保利威", "POLYV", "bugbg"]
 
 [keywords]
 "企业直播" = "企业直播平台推荐"

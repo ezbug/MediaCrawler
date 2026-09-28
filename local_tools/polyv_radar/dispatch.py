@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Iterable
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from .conversion_engine import build_conversion_pack
 from .locator import is_deliverable_lead
@@ -33,6 +34,7 @@ class DispatchItem:
     content_url: str = ""
     comment_url: str = ""
     source_type: str = "comment"
+    author_id: str = ""
 
     def to_dict(self) -> dict[str, str]:
         return {
@@ -46,6 +48,7 @@ class DispatchItem:
             "content_url": self.content_url or self.url,
             "comment_url": self.comment_url,
             "source_type": self.source_type,
+            "author_id": self.author_id,
         }
 
 
@@ -64,6 +67,7 @@ def _item_from_dict(value: dict) -> DispatchItem:
         content_url=str(value.get("content_url", "")).strip(),
         comment_url=str(value.get("comment_url", "")).strip(),
         source_type=source_type,
+        author_id=str(value.get("author_id", value.get("user_id", ""))).strip(),
     )
     if item.platform not in SUPPORTED_PLATFORMS:
         raise ValueError(f"不支持的平台：{item.platform or '空值'}")
@@ -91,7 +95,7 @@ def build_dispatch_queue(leads: Iterable[LeadEvidence], selection: str = "manual
     if selection not in {"manual", "model"}:
         raise ValueError("selection 仅支持 manual 或 model")
     result: list[DispatchItem] = []
-    seen: set[tuple[str, str, str]] = set()
+    seen: set[tuple[str, str, str, str]] = set()
     for lead in leads:
         accepted = lead.decision == "manual_confirmed" if selection == "manual" else (
             lead.stage == "model_reviewed" and lead.decision == "high_value"
@@ -100,24 +104,24 @@ def build_dispatch_queue(leads: Iterable[LeadEvidence], selection: str = "manual
             continue
         if selection == "model" and not is_deliverable_lead(lead):
             continue
-        key = (lead.platform, lead.url, lead.user)
+        item = DispatchItem(
+            platform=lead.platform,
+            url=dispatch_target_url(lead.url, lead.comment_url, lead.source_type),
+            author=lead.user,
+            text=build_conversion_pack(lead).reply_text,
+            content_id=lead.content_id,
+            comment_id=lead.comment_id,
+            quote=lead.quote,
+            content_url=lead.url,
+            comment_url=normalize_comment_url(lead.comment_url, lead.url, lead.source_type),
+            source_type=lead.source_type or "comment",
+            author_id=lead.author_id,
+        )
+        key = dispatch_key(item)
         if key in seen:
             continue
         seen.add(key)
-        result.append(
-            DispatchItem(
-                platform=lead.platform,
-                url=dispatch_target_url(lead.url, lead.comment_url, lead.source_type),
-                author=lead.user,
-                text=build_conversion_pack(lead).reply_text,
-                content_id=lead.content_id,
-                comment_id=lead.comment_id,
-                quote=lead.quote,
-                content_url=lead.url,
-                comment_url=normalize_comment_url(lead.comment_url, lead.url, lead.source_type),
-                source_type=lead.source_type or "comment",
-            )
-        )
+        result.append(item)
     return result
 
 
@@ -125,26 +129,59 @@ def _normalize_dispatch_text(value: object) -> str:
     return re.sub(r"\s+", " ", str(value or "")).strip().casefold()
 
 
-def dispatch_key(value: DispatchItem | dict) -> tuple[str, str, str, str]:
-    """Build a conservative identity for one proposed public reply.
+def _normalize_dispatch_url(value: object) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    try:
+        parts = urlsplit(raw)
+        query = [(key, val) for key, val in parse_qsl(parts.query, keep_blank_values=True)
+                 if key not in {"xsec_token", "xsec_source", "utm_source", "utm_medium", "utm_campaign", "utm_content"}]
+        return urlunsplit((parts.scheme.casefold(), parts.netloc.casefold(), parts.path.rstrip("/") or "/", urlencode(query), parts.fragment))
+    except ValueError:
+        return _normalize_dispatch_text(raw)
 
-    The key intentionally includes the target URL, author, and complete reply
-    text.  It is used for retry control only; it does not merge users or
-    companies based on a nickname.
+
+def dispatch_key(value: DispatchItem | dict) -> tuple[str, str, str, str]:
+    """Build a stable target identity that is independent of reply wording.
+
+    Comment targets use the native comment ID when available. Content targets
+    use the normalized content ID plus stable author ID/name. When native IDs
+    are absent, the normalized URL, author and original quote are retained as
+    the fallback identity. The reply text is deliberately excluded so changing
+    wording cannot bypass duplicate-send protection.
     """
     if isinstance(value, DispatchItem):
         platform = value.platform
         url = value.url
         author = value.author
-        text = value.text
+        content_id = value.content_id
+        comment_id = value.comment_id
+        quote = value.quote
+        source_type = value.source_type
+        author_id = value.author_id
+        content_url = value.content_url
     else:
         platform = value.get("platform", "")
         url = value.get("url", value.get("target_url", ""))
         author = value.get("author", value.get("target_author", ""))
-        text = value.get("text", value.get("reply_text", ""))
+        content_id = value.get("content_id", "")
+        comment_id = value.get("comment_id", value.get("native_comment_id", ""))
+        quote = value.get("quote", value.get("original_text", ""))
+        source_type = value.get("source_type", "comment")
+        author_id = value.get("author_id", value.get("user_id", ""))
+        content_url = value.get("content_url", "")
+    identity_url = _normalize_dispatch_url(content_url or url)
+    stable_author = _normalize_dispatch_text(author_id or author)
+    if comment_id:
+        identity = f"comment:{_normalize_dispatch_text(comment_id)}:{stable_author}:{_normalize_dispatch_text(content_id)}"
+    elif content_id:
+        identity = f"content:{_normalize_dispatch_text(content_id)}:{stable_author}:{identity_url}"
+    else:
+        identity = f"fallback:{identity_url}:{stable_author}:{_normalize_dispatch_text(quote)}"
     return tuple(
         _normalize_dispatch_text(part)
-        for part in (platform, url, author, text)
+        for part in (platform, source_type, identity, _normalize_dispatch_url(url))
     )
 
 
