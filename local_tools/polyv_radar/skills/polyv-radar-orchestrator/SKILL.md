@@ -76,6 +76,11 @@ metadata:
 2. **去重依赖文案**：同一目标收到不同草稿时不会被去重（实测 20 个目标被二次触达）。
 3. **逐条落账缺口**：异常记录（超时、input_unavailable）可能**无任何账本行**。
 4. **大板计数不自洽**：顶部与表内使用两套去重键，平台小计也不一致（见交付报告）。
+5. **截图证据受窗口状态影响**：Ego Lite 窗口**最小化**时 macOS 不产出合成帧，
+   `Page.captureScreenshot` 会挂到 CDP 超时（实测 15 003 ms；恢复窗口后 47 ms）。
+   截图前必须先恢复窗口（`Browser.setWindowBounds` → `windowState: "normal"`），
+   落账字段 `window_restored` / `evidence_source` 用于事后判别。
+   注意 `Browser.getWindowForTarget` 恢复后仍可能**回报 minimized**，不可作为判据。
 
 ## 不可变历史
 

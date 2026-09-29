@@ -8,6 +8,7 @@ import {
   targetIdentity,
   postedTextOutsideEditor,
   classifyFailure,
+  ensureWindowRestored,
   assertReplyRateLimit,
   matchesZhihuTarget,
 } from "/Users/sexpistole111/.codex/skills/polyv-lead-auto-reply/scripts/auto_reply.mjs";
@@ -274,4 +275,65 @@ test("失败分类覆盖落账所需的全部失败码", () => {
   assert.equal(classifyFailure("无法定位dy回复输入框"), "input_unavailable");
   assert.equal(classifyFailure("检测到同一目标已触达，已阻止重复回评（去重不依赖文案）"), "duplicate_blocked");
   assert.equal(classifyFailure("点击发送后未验证到相同评论文本，已记录为未确认发送"), "clicked_unverified");
+});
+
+// --- screenshot pipeline: minimized window kills Page.captureScreenshot ---
+
+function stubPage(windowInfo, { fail = false } = {}) {
+  const calls = [];
+  return {
+    calls,
+    async cdp(method, params) {
+      calls.push({ method, params });
+      if (fail) throw new Error("No web contents in the target");
+      if (method === "Browser.getWindowForTarget") return windowInfo;
+      return {};
+    },
+    async waitForTimeout(ms) {
+      calls.push({ method: "waitForTimeout", params: { ms } });
+    },
+  };
+}
+
+test("最小化窗口会被先恢复再截图", async () => {
+  const page = stubPage({ windowId: 42, bounds: { windowState: "minimized" } });
+  const restored = await ensureWindowRestored(page);
+
+  assert.equal(restored, true);
+  const set = page.calls.find((c) => c.method === "Browser.setWindowBounds");
+  assert.deepEqual(set.params, { windowId: 42, bounds: { windowState: "normal" } });
+  // a settle wait is applied because the window really was minimized
+  assert.ok(page.calls.some((c) => c.method === "waitForTimeout"));
+});
+
+test("未最小化的窗口不做多余等待但仍确保 normal", async () => {
+  const page = stubPage({ windowId: 7, bounds: { windowState: "normal" } });
+  const restored = await ensureWindowRestored(page);
+
+  assert.equal(restored, true);
+  assert.deepEqual(page.calls.find((c) => c.method === "Browser.setWindowBounds").params, {
+    windowId: 7,
+    bounds: { windowState: "normal" },
+  });
+  assert.equal(page.calls.some((c) => c.method === "waitForTimeout"), false);
+});
+
+test("恢复失败不抛错，返回 false（降级到 DOM 证据）", async () => {
+  const page = stubPage(null, { fail: true });
+  assert.equal(await ensureWindowRestored(page), false);
+});
+
+test("拿不到 windowId 时返回 null", async () => {
+  const page = stubPage({ bounds: { windowState: "normal" } });
+  assert.equal(await ensureWindowRestored(page), null);
+});
+
+test("截图前必然先调用 ensureWindowRestored", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(
+    "/Users/sexpistole111/.codex/skills/polyv-lead-auto-reply/scripts/auto_reply.mjs",
+    "utf8",
+  );
+  assert.match(source, /state\.windowRestored = await ensureWindowRestored\(page\)/);
+  assert.match(source, /Browser\.setWindowBounds/);
 });
