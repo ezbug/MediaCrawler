@@ -81,6 +81,10 @@ metadata:
    截图前必须先恢复窗口（`Browser.setWindowBounds` → `windowState: "normal"`），
    落账字段 `window_restored` / `evidence_source` 用于事后判别。
    注意 `Browser.getWindowForTarget` 恢复后仍可能**回报 minimized**，不可作为判据。
+6. **发送未绑定我方账号**：不传 `--own-account` 时 `verification.own_account` 为 `null`，
+   即只证明"页面出现该文本"，**不证明是我方发的**。必须传值并核验为 true。
+   值取自 `local_tools.polyv_radar.own_accounts`（子串匹配页面上的作者名，
+   故不可用过短的字符串；xhs 为「小馨…」而 bili/dy 为「小幕…」，勿"统一"）。
 
 ## 不可变历史
 

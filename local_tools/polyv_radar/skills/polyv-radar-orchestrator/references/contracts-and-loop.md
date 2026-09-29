@@ -95,6 +95,7 @@
 | 5 | 去重依赖文案 | 实测同一目标被二次触达（不同草稿） | 去重键改为**目标身份**，不含草稿文本 |
 | 6 | 累计大板计数口径不一致 | 顶部/表内两套去重键 | **所有计数从同一数据视图生成** |
 | 7 | 截图证据随窗口状态丢失 | 窗口最小化时 `Page.captureScreenshot` 超时（15 003 ms vs 恢复后 47 ms） | 截图前调用 `ensureWindowRestored()`；落账 `window_restored` / `evidence_source` |
+| 8 | 发送未绑定我方账号 | `verification.own_account` 恒为 null，只证明页面出现该文本，不证明是我方发的 | 必须传 `--own-account`（值取自 `local_tools.polyv_radar.own_accounts`），并核验 `own_account` 为 true |
 
 补充：外置的 `S/scripts/auto_reply.mjs` 必须记录**版本哈希**并保留**可恢复副本**。
 
