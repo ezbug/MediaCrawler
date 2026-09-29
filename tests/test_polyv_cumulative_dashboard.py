@@ -52,10 +52,17 @@ def _write_ledger(tmp_path: Path, rows: list[dict]) -> Path:
 
 def _parse_counts(html_text: str) -> tuple[int, int]:
     """Return (header target count, number of table data rows)."""
-    header = re.search(r'metric-value">(\d+)</span><span class="metric-label">去重后发送线索', html_text)
+    header = re.search(r"<span>去重后发送线索</span><strong>(\d+)</strong>", html_text)
     assert header, "header target count not found"
-    body = html_text.split("<tbody>", 1)[1].split("</tbody>", 1)[0]
-    return int(header.group(1)), body.count("<tr")
+    body = html_text.split('<tbody id="rows">', 1)[1].split("</tbody>", 1)[0]
+    return int(header.group(1)), body.count("<tr data-platform=")
+
+
+def _cards(html_text: str) -> dict:
+    """The metric cards as {label: value} — every number the page shows."""
+    return {label: int(value) for label, value in re.findall(
+        r'<div class="metric"><span>([^<]+)</span><strong>(\d+)</strong></div>', html_text
+    )}
 
 
 # --- the defect -----------------------------------------------------------
@@ -75,9 +82,37 @@ def test_header_table_and_subtotals_agree(tmp_path: Path) -> None:
     assert header == view.target_count
     assert sum(view.platform_subtotals().values()) == view.target_count
 
-    # the subtotal line must not claim a platform the table does not contain
-    for code, count in view.platform_subtotals().items():
-        assert f"{view.platform_label(code)} {count}" in html_text
+    # every number on the page must reconcile with the same view
+    cards = _cards(html_text)
+    platform_cards = {k: v for k, v in cards.items()
+                      if k not in ("去重后发送线索", "原始已发送记录")}
+    assert sum(platform_cards.values()) == view.target_count
+    assert cards["原始已发送记录"] - view.duplicate_events == cards["去重后发送线索"]
+
+
+def test_layout_keeps_the_original_template(tmp_path: Path) -> None:
+    """The corrected dashboard must not lose the original look/behaviour."""
+    rows = [_row(platform="zhihu", target_author="a", target_url="u1", target_quote="q1")]
+    html_text, _ = render_from_ledger(_write_ledger(tmp_path, rows))
+
+    # original CSS + structure
+    assert "max-width:1500px" in html_text
+    assert '.badge,.status{display:inline-block;border-radius:999px' in html_text
+    assert '<section class="metrics">' in html_text
+    assert '<div class="toolbar">' in html_text
+    assert '<div class="table-wrap">' in html_text
+    # original 7 columns, in the original order
+    for header_cell in ("<th>#</th>", "<th>平台</th>", "<th>用户</th>", "<th>原话</th>",
+                        "<th>发送时间</th>", "<th>来源</th>", "<th>状态</th>"):
+        assert header_cell in html_text
+    # original row markup: platform badge, quote class, status pill, source link
+    assert '<span class="badge">知乎</span>' in html_text
+    assert '<td class="quote">q1</td>' in html_text
+    assert '<span class="status">已发送并回查</span>' in html_text
+    assert 'target="_blank" rel="noreferrer">打开来源</a>' in html_text
+    # original client-side filter script and its hooks
+    assert "const search=document.querySelector('#search')" in html_text
+    assert "current" not in html_text  # no leftover placeholder text
 
 
 def test_single_author_on_two_pages_is_two_targets(tmp_path: Path) -> None:
@@ -126,8 +161,11 @@ def test_reworded_reply_collapses_to_one_target(tmp_path: Path) -> None:
     html_text, _ = render_from_ledger(_write_ledger(tmp_path, rows))
     header, table_rows = _parse_counts(html_text)
     assert (header, table_rows) == (1, 1)
-    assert "原始已发送记录 2" in html_text
-    assert "重复触达 1" in html_text
+    cards = _cards(html_text)
+    assert cards["原始已发送记录"] == 2
+    assert cards["去重后发送线索"] == 1
+    # the note states the arithmetic explicitly
+    assert "2 条原始已发送记录 − 1 条重复触达 = 1 条去重后发送线索" in html_text
 
 
 def test_target_key_ignores_reply_text() -> None:

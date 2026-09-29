@@ -24,8 +24,12 @@ from __future__ import annotations
 
 import html
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
+
+#: `2026-09-23T14:32:48.123Z` -> captures (YYYY, MM, DD, hh, mm, ss)
+_ISO = re.compile(r"^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})")
 
 # --------------------------------------------------------------------------
 # Ledger loading
@@ -151,122 +155,146 @@ def build_view(rows: list[dict]) -> DashboardView:
 # --------------------------------------------------------------------------
 
 
+PAGE_CSS = (
+    ':root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#17202a;'
+    'background:#f5f7fa}\n'
+    '*{box-sizing:border-box}body{margin:0;padding:28px}main{max-width:1500px;margin:auto}\n'
+    'h1{margin:0 0 8px;font-size:26px}p{color:#5b6573;margin:6px 0 20px}'
+    '.metrics{display:grid;grid-template-columns:repeat(5,minmax(130px,1fr));gap:10px;margin-bottom:18px}\n'
+    '.metric{background:#fff;border:1px solid #dfe5ec;border-radius:8px;padding:15px}'
+    '.metric strong{display:block;font-size:24px;margin-top:5px}'
+    '.metric span{font-size:13px;color:#647181}\n'
+    '.toolbar{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}'
+    '.toolbar input,.toolbar select{height:36px;border:1px solid #cfd7e1;border-radius:6px;'
+    'background:#fff;padding:0 10px;font-size:14px}\n'
+    '.table-wrap{background:#fff;border:1px solid #dfe5ec;border-radius:8px;overflow:auto}'
+    'table{border-collapse:collapse;width:100%;min-width:1080px}'
+    'th,td{border-bottom:1px solid #edf0f3;padding:11px 12px;text-align:left;vertical-align:top;font-size:13px}'
+    'th{position:sticky;top:0;background:#f8fafc;color:#4d5968;z-index:1}'
+    '.quote{min-width:360px;max-width:520px;line-height:1.5}'
+    '.badge,.status{display:inline-block;border-radius:999px;padding:3px 8px;background:#e8f1ff;'
+    'color:#245a9c;font-size:12px}.status{background:#e7f6ec;color:#21733c}'
+    'small{color:#6b7280}a{color:#2364aa;text-decoration:none}a:hover{text-decoration:underline}'
+    '.note{background:#fffbe8;border:1px solid #f0df9b;border-radius:8px;padding:12px 14px;'
+    'margin:0 0 16px;color:#6b5515;font-size:13px}\n'
+    '@media(max-width:700px){body{padding:16px}.metrics{grid-template-columns:repeat(2,1fr)}h1{font-size:22px}}'
+)
+
+FILTER_SCRIPT = """const search=document.querySelector('#search'), platform=document.querySelector('#platform'), body=document.querySelector('#rows'), visible=document.querySelector('#visible');
+function filter(){const q=search.value.trim().toLowerCase(), p=platform.value; let n=0; [...body.rows].forEach(row=>{const hit=(!p||row.dataset.platform===p)&&(!q||row.dataset.text.toLowerCase().includes(q));row.hidden=!hit;if(hit)n++;});visible.textContent='当前显示 '+n+' 条';}
+search.addEventListener('input',filter);platform.addEventListener('change',filter);filter();"""
+
+#: Display grouping for the metric cards / filter dropdown. B站 shares the
+#: 知乎 card because B站 carries no live sends in this ledger — the card label
+#: stays honest by naming both platforms.
+DISPLAY_GROUPS = [("dy", "抖音"), ("xhs", "小红书"), ("zhihu", "知乎 / B站", ("bili",))]
+
+
 def _esc(value: object) -> str:
     return html.escape(str(value or ""))
 
 
-def _short(value: object, limit: int = 90) -> str:
+def _short(value: object, limit: int = 200) -> str:
     text = " ".join(str(value or "").split())
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
-def render_cumulative_dashboard(view: DashboardView, generated_at: str, source_label: str) -> str:
-    """Render header + subtotals + table from the SAME view object."""
+def _display_time(value: object) -> str:
+    """ISO -> the dashboard's `2026/9/23 14:32:48` form (no timezone shift)."""
+    raw = str(value or "")
+    m = _ISO.match(raw)
+    if not m:
+        return raw
+    year, month, day, hh, mm, ss = m.groups()
+    return f"{year}/{int(month)}/{int(day)} {hh}:{mm}:{ss}"
+
+
+def _status_cell(row: dict) -> str:
+    verified = row.get("verified")
+    clicked = row.get("clicked")
+    if verified is True or (clicked is None and row.get("submitted") is True):
+        return '<span class="status">已发送并回查</span><br><small>本地未记录对方回复</small>'
+    if clicked is True:
+        return '<span class="badge">已发送待回查</span><br><small>未核验到已发布文本</small>'
+    return '<span class="badge">未发送</span>'
+
+
+
+def display_groups(view: DashboardView) -> list[tuple[str, int]]:
+    """Ordered metric cards. zhihu+bili share one card, as in the original layout."""
     subtotals = view.platform_subtotals()
-    recon = view.reconciliation()
-    targets = sorted(
-        view.targets,
-        key=lambda row: str(row.get("timestamp") or ""),
-        reverse=True,
+    out = []
+    for entry in DISPLAY_GROUPS:
+        code, label = entry[0], entry[1]
+        extra = entry[2] if len(entry) > 2 else ()
+        count = subtotals.get(code, 0) + sum(subtotals.get(c, 0) for c in extra)
+        out.append((label, count))
+    return out
+
+
+def render_cumulative_dashboard(view: DashboardView, generated_at: str, source_label: str) -> str:
+    """Render the dashboard from ONE keyed view.
+
+    Layout, CSS, column set, filter script and row markup match the original
+    artifact; only the numbers change, and they all come from `view` so the
+    header cards, the platform split and the table body cannot disagree.
+    """
+    groups = display_groups(view)
+    rows = sorted(view.targets, key=lambda row: str(row.get("timestamp") or ""), reverse=True)
+
+    cards = "\n".join(
+        f'  <div class="metric"><span>{_esc(label)}</span><strong>{count}</strong></div>'
+        for label, count in [
+            ("去重后发送线索", view.target_count),
+            ("原始已发送记录", view.event_count),
+            *groups,
+        ]
     )
 
-    stat_cards = [
-        ("去重后发送线索", view.target_count),
-        ("原始已发送记录", view.event_count),
-        ("重复触达记录", view.duplicate_events),
-    ]
-    for code in sorted(subtotals):
-        stat_cards.append((view.platform_label(code), subtotals[code]))
-
-    cards_html = "\n".join(
-        f'      <div class="metric"><span class="metric-value">{value}</span>'
-        f'<span class="metric-label">{_esc(label)}</span></div>'
-        for label, value in stat_cards
+    options = "".join(
+        f'<option value="{_esc(label)}">{_esc(label)}</option>' for _code, label in groups
     )
 
-    subtotal_html = " + ".join(
-        f"{view.platform_label(code)} {count}" for code, count in sorted(subtotals.items())
+    body = "\n".join(
+        f'<tr data-platform="{_esc(PLATFORM_LABELS.get(str(row.get("platform") or ""), str(row.get("platform") or "")))}"'
+        f' data-text="{_esc(" ".join(part for part in [PLATFORM_LABELS.get(str(row.get("platform") or ""), str(row.get("platform") or "")), str(row.get("target_author") or ""), _short(row.get("target_quote"))] if part))}">\n'
+        f'    <td>{index}</td>\n'
+        f'    <td><span class="badge">{_esc(PLATFORM_LABELS.get(str(row.get("platform") or ""), str(row.get("platform") or "")))}</span></td>\n'
+        f'    <td>{_esc(row.get("target_author"))}</td>\n'
+        f'    <td class="quote">{_esc(_short(row.get("target_quote")))}</td>\n'
+        f'    <td>{_esc(_display_time(row.get("timestamp")))}</td>\n'
+        f'    <td><a href="{_esc(row.get("target_url"))}" target="_blank" rel="noreferrer">打开来源</a></td>\n'
+        f'    <td>{_status_cell(row)}</td>\n'
+        f'  </tr>'
+        for index, row in enumerate(rows, start=1)
     )
-
-    rows_html = []
-    for index, row in enumerate(targets, start=1):
-        status = row.get("status") or ("已发送并回查" if row.get("verified") else "已发送待回查")
-        rows_html.append(
-            "      <tr"
-            f' data-platform="{_esc(row.get("platform"))}">'
-            f"<td>{index}</td>"
-            f"<td>{_esc(view.platform_label(str(row.get('platform') or '')))}</td>"
-            f"<td>{_esc(row.get('target_author'))}</td>"
-            f"<td>{_esc(_short(row.get('target_quote')))}</td>"
-            f"<td>{_esc(str(row.get('timestamp') or '').replace('T', ' ')[:19])}</td>"
-            f'<td><a href="{_esc(row.get("target_url"))}" target="_blank" rel="noreferrer">打开来源</a></td>'
-            f"<td>{_esc(status)}</td>"
-            "</tr>"
-        )
-    table_html = "\n".join(rows_html)
 
     return f"""<!doctype html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>POLYV 全项目发送线索累计大板</title>
 <style>
-  :root {{ color-scheme: light; }}
-  body {{ margin: 0; padding: 28px 18px 60px; background: #f7f3ea; color: #2b2b2b;
-         font-family: "PingFang SC", "Kaiti SC", -apple-system, "Helvetica Neue", Arial, sans-serif; }}
-  .wrap {{ max-width: 1080px; margin: 0 auto; }}
-  h1 {{ font-size: 24px; margin: 0 0 6px; letter-spacing: .5px; }}
-  .meta {{ color: #7a7266; font-size: 13px; margin-bottom: 18px; line-height: 1.7; }}
-  .metrics {{ display: flex; flex-wrap: wrap; gap: 12px; margin: 18px 0 8px; }}
-  .metric {{ background: #fffaf1; border-radius: 10px; padding: 14px 18px; min-width: 118px;
-             box-shadow: 0 1px 3px rgba(90, 70, 40, .12); }}
-  .metric-value {{ display: block; font-size: 26px; font-weight: 600; color: #8a5a2b; }}
-  .metric-label {{ display: block; font-size: 12px; color: #7a7266; margin-top: 4px; }}
-  .recon {{ background: #fffaf1; border-left: 3px solid #c9a227; border-radius: 8px;
-            padding: 12px 16px; font-size: 13px; line-height: 1.8; color: #5c5449; margin: 16px 0 22px; }}
-  table {{ border-collapse: collapse; width: 100%; background: #fffaf1; border-radius: 10px;
-           overflow: hidden; box-shadow: 0 1px 3px rgba(90, 70, 40, .12); }}
-  th, td {{ border-bottom: 1px solid #efe6d6; padding: 10px 12px; font-size: 13px; text-align: left; vertical-align: top; }}
-  th {{ background: #f3ead9; font-weight: 600; color: #6b4f2a; }}
-  a {{ color: #8a5a2b; }}
-  @media (max-width: 430px) {{
-    body {{ padding: 18px 10px 40px; }}
-    .metric {{ flex: 1 1 44%; min-width: 0; padding: 11px 12px; }}
-    .metric-value {{ font-size: 21px; }}
-    table {{ display: block; overflow-x: auto; }}
-  }}
+{PAGE_CSS}
 </style>
 </head>
-<body>
-<div class="wrap">
-  <h1>POLYV 全项目发送线索累计大板</h1>
-  <div class="meta">
-    数据源：{_esc(source_label)} ｜ 生成时间：{_esc(generated_at)}<br>
-    去重键：平台 + 作者 + 来源链接 + 目标原话（<strong>不含回复文案、不含来源类型</strong>）。
-  </div>
-
-  <div class="metrics">
-{cards_html}
-  </div>
-
-  <div class="recon">
-    <strong>计数自洽：</strong>原始已发送记录 {recon['send_events']} − 重复触达 {recon['duplicate_events']}
-    = 去重后发送线索 {recon['unique_targets']}。平台小计：{_esc(subtotal_html)}（合计 {view.target_count}）。
-    顶部数字、平台小计与下表行数均来自同一个去重视图。
-  </div>
-
-  <table>
-    <thead>
-      <tr><th>#</th><th>平台</th><th>用户</th><th>原话</th><th>发送时间</th><th>来源</th><th>状态</th></tr>
-    </thead>
-    <tbody>
-{table_html}
-    </tbody>
-  </table>
-</div>
-</body>
-</html>
+<body><main>
+<h1>POLYV 全项目发送线索累计大板</h1>
+<p>数据源：<code>{_esc(source_label)}</code>｜生成时间：{_esc(generated_at)}｜按平台、作者、来源链接和目标原话去重（不含回复文案、不含来源类型）</p>
+<div class="note">“已发送并回查”只表示我方发送成功且页面回查通过。顶部卡片、平台分组与下表行数均来自同一个去重视图：{view.event_count} 条原始已发送记录 − {view.duplicate_events} 条重复触达 = {view.target_count} 条去重后发送线索。</div>
+<section class="metrics">
+{cards}
+</section>
+<div class="toolbar"><input id="search" type="search" placeholder="搜索平台、用户或原话"><select id="platform"><option value="">全部平台</option>{options}</select><span id="visible" style="padding:9px 2px;color:#5b6573;font-size:13px"></span></div>
+<div class="table-wrap"><table><thead><tr><th>#</th><th>平台</th><th>用户</th><th>原话</th><th>发送时间</th><th>来源</th><th>状态</th></tr></thead><tbody id="rows">
+{body}
+</tbody></table></div>
+</main>
+<script>
+{FILTER_SCRIPT}
+</script>
+</body></html>
 """
 
 
@@ -276,5 +304,5 @@ def render_from_ledger(ledger_path: Path | str) -> tuple[str, DashboardView]:
 
     rows = load_history(ledger_path)
     view = build_view(rows)
-    stamp = _dt.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M")
+    stamp = _dt.datetime.now().astimezone().strftime("%Y-%m-%d")
     return render_cumulative_dashboard(view, stamp, Path(ledger_path).name), view
