@@ -112,6 +112,23 @@ def test_original_is_taken_from_the_first_live_value_not_the_merged_one() -> Non
     assert second["rows"][0]["sales_priority_original"] == "P1"
 
 
+def test_reapplying_a_merged_ledger_reports_no_change() -> None:
+    """Terminal rows store sales_priority=null, so their effective band is the
+    pipeline_state. Reading it as "未分级" made every merged row look changed,
+    which rewrote the ledger (and bumped its timestamp) on every run."""
+    merged, first = apply_priorities(_ledger([
+        _row(id="near", deadline="2026-09-30"),
+        _row(id="expired", deadline="2026-06-01"),
+        _row(id="awarded", deadline="2026-06-01", winner="某公司"),
+        _row(id="undated", deadline="待定"),
+    ]), TODAY)
+    assert first["changed_count"] == 4          # from the pre-merge state
+
+    _again, second = apply_priorities(merged, TODAY)
+    assert second["changed_count"] == 0, second["changed"]
+    assert second["before"] == second["after"]
+
+
 # --- banding applied -------------------------------------------------------
 
 

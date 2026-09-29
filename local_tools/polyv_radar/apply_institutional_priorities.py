@@ -45,6 +45,19 @@ def _basis(item: dict) -> str:
     return f"deadline {deadline}, {days} day(s) remaining"
 
 
+def _effective_current(row: dict) -> str:
+    """How this row's band currently reads, whether or not it was merged before.
+
+    A terminal row stores ``sales_priority: null`` plus a ``pipeline_state``; its
+    effective band is the state, not "未分级". Getting this wrong makes every
+    already-merged row look like it changed, so the ledger gets rewritten — and
+    its timestamp bumped — on every run.
+    """
+    if "pipeline_state" in row:
+        return str(row.get("sales_priority") or row.get("pipeline_state") or "未分级")
+    return str(row.get("sales_priority") or "未分级")
+
+
 def apply_priorities(ledger: dict, today: dt.date, bucket: str = DEFAULT_BUCKET) -> tuple[dict, dict]:
     """Return ``(updated_ledger, summary)``. The input document is not mutated."""
     updated = copy.deepcopy(ledger)
@@ -59,11 +72,12 @@ def apply_priorities(ledger: dict, today: dt.date, bucket: str = DEFAULT_BUCKET)
 
     for item in items:
         row = item["row"]
-        old = str(row.get("sales_priority") or "未分级")
+        old = _effective_current(row)
         before[old] = before.get(old, 0) + 1
 
         state = STATE_ACTIVE if item["actionable"] else item["new_priority"]
         new_value = item["new_priority"] if item["actionable"] else None
+        new_label = str(new_value if new_value is not None else state)
 
         # preserve the pre-merge value exactly once
         if "sales_priority_original" not in row:
@@ -74,15 +88,13 @@ def apply_priorities(ledger: dict, today: dt.date, bucket: str = DEFAULT_BUCKET)
         row["priority_recomputed_at"] = today.isoformat()
         row["priority_basis"] = _basis(item)
 
-        after[str(new_value if new_value is not None else state)] = (
-            after.get(str(new_value if new_value is not None else state), 0) + 1
-        )
-        if old != str(new_value if new_value is not None else state):
+        after[new_label] = after.get(new_label, 0) + 1
+        if old != new_label:
             changed.append({
                 "id": row.get("id"),
                 "subject": row.get("subject"),
                 "before": old,
-                "after": new_value if new_value is not None else state,
+                "after": new_label,
                 "pipeline_state": state,
                 "deadline": item["deadline"].isoformat() if item["deadline"] else None,
                 "days_to_deadline": item["days_to_deadline"],
