@@ -4,10 +4,12 @@ import pytest
 
 from local_tools.polyv_radar.zigo_discovery import load_registry_queries, run_discovery, screen_record, select_verified, product_evidence
 from local_tools.polyv_radar.ego_crawl_all import build_ego_batch_launcher
+from local_tools.polyv_radar.ego_crawl_all import run_ego_crawlers
 from local_tools.polyv_radar.config import load_config
 from pathlib import Path
 import hashlib
 import json
+from types import SimpleNamespace
 
 NOW = datetime(2026, 9, 30, tzinfo=timezone.utc)
 
@@ -74,6 +76,15 @@ def test_product_profile_reaches_ego_node_runtime(tmp_path):
     script = build_ego_batch_launcher(Path('ego_xhs_crawler.mjs'), ['企微 客户'], 5, 30,
                                      tmp_path, 16, tmp_path, product_profile='zigo_sales')
     assert 'process.env.RADAR_PRODUCT_PROFILE = "zigo_sales"' in script
+
+
+def test_ego_collection_rejects_reused_run_with_existing_raw_data(tmp_path):
+    raw = tmp_path / "raw" / "reused"
+    raw.mkdir(parents=True)
+    (raw / "stale.jsonl").write_text("{}\n", encoding="utf-8")
+    config = SimpleNamespace()
+    with pytest.raises(ValueError, match="拒绝复用以避免串批"):
+        run_ego_crawlers("reused", [], config, tmp_path, tmp_path, 16)
 
 
 def test_zigo_config_never_expands_polyv_keywords(tmp_path):

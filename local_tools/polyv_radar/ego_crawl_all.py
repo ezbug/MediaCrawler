@@ -74,6 +74,11 @@ def run_ego_crawlers(run_id: str, platforms: list[str], config, repo_root: Path,
     workflow_platforms: list[dict] = []
     tools_dir = repo_root / "local_tools" / "polyv_radar"
     raw_dir = data_root / "raw" / run_id
+    if raw_dir.exists() and any(raw_dir.iterdir()):
+        raise ValueError(
+            f"run_id {run_id!r} 的原始目录已有数据，拒绝复用以避免串批：{raw_dir}；"
+            "请使用新的 run_id，或不带 --collect 仅重放已有数据"
+        )
     raw_dir.mkdir(parents=True, exist_ok=True)
     workflow_dir = data_root / "workflow-runs" / run_id
     snapshot_root = workflow_dir / "snapshots"
