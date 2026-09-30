@@ -62,3 +62,27 @@ def test_query_expansions_keep_scenario_and_buyer_provenance(tmp_path: Path):
     assert row["source_terms"] == ["销售自动化"]
     assert row["derivation"] == "material_backed_query"
     assert row["source_pages"] == [4]
+
+
+def test_tag_terms_are_registered_separately_from_queries(tmp_path: Path):
+    knowledge = tmp_path / "knowledge"
+    knowledge.mkdir()
+    (knowledge / "manifest.json").write_text(json.dumps({"documents": [
+        {"source_id": "sales-doc", "domain": "sales_agent", "file_name": "sales.pdf"},
+        {"source_id": "geo-doc", "domain": "geo", "file_name": "geo.pdf"},
+    ]}), encoding="utf-8")
+    (knowledge / "chunks.jsonl").write_text("\n".join(json.dumps(row) for row in [
+        {"source_id": "sales-doc", "domain": "sales_agent", "page": 4, "text": "销售"},
+        {"source_id": "geo-doc", "domain": "geo", "page": 8, "text": "品牌"},
+    ]) + "\n", encoding="utf-8")
+    taxonomy = tmp_path / "taxonomy.json"
+    taxonomy.write_text(json.dumps({
+        "sales_agent": {"queries": [], "tags": ["教育招生"]},
+        "geo": {"queries": [], "tags": ["品牌信源"]},
+    }), encoding="utf-8")
+    output = tmp_path / "registry.json"
+    build_keyword_registry(knowledge, output, taxonomy)
+    registry = json.loads(output.read_text(encoding="utf-8"))
+    tags = {(row["product_domain"], row["keyword"]) for row in registry["keywords"] if row["category"] == "tag"}
+    assert tags == {("sales_agent", "教育招生"), ("geo", "品牌信源")}
+    assert registry["query_registry"] == []
