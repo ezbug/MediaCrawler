@@ -30,13 +30,13 @@ AI搜索、品牌推荐或信源需求，销售问题不自动进入GEO。
 在工作树根运行：
 
 ```sh
-python -m local_tools.polyv_radar.zigo_discovery \
+uv run python -m local_tools.polyv_radar zigo-discover \
   --config local_tools/polyv_radar/zigo-sales.toml --product sales_agent \
   --run-id <run-id> --taskspace <现有空间> --platform xhs \
-  --keyword "企微 沉睡客户" --keyword "报价后 客户不回" --collect
+  --keyword-registry D/zigoai/keyword-registry.json --query-limit 4 --collect
 ```
 
-GEO 使用 `zigo-geo.toml` 和 `--product geo`；每次2条查询、每平台串行。
+GEO 使用 `zigo-geo.toml` 和 `--product geo`；每次2条查询、每平台串行。若需要一次性测试指定长尾词，可重复传入 `--keyword`，它会覆盖资料注册表查询，但在 `query-plan.json` 中标为命令行查询，不伪装成 PDF 原文。
 没有 `--collect` 只重放原始数据。`--checks <JSON数组>` 仅合并本轮独立核验结果。
 该入口不创建发送队列、不调用 dispatch、不写 POLYV SQLite 和历史发送日志。
 原始数据、筛选结果和 HTML 分别保存在配置的数据目录 raw、reports 和 workflow-runs。

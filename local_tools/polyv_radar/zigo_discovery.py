@@ -179,6 +179,107 @@ def export_report(output: Path, rows: list[dict], checks: list[dict], target: in
     return summary
 
 
+def load_registry_queries(registry_path: Path, product: str, limit: int | None = None) -> tuple[list[str], list[dict], str]:
+    """Load product-scoped query terms and provenance from the material registry."""
+    registry = json.loads(Path(registry_path).read_text(encoding="utf-8"))
+    rows = [
+        row for row in registry.get("query_registry", registry.get("keywords", []))
+        if row.get("product_domain") == product and row.get("category", "query") == "query"
+    ]
+    if limit is not None:
+        rows = rows[: max(0, limit)]
+    queries = [str(row.get("keyword") or "").strip() for row in rows if str(row.get("keyword") or "").strip()]
+    return queries, rows, str(registry.get("version") or "")
+
+
+def run_discovery(
+    config_path: Path,
+    product: str,
+    run_id: str,
+    *,
+    taskspace: int | None = None,
+    platforms: list[str] | None = None,
+    keywords: list[str] | None = None,
+    collect: bool = False,
+    checks_path: Path | None = None,
+    keyword_registry: Path | None = None,
+    product_root: Path = Path('/Volumes/GameSSD-Dev/CodexProjects/home/Users/sexpistole111/Documents/GOODS/ZIgoAI'),
+    query_limit: int | None = None,
+    target: int = 10,
+) -> dict:
+    """Run one product-scoped, read-only ZigoAI discovery batch."""
+    if product not in TAXONOMY:
+        raise ValueError(f"unsupported ZigoAI product: {product}")
+    if not re.fullmatch(r"[\w-]+", run_id):
+        raise ValueError("run-id must be a simple name")
+
+    config = load_config(Path(config_path))
+    if config.product_profile != TAXONOMY[product]["profile"]:
+        raise ValueError("config profile and requested product must match")
+    if platforms:
+        config = replace(config, platforms=platforms)
+
+    registry_rows: list[dict] = []
+    registry_version = ""
+    if keywords:
+        selected_queries = [str(keyword).strip() for keyword in keywords if str(keyword).strip()]
+    elif keyword_registry:
+        selected_queries, registry_rows, registry_version = load_registry_queries(keyword_registry, product, query_limit)
+    else:
+        selected_queries = list(config.keywords.values())
+        if query_limit is not None:
+            selected_queries = selected_queries[: max(0, query_limit)]
+    if selected_queries:
+        config = replace(
+            config,
+            keywords={f"zigo_query_{index:03d}": query for index, query in enumerate(selected_queries, 1)},
+            platform_keywords={},
+            taxonomy_enabled=False,
+        )
+
+    evidence = product_evidence(Path(product_root), product)
+    output = config.data_root / "reports" / run_id
+    output.mkdir(parents=True, exist_ok=True)
+    (output / "product-evidence.json").write_text(json.dumps(evidence, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    (output / "query-plan.json").write_text(json.dumps({
+        "run_id": run_id,
+        "product_domain": product,
+        "registry_path": str(keyword_registry) if keyword_registry else "",
+        "registry_version": registry_version,
+        "queries": selected_queries,
+        "query_sources": registry_rows,
+        "platforms": config.platforms,
+        "collector": "ego",
+        "outreach_allowed": False,
+    }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+    if collect:
+        if not isinstance(taskspace, int) or taskspace <= 0:
+            raise ValueError("collect requires an explicit logged-in Ego Lite taskspace")
+        run_ego_crawlers(
+            run_id,
+            config.platforms,
+            config,
+            Path(__file__).resolve().parents[2],
+            config.data_root,
+            taskspace,
+        )
+
+    raw_root = config.data_root / "raw" / run_id
+    raw_records = read_raw(raw_root) if raw_root.is_dir() else []
+    records = [screen_record(row, product) for row in raw_records]
+    checks = json.loads(Path(checks_path).read_text(encoding="utf-8")) if checks_path else []
+    summary = export_report(output, records, checks, target=target)
+    zigo_db = config.data_root.parent / "radar.sqlite3"
+    store = ZigoStore(zigo_db)
+    ingest = store.ingest_run(run_id, product, raw_records, records, checks, registry_rows)
+    store.close()
+    summary["zigo_db"] = str(zigo_db)
+    summary["query_plan"] = str(output / "query-plan.json")
+    summary["ingest"] = ingest
+    return summary
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
@@ -190,43 +291,27 @@ def main() -> int:
     parser.add_argument("--collect", action="store_true")
     parser.add_argument("--checks", type=Path)
     parser.add_argument("--keyword-registry", type=Path, help="已生成的资料来源关键词注册表")
+    parser.add_argument("--query-limit", type=int, help="未指定 --keyword 时，从产品资料词库取前 N 条 query")
+    parser.add_argument("--target", type=int, default=10)
     parser.add_argument("--product-root", type=Path, default=Path('/Volumes/GameSSD-Dev/CodexProjects/home/Users/sexpistole111/Documents/GOODS/ZIgoAI'))
     args = parser.parse_args()
-    if not re.fullmatch(r"[\w-]+", args.run_id):
-        parser.error("run-id must be a simple name")
-    config = load_config(args.config)
-    if config.product_profile != TAXONOMY[args.product]["profile"]:
-        parser.error("config profile and requested product must match")
-    if args.keyword:
-        config = replace(config, keywords={str(i): keyword for i, keyword in enumerate(args.keyword)}, platform_keywords={})
-    if args.platform:
-        config = replace(config, platforms=args.platform)
-    evidence = product_evidence(args.product_root, args.product)
-    output = config.data_root / 'reports' / args.run_id
-    output.mkdir(parents=True, exist_ok=True)
-    (output / 'product-evidence.json').write_text(json.dumps(evidence, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
-    if args.collect:
-        if not args.taskspace or args.taskspace <= 0:
-            parser.error("explicit --taskspace required")
-        run_ego_crawlers(args.run_id, config.platforms, config, Path(__file__).resolve().parents[2], config.data_root, args.taskspace)
-    records = [screen_record(row, args.product) for row in read_raw(config.data_root / "raw" / args.run_id)]
-    checks = json.loads(args.checks.read_text(encoding="utf-8")) if args.checks else []
-    summary = export_report(output, records, checks)
-    zigo_db = config.data_root.parent / "radar.sqlite3"
-    store = ZigoStore(zigo_db)
-    ingest = store.ingest_run(
-        args.run_id,
-        args.product,
-        read_raw(config.data_root / "raw" / args.run_id),
-        records,
-        checks,
-    )
-    if args.keyword_registry:
-        registry = json.loads(args.keyword_registry.read_text(encoding="utf-8"))
-        store.save_keyword_sources(registry.get("keywords", []))
-    store.close()
-    summary["zigo_db"] = str(zigo_db)
-    summary["ingest"] = ingest
+    try:
+        summary = run_discovery(
+            args.config,
+            args.product,
+            args.run_id,
+            taskspace=args.taskspace,
+            platforms=args.platform,
+            keywords=args.keyword,
+            collect=args.collect,
+            checks_path=args.checks,
+            keyword_registry=args.keyword_registry,
+            product_root=args.product_root,
+            query_limit=args.query_limit,
+            target=args.target,
+        )
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        parser.error(str(exc))
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     return 0
 

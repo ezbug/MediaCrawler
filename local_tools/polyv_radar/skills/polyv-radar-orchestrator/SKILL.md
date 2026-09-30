@@ -19,6 +19,8 @@ metadata:
 `zigo-sales.toml` 或 `zigo-geo.toml`，不使用 POLYV 的词库扩展、评分及发送入口。
 销冠与可信 GEO 分池；本轮仅候选发现与证据归档。历史 POLYV 功能和账本保留。
 POLYV 与 ZigoAI 使用不同的 SQLite 文件和表结构；统一大板只在读取层合并，任何品牌的候选、评分、发送和回查状态都不得写入另一品牌数据库。
+ZigoAI 的实际运行入口统一使用 `zigo-discover`；资料 query、产品域、批次和 Ego Lite TaskSpace
+必须显式留痕，`zigo-discover` 不调用 POLYV 的 dispatch 或回复 Skill。
 
 > 安装位置：`W/local_tools/polyv_radar/skills/polyv-radar-orchestrator/`
 > 在独立 Hermes `polyv-radar` profile 中**链接**该目录（不复制出第二套运行逻辑）。

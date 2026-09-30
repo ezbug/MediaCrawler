@@ -40,6 +40,36 @@ POLYV_TASKSPACE_ID=<current-taskspace> uv run python -m local_tools.polyv_radar 
 
 浏览器会话必须由用户提供；TaskSpace 不存在、登录失效或页面受限时，任务会停止并记录状态，不会新建备用浏览器空间。
 
+## ZigoAI 发现构建入口
+
+ZigoAI 使用自己的资料词库、筛选规则和 SQLite，不读取 POLYV 词库，不进入 POLYV 回复队列。先生成资料来源可追溯的关键词注册表：
+
+```bash
+uv run python -m local_tools.polyv_radar zigo-keywords \
+  --config local_tools/polyv_radar/zigo-sales.toml \
+  --knowledge-root /Users/sexpistole111/Documents/GOODS/ZIgoAI \
+  --output /Users/sexpistole111/Documents/workplace/polyv-radar-data/zigoai/keyword-registry.json \
+  --persist
+```
+
+产品域发现统一从 `zigo-discover` 进入。指定注册表时，未传 `--keyword` 会只取当前产品域的资料 query，并把词库版本、来源文件和页码写入该批次的 `query-plan.json`：
+
+```bash
+uv run python -m local_tools.polyv_radar zigo-discover \
+  --config local_tools/polyv_radar/zigo-sales.toml \
+  --product sales_agent \
+  --run-id <run-id> \
+  --keyword-registry /Users/sexpistole111/Documents/workplace/polyv-radar-data/zigoai/keyword-registry.json \
+  --query-limit 4 \
+  --platform xhs \
+  --taskspace <current-taskspace> \
+  --collect
+```
+
+GEO 使用 `zigo-geo.toml --product geo`。省略 `--collect` 时只重放已有 raw JSONL；加入 `--collect` 时必须显式提供已登录的 Ego Lite TaskSpace。该入口只做发现、筛选、证据报告和独立入库，不调用 `dispatch`，不发表评论或私信。
+
+批次产物位于 `zigoai/<product_domain>/reports/<run-id>/`：`query-plan.json`、`product-evidence.json`、筛选 JSONL、`candidates.html` 和 `summary.json`。数据库固定为 `zigoai/radar.sqlite3`；重复运行同一批次会幂等更新，不会写入 `radar.sqlite3`。
+
 ## Antigravity 风格 HTML 大板
 
 后端启动后访问 `http://127.0.0.1:<port>/polyv-dashboard.html`。页面使用当前非 legacy 批次生成 HTML 表格，展示人工候选、时间层、建议分类、Ego Lite 定位状态、截图、回复草稿和原文链接。默认只展示草稿和证据，不代表已发送；旧 Antigravity HTML 仅保留在数据目录的 `legacy/` 历史快照中。

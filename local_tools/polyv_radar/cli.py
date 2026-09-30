@@ -30,7 +30,7 @@ from .manual_candidates import build_manual_candidates, write_manual_candidate_a
 from .qna_batch import build_locator_rows, collect_qna_pool, write_locator_queue, write_qna_pool
 from .handoff import export_handoff
 from .takeover import write_takeover
-from .zigo_discovery import read_raw, screen_record
+from .zigo_discovery import read_raw, run_discovery, screen_record
 from .zigo_keywords import build_keyword_registry
 from .zigo_store import ZigoStore
 
@@ -204,6 +204,19 @@ def build_parser() -> argparse.ArgumentParser:
     zigo_ingest_parser.add_argument("--run-id", required=True)
     zigo_ingest_parser.add_argument("--checks")
     zigo_ingest_parser.add_argument("--keyword-registry")
+    zigo_discover_parser = subparsers.add_parser("zigo-discover")
+    zigo_discover_parser.add_argument("--config", required=True)
+    zigo_discover_parser.add_argument("--product", choices=("sales_agent", "geo"), required=True)
+    zigo_discover_parser.add_argument("--run-id", required=True)
+    zigo_discover_parser.add_argument("--taskspace", type=int)
+    zigo_discover_parser.add_argument("--platform", action="append", choices=("xhs", "dy", "bili", "zhihu"))
+    zigo_discover_parser.add_argument("--keyword", action="append")
+    zigo_discover_parser.add_argument("--collect", action="store_true")
+    zigo_discover_parser.add_argument("--checks", type=Path)
+    zigo_discover_parser.add_argument("--keyword-registry", type=Path)
+    zigo_discover_parser.add_argument("--query-limit", type=int)
+    zigo_discover_parser.add_argument("--target", type=int, default=10)
+    zigo_discover_parser.add_argument("--product-root", type=Path, default=Path('/Volumes/GameSSD-Dev/CodexProjects/home/Users/sexpistole111/Documents/GOODS/ZIgoAI'))
     return parser
 
 
@@ -385,6 +398,23 @@ def main(argv: list[str] | None = None) -> int:
             "counts": result["counts"],
             "priority_counts": result["priority_counts"],
         }
+    elif args.command == "zigo-discover":
+        if args.collect and (not args.taskspace or args.taskspace <= 0):
+            parser.error("zigo-discover --collect 需要显式提供已登录的 Ego Lite TaskSpace")
+        payload = run_discovery(
+            Path(args.config),
+            args.product,
+            args.run_id,
+            taskspace=args.taskspace,
+            platforms=args.platform,
+            keywords=args.keyword,
+            collect=args.collect,
+            checks_path=args.checks,
+            keyword_registry=args.keyword_registry,
+            product_root=args.product_root,
+            query_limit=args.query_limit,
+            target=args.target,
+        )
     elif args.command == "zigo-keywords":
         output = Path(args.output) if args.output else config.data_root.parent / "keyword-registry.json"
         result = build_keyword_registry(Path(args.knowledge_root), output)

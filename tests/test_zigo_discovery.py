@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from local_tools.polyv_radar.zigo_discovery import screen_record, select_verified, product_evidence
+from local_tools.polyv_radar.zigo_discovery import load_registry_queries, run_discovery, screen_record, select_verified, product_evidence
 from local_tools.polyv_radar.ego_crawl_all import build_ego_batch_launcher
 from local_tools.polyv_radar.config import load_config
 from pathlib import Path
@@ -114,3 +114,62 @@ def test_product_source_archive_is_domain_scoped(tmp_path):
         dict(source_id='zigo_sales_agent_202608', domain='sales_agent', page=11, text='sales'),
         dict(source_id='zigo_geo_20260721', domain='geo', page=11, text='geo')]))
     assert [p['text'] for p in product_evidence(tmp_path, 'sales_agent')['pages']] == ['sales']
+
+
+def test_material_registry_queries_are_product_scoped_and_ordered(tmp_path):
+    registry = tmp_path / 'keyword-registry.json'
+    registry.write_text(json.dumps({
+        'version': 'v1',
+        'query_registry': [
+            {'product_domain': 'geo', 'category': 'query', 'keyword': 'GEO 怎么做'},
+            {'product_domain': 'sales_agent', 'category': 'query', 'keyword': '报价后 客户不回'},
+            {'product_domain': 'sales_agent', 'category': 'query', 'keyword': '企微 沉睡客户'},
+        ]
+    }), encoding='utf-8')
+    queries, rows, version = load_registry_queries(registry, 'sales_agent', limit=1)
+    assert queries == ['报价后 客户不回']
+    assert rows[0]['product_domain'] == 'sales_agent'
+    assert version == 'v1'
+
+
+def test_discovery_replay_writes_product_scoped_plan_and_database(tmp_path):
+    knowledge = tmp_path / 'knowledge'
+    knowledge.mkdir()
+    (knowledge / 'manifest.json').write_text(json.dumps({'documents': [
+        {'source_id': 'sales-doc', 'domain': 'sales_agent', 'file_name': 'sales.pdf'}
+    ]}), encoding='utf-8')
+    (knowledge / 'chunks.jsonl').write_text(json.dumps({
+        'source_id': 'sales-doc', 'domain': 'sales_agent', 'page': 4, 'text': 'sales evidence'
+    }) + '\n', encoding='utf-8')
+    data_root = tmp_path / 'data' / 'sales_agent'
+    raw = data_root / 'raw' / 'replay-1' / 'xhs' / '01-query'
+    raw.mkdir(parents=True)
+    (raw / 'xhs_contents.jsonl').write_text(json.dumps({
+        'platform': 'xhs', 'content_id': 'p1', 'title': '销售跟进', 'text': '客户跟进问题',
+        'url': 'https://example.test/p1', 'author': '用户', 'author_id': 'u1',
+        'published_at': '2026-09-29T00:00:00Z', 'source_keyword': '报价后 客户不回'
+    }) + '\n', encoding='utf-8')
+    (raw / 'xhs_comments.jsonl').write_text(json.dumps({
+        'platform': 'xhs', 'content_id': 'p1', 'comment_id': 'c1',
+        'text': '我们公司报价后客户不回，求推荐自动跟进工具', 'author': '买方',
+        'author_id': 'u2', 'source_type': 'comment', 'published_at': '2026-09-29T00:00:00Z'
+    }) + '\n', encoding='utf-8')
+    config = tmp_path / 'zigo.toml'
+    config.write_text(
+        '[run]\nproduct_profile="zigo_sales"\n'
+        f'data_root="{data_root}"\nplatforms=["xhs"]\n'
+        '[keywords]\nquery="旧词"\n', encoding='utf-8'
+    )
+    registry = tmp_path / 'registry.json'
+    registry.write_text(json.dumps({'version': 'v-test', 'query_registry': [
+        {'product_domain': 'sales_agent', 'category': 'query', 'keyword': '报价后 客户不回', 'source_pages': [4]},
+        {'product_domain': 'geo', 'category': 'query', 'keyword': 'GEO 怎么做'},
+    ]}), encoding='utf-8')
+
+    result = run_discovery(config, 'sales_agent', 'replay-1', keyword_registry=registry,
+                           product_root=tmp_path, query_limit=1)
+    plan = json.loads((data_root / 'reports' / 'replay-1' / 'query-plan.json').read_text())
+    assert result['zigo_db'].endswith('/data/radar.sqlite3')
+    assert plan['queries'] == ['报价后 客户不回']
+    assert plan['registry_version'] == 'v-test'
+    assert Path(result['zigo_db']).is_file()
