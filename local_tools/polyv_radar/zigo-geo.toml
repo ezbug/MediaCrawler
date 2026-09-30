@@ -1,0 +1,20 @@
+[run]
+product_profile = "zigo_geo"
+data_root = "/Volumes/GameSSD-Dev/CodexProjects/home/Users/sexpistole111/Documents/workplace/polyv-radar-data/zigoai/geo"
+platforms = ["xhs", "zhihu"]
+collector_backend = "ego"
+taxonomy_enabled = false
+max_contents = 5
+max_comments = 30
+concurrency = 1
+platform_workers = 1
+task_timeout_seconds = 240
+recent_days = 90
+max_lead_age_days = 730
+
+[keywords]
+"品牌推荐" = "豆包 品牌不推荐"
+"购买意图" = "GEO优化 怎么选"
+
+[filters]
+excluded_author_names = ["bugbg", "ZigoAI", "智构", "POLYV", "保利威"]

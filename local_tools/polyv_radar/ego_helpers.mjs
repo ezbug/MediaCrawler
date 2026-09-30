@@ -1,3 +1,7 @@
+import { readFileSync } from 'node:fs';
+
+const zigoTaxonomy = JSON.parse(readFileSync(new URL('./zigo_taxonomy.json', import.meta.url), 'utf8'));
+
 export async function waitForResults(page, selector, timeoutMs = 20000, stableRounds = 2) {
   const deadline = Date.now() + timeoutMs;
   let previous = -1;
@@ -134,10 +138,18 @@ export function isGenericPlatformRedirect(sourceUrl, finalUrl) {
   }
 }
 
-export function searchRelevance(keyword, text) {
+export function searchRelevance(keyword, text, profile = process.env.RADAR_PRODUCT_PROFILE || 'polyv') {
   const normalized = normalizedSearchText(text);
   const parts = [...new Set(keywordParts(keyword))];
   const queryHits = parts.filter((part) => normalized.includes(part)).length;
+  if (profile !== 'polyv') {
+    const domain = { zigo_sales: 'sales_agent', zigo_geo: 'geo' }[profile];
+    if (!domain) throw new Error(`Unknown search profile: ${profile}`);
+    const eventMatches = zigoTaxonomy[domain].search_terms.filter(term => normalized.includes(normalizedSearchText(term)));
+    // This gate finds content containers; buyer qualification uses each author's own words later.
+    const accepted = eventMatches.some(term => term !== '报价') || (eventMatches.includes('报价') && /客户|销售|跟进/.test(normalized));
+    return { accepted, score: eventMatches.length + queryHits, queryHits, eventMatches };
+  }
   const eventMatches = SEARCH_EVENT_TERMS.filter((term) => normalized.includes(normalizedSearchText(term)));
   const sceneMatches = SEARCH_SCENE_TERMS.filter((term) => normalized.includes(normalizedSearchText(term)));
   const intentMatches = SEARCH_INTENT_TERMS.filter((term) => normalized.includes(normalizedSearchText(term)));
@@ -171,11 +183,11 @@ export function searchRelevance(keyword, text) {
   };
 }
 
-export function filterSearchResults(keyword, items) {
+export function filterSearchResults(keyword, items, profile = process.env.RADAR_PRODUCT_PROFILE || 'polyv') {
   return items
     .map((item) => {
       const text = item.searchText || [item.title, item.rawSnippet, item.text].filter(Boolean).join(" ");
-      return { ...item, relevance: searchRelevance(keyword, text) };
+      return { ...item, relevance: searchRelevance(keyword, text, profile) };
     })
     .filter((item) => item.relevance.accepted)
     .sort((left, right) => right.relevance.score - left.relevance.score);

@@ -30,6 +30,9 @@ from .manual_candidates import build_manual_candidates, write_manual_candidate_a
 from .qna_batch import build_locator_rows, collect_qna_pool, write_locator_queue, write_qna_pool
 from .handoff import export_handoff
 from .takeover import write_takeover
+from .zigo_discovery import read_raw, screen_record
+from .zigo_keywords import build_keyword_registry
+from .zigo_store import ZigoStore
 
 
 def apply_collect_overrides(config, args):
@@ -191,6 +194,16 @@ def build_parser() -> argparse.ArgumentParser:
     takeover_parser = subparsers.add_parser("takeover-sync")
     takeover_parser.add_argument("--config", required=True)
     takeover_parser.add_argument("--campaign", default="polyv-100")
+    zigo_keywords_parser = subparsers.add_parser("zigo-keywords")
+    zigo_keywords_parser.add_argument("--config", required=True)
+    zigo_keywords_parser.add_argument("--knowledge-root", required=True)
+    zigo_keywords_parser.add_argument("--output")
+    zigo_keywords_parser.add_argument("--persist", action="store_true")
+    zigo_ingest_parser = subparsers.add_parser("zigo-ingest")
+    zigo_ingest_parser.add_argument("--config", required=True)
+    zigo_ingest_parser.add_argument("--run-id", required=True)
+    zigo_ingest_parser.add_argument("--checks")
+    zigo_ingest_parser.add_argument("--keyword-registry")
     return parser
 
 
@@ -372,6 +385,29 @@ def main(argv: list[str] | None = None) -> int:
             "counts": result["counts"],
             "priority_counts": result["priority_counts"],
         }
+    elif args.command == "zigo-keywords":
+        output = Path(args.output) if args.output else config.data_root.parent / "keyword-registry.json"
+        result = build_keyword_registry(Path(args.knowledge_root), output)
+        if args.persist:
+            registry = json.loads(output.read_text(encoding="utf-8"))
+            store = ZigoStore(config.data_root.parent / "radar.sqlite3")
+            result["persisted"] = store.save_keyword_sources(registry.get("keywords", []))
+            store.close()
+        payload = result
+    elif args.command == "zigo-ingest":
+        if config.product_profile not in {"zigo_sales", "zigo_geo"}:
+            parser.error("zigo-ingest 需要 zigo_sales 或 zigo_geo 配置")
+        product = "sales_agent" if config.product_profile == "zigo_sales" else "geo"
+        raw_path = config.data_root / "raw" / args.run_id
+        records = read_raw(raw_path)
+        screened = [screen_record(row, product) for row in records]
+        checks = json.loads(Path(args.checks).read_text(encoding="utf-8")) if args.checks else []
+        store = ZigoStore(config.data_root.parent / "radar.sqlite3")
+        keyword_rows = []
+        if args.keyword_registry:
+            keyword_rows = json.loads(Path(args.keyword_registry).read_text(encoding="utf-8")).get("keywords", [])
+        payload = store.ingest_run(args.run_id, product, records, screened, checks, keyword_rows)
+        store.close()
     elif args.command == "prepare-dispatch":
         store = RadarStore(config.data_root / "radar.sqlite3")
         store.initialize()

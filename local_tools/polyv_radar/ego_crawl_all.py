@@ -45,12 +45,14 @@ def build_ego_batch_launcher(
     taskspace: int,
     snapshot_dir: Path,
     result_path: Path | None = None,
+    product_profile: str = "polyv",
 ) -> str:
     script_path = script_path.expanduser().resolve()
     batch_script = script_path.parent / "ego_platform_batch.mjs"
     return "\n".join(
         [
             f"process.env.POLYV_TASKSPACE_ID = {json.dumps(str(taskspace), ensure_ascii=False)};",
+            f"process.env.RADAR_PRODUCT_PROFILE = {json.dumps(product_profile)};",
             f"process.env.POLYV_BATCH_SCRIPT = {json.dumps(script_path.as_posix(), ensure_ascii=False)};",
             f"process.env.POLYV_BATCH_KEYWORDS = {json.dumps(json.dumps(keywords, ensure_ascii=False), ensure_ascii=False)};",
             f"process.env.POLYV_BATCH_OUTPUT_DIR = {json.dumps(out_dir.as_posix(), ensure_ascii=False)};",
@@ -92,7 +94,8 @@ def run_ego_crawlers(run_id: str, platforms: list[str], config, repo_root: Path,
         snapshot_dir.mkdir(parents=True, exist_ok=True)
         started_at = datetime.now(timezone.utc)
         runner_script = build_ego_batch_launcher(
-            script_path, plat_keywords, config.max_contents, config.max_comments, out_dir, taskspace, snapshot_dir, result_path
+            script_path, plat_keywords, config.max_contents, config.max_comments, out_dir, taskspace, snapshot_dir, result_path,
+            product_profile=getattr(config, "product_profile", "polyv"),
         )
         print(f"\n==========================================")
         print(f"[+] Launching one Ego Lite batch: {plat.upper()} | {len(plat_keywords)} 个关键词")
@@ -104,6 +107,7 @@ def run_ego_crawlers(run_id: str, platforms: list[str], config, repo_root: Path,
         try:
             env = os.environ.copy()
             env["POLYV_TASKSPACE_ID"] = str(taskspace)
+            env["RADAR_PRODUCT_PROFILE"] = getattr(config, "product_profile", "polyv")
             res = subprocess.run(
                 ["ego-browser", "nodejs"],
                 input=runner_script,
@@ -162,7 +166,7 @@ def run_ego_crawlers(run_id: str, platforms: list[str], config, repo_root: Path,
             }
         )
     workflow_payload = {
-        "workflow_name": "polyv-leads",
+        "workflow_name": getattr(config, "product_profile", "polyv") + "-leads",
         "workflow_version": "1",
         "run_id": run_id,
         "mode": "ego_snapshot_batch",

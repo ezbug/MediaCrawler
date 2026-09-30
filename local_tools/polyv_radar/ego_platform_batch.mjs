@@ -124,7 +124,7 @@ for (let index = 0; index < keywords.length; index += 1) {
 }
 
 const summary = {
-  workflow_name: 'polyv-leads',
+  workflow_name: `${process.env.RADAR_PRODUCT_PROFILE || 'polyv'}-leads`,
   workflow_version: '1',
   taskspace: taskspaceId,
   page: 'p1',

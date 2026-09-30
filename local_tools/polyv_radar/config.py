@@ -33,6 +33,7 @@ class RadarConfig:
     taxonomy_keywords: dict[str, str] = field(default_factory=dict)
     taxonomy_negative_terms: tuple[str, ...] = ()
     taxonomy_intent_terms: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    product_profile: str = "polyv"
 
     @property
     def category_by_keyword(self) -> dict[str, str]:
@@ -61,6 +62,9 @@ def load_config(path: Path) -> RadarConfig:
     with config_path.open("rb") as handle:
         raw = tomllib.load(handle)
     run = raw.get("run", {})
+    product_profile = str(run.get("product_profile", "polyv"))
+    if product_profile not in {"polyv", "zigo_sales", "zigo_geo"}:
+        raise ValueError(f"Unknown product profile: {product_profile}")
     keywords = {str(category): str(keyword) for category, keyword in raw.get("keywords", {}).items()}
     platform_keywords = {}
     for plat in ("dy", "xhs", "bili", "zhihu"):
@@ -78,7 +82,9 @@ def load_config(path: Path) -> RadarConfig:
             f"不支持: {', '.join(invalid_collectors)}"
         )
 
-    taxonomy_enabled = bool(run.get("taxonomy_enabled", True))
+    taxonomy_enabled = bool(run.get("taxonomy_enabled", product_profile == "polyv"))
+    if product_profile != "polyv" and taxonomy_enabled:
+        raise ValueError("ZigoAI uses its own taxonomy; disable POLYV taxonomy expansion")
     taxonomy_path_value = run.get("taxonomy_path")
     if taxonomy_path_value:
         taxonomy_path = Path(str(taxonomy_path_value)).expanduser()
@@ -121,4 +127,5 @@ def load_config(path: Path) -> RadarConfig:
         taxonomy_keywords=taxonomy_keywords,
         taxonomy_negative_terms=taxonomy_negative_terms,
         taxonomy_intent_terms=taxonomy_intent_terms,
+        product_profile=product_profile,
     )
