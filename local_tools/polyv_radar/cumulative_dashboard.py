@@ -168,10 +168,13 @@ PAGE_CSS = (
     '.toolbar input,.toolbar select{height:36px;border:1px solid #cfd7e1;border-radius:6px;'
     'background:#fff;padding:0 10px;font-size:14px}\n'
     '.table-wrap{background:#fff;border:1px solid #dfe5ec;border-radius:8px;overflow:auto}'
-    'table{border-collapse:collapse;width:100%;min-width:1080px}'
+    'table{border-collapse:collapse;width:100%;min-width:2480px}'
     'th,td{border-bottom:1px solid #edf0f3;padding:11px 12px;text-align:left;vertical-align:top;font-size:13px}'
     'th{position:sticky;top:0;background:#f8fafc;color:#4d5968;z-index:1}'
     '.quote{min-width:360px;max-width:520px;line-height:1.5}'
+    '.reply{min-width:420px;max-width:620px;line-height:1.5;white-space:pre-wrap}'
+    '.cell-wrap{min-width:180px;max-width:300px;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere}'
+    '.proof{display:flex;flex-wrap:wrap;gap:4px;min-width:220px}.proof span{display:inline-block;border-radius:999px;padding:3px 7px;font-size:11px;background:#eef1f5;color:#657080}.proof .ok{background:#e7f6ec;color:#21733c}.proof .warn{background:#fff4db;color:#8a5b00}.proof .bad{background:#fdebec;color:#a12a36}'
     '.badge,.status{display:inline-block;border-radius:999px;padding:3px 8px;background:#e8f1ff;'
     'color:#245a9c;font-size:12px}.status{background:#e7f6ec;color:#21733c}'
     'small{color:#6b7280}a{color:#2364aa;text-decoration:none}a:hover{text-decoration:underline}'
@@ -219,6 +222,72 @@ def _status_cell(row: dict) -> str:
     return '<span class="badge">未发送</span>'
 
 
+SOURCE_TYPE_LABELS = {
+    "comment": "评论",
+    "reply": "子评论",
+    "answer": "回答",
+    "post": "帖子",
+    "content": "内容",
+}
+
+
+def _first_value(row: dict, *names: str) -> str:
+    for name in names:
+        value = row.get(name)
+        if value not in (None, "", [], {}):
+            return str(value)
+    return ""
+
+
+def _cell_value(row: dict, *names: str, fallback: str = "未记录") -> str:
+    value = _first_value(row, *names)
+    return value if value else fallback
+
+
+def _link(value: str, label: str) -> str:
+    if not value:
+        return "<small>未记录</small>"
+    return f'<a href="{_esc(value)}" target="_blank" rel="noreferrer">{_esc(label)}</a><br><small class="cell-wrap">{_esc(value)}</small>'
+
+
+def _source_type(row: dict) -> str:
+    raw = _first_value(row, "source_type")
+    return SOURCE_TYPE_LABELS.get(raw.casefold(), raw) if raw else "未标注"
+
+
+def _proof_badge(label: str, value: object, *, missing: str = "未记录") -> str:
+    if value is True:
+        return f'<span class="ok">{_esc(label)}✓</span>'
+    if value is False:
+        return f'<span class="bad">{_esc(label)}×</span>'
+    return f'<span class="warn">{_esc(label)}{_esc(missing)}</span>'
+
+
+def _proof_cell(row: dict) -> str:
+    clicked = row.get("clicked")
+    submitted = row.get("submitted")
+    if clicked is None and submitted is not None:
+        clicked = submitted
+    return (
+        '<div class="proof">'
+        + _proof_badge("定位", row.get("target_matched"))
+        + _proof_badge("草稿", row.get("draft_verified"))
+        + _proof_badge("点击", clicked)
+        + _proof_badge("提交", submitted)
+        + _proof_badge("回查", row.get("verified"))
+        + "</div>"
+    )
+
+
+def _response_cell(row: dict) -> str:
+    value = _first_value(row, "received_reply", "inbound_reply", "response_text", "engagement")
+    if value:
+        return _esc(value)
+    if any(row.get(name) is True for name in ("has_response", "engaged", "replied")):
+        return '<span class="status">已记录回复</span>'
+    return '<small>未记录</small>'
+
+
 
 def display_groups(view: DashboardView) -> list[tuple[str, int]]:
     """Ordered metric cards. zhihu+bili share one card, as in the original layout."""
@@ -257,14 +326,25 @@ def render_cumulative_dashboard(view: DashboardView, generated_at: str, source_l
 
     body = "\n".join(
         f'<tr data-platform="{_esc(PLATFORM_LABELS.get(str(row.get("platform") or ""), str(row.get("platform") or "")))}"'
-        f' data-text="{_esc(" ".join(part for part in [PLATFORM_LABELS.get(str(row.get("platform") or ""), str(row.get("platform") or "")), str(row.get("target_author") or ""), _short(row.get("target_quote"))] if part))}">\n'
+        f' data-text="{_esc(" ".join(part for part in [PLATFORM_LABELS.get(str(row.get("platform") or ""), str(row.get("platform") or "")), _source_type(row), str(row.get("target_author") or ""), str(row.get("target_quote") or ""), str(row.get("reply_text") or ""), str(row.get("target_url") or "")] if part))}">\n'
         f'    <td>{index}</td>\n'
         f'    <td><span class="badge">{_esc(PLATFORM_LABELS.get(str(row.get("platform") or ""), str(row.get("platform") or "")))}</span></td>\n'
         f'    <td>{_esc(row.get("target_author"))}</td>\n'
         f'    <td class="quote">{_esc(_short(row.get("target_quote")))}</td>\n'
         f'    <td>{_esc(_display_time(row.get("timestamp")))}</td>\n'
-        f'    <td><a href="{_esc(row.get("target_url"))}" target="_blank" rel="noreferrer">打开来源</a></td>\n'
+        f'    <td>{_link(_first_value(row, "target_url", "content_url", "url"), "打开来源")}</td>\n'
         f'    <td>{_status_cell(row)}</td>\n'
+        f'    <td class="cell-wrap">{_esc(_source_type(row))}</td>\n'
+        f'    <td class="cell-wrap">{_esc(_cell_value(row, "title", "content_title", "event_type", "business_scene"))}</td>\n'
+        f'    <td class="cell-wrap">{_esc(_cell_value(row, "author_url", "profile_url", "user_url"))}</td>\n'
+        f'    <td class="cell-wrap">{_esc(_cell_value(row, "content_id", "native_content_id", "comment_id", "native_comment_id"))}</td>\n'
+        f'    <td>{_link(_first_value(row, "comment_url", "reply_url"), "打开定位")}</td>\n'
+        f'    <td>{_link(_first_value(row, "screenshot", "evidence_path"), "打开证据")}</td>\n'
+        f'    <td class="reply">{_esc(row.get("reply_text")) if row.get("reply_text") else "<small>未记录</small>"}</td>\n'
+        f'    <td>{_proof_cell(row)}</td>\n'
+        f'    <td class="cell-wrap">{_esc(_cell_value(row, "score", "qualification", "identity_confidence", "quality"))}</td>\n'
+        f'    <td>{_response_cell(row)}</td>\n'
+        f'    <td class="cell-wrap">{_esc(_cell_value(row, "failure_code", "failure_reason", "notes", "verification"))}</td>\n'
         f'  </tr>'
         for index, row in enumerate(rows, start=1)
     )
@@ -286,8 +366,8 @@ def render_cumulative_dashboard(view: DashboardView, generated_at: str, source_l
 <section class="metrics">
 {cards}
 </section>
-<div class="toolbar"><input id="search" type="search" placeholder="搜索平台、用户或原话"><select id="platform"><option value="">全部平台</option>{options}</select><span id="visible" style="padding:9px 2px;color:#5b6573;font-size:13px"></span></div>
-<div class="table-wrap"><table><thead><tr><th>#</th><th>平台</th><th>用户</th><th>原话</th><th>发送时间</th><th>来源</th><th>状态</th></tr></thead><tbody id="rows">
+<div class="toolbar"><input id="search" type="search" placeholder="搜索平台、来源类型、用户、原话、文案或链接"><select id="platform"><option value="">全部平台</option>{options}</select><span id="visible" style="padding:9px 2px;color:#5b6573;font-size:13px"></span></div>
+<div class="table-wrap"><table><thead><tr><th>#</th><th>平台</th><th>用户</th><th>原话</th><th>发送时间</th><th>来源</th><th>状态</th><th>来源类型</th><th>内容标题/业务场景</th><th>用户主页</th><th>目标 ID</th><th>评论/回答定位</th><th>发送证据</th><th>我方回复文案</th><th>发送链路</th><th>评分/质量</th><th>对方回复</th><th>失败/备注</th></tr></thead><tbody id="rows">
 {body}
 </tbody></table></div>
 </main>

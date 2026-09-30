@@ -115,6 +115,45 @@ def test_layout_keeps_the_original_template(tmp_path: Path) -> None:
     assert "current" not in html_text  # no leftover placeholder text
 
 
+def test_dashboard_exposes_send_and_evidence_fields(tmp_path: Path) -> None:
+    row = _row(
+        source_type="comment",
+        target_matched=True,
+        draft_verified=True,
+        comment_url="https://www.zhihu.com/question/1#comment-2",
+        author_url="https://www.zhihu.com/people/lumina",
+        native_comment_id="comment-2",
+        title="企业培训平台选型",
+        reply_text="围绕人数、权限和交付方式做选型表。",
+        screenshot="/tmp/reply-preview.png",
+    )
+    html_text, _ = render_from_ledger(_write_ledger(tmp_path, [row]))
+
+    for header_cell in (
+        "<th>来源类型</th>",
+        "<th>内容标题/业务场景</th>",
+        "<th>用户主页</th>",
+        "<th>目标 ID</th>",
+        "<th>评论/回答定位</th>",
+        "<th>发送证据</th>",
+        "<th>我方回复文案</th>",
+        "<th>发送链路</th>",
+        "<th>对方回复</th>",
+    ):
+        assert header_cell in html_text
+    assert "企业培训平台选型" in html_text
+    assert "围绕人数、权限和交付方式做选型表。" in html_text
+    assert "comment-2" in html_text
+    assert "定位✓" in html_text
+    assert "草稿✓" in html_text
+    assert "回查✓" in html_text
+
+
+def test_missing_extended_fields_are_explicitly_unrecorded(tmp_path: Path) -> None:
+    html_text, _ = render_from_ledger(_write_ledger(tmp_path, [_row()]))
+    assert html_text.count("未记录") >= 5
+
+
 def test_single_author_on_two_pages_is_two_targets(tmp_path: Path) -> None:
     rows = [
         _row(target_author="Poon", target_url="u1", target_quote="q1"),
