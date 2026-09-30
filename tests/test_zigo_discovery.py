@@ -143,6 +143,24 @@ def test_material_registry_queries_are_product_scoped_and_ordered(tmp_path):
     assert version == 'v1'
 
 
+def test_material_registry_queries_can_select_practical_buyer_kinds(tmp_path):
+    registry = tmp_path / 'keyword-registry.json'
+    registry.write_text(json.dumps({
+        'version': 'v2',
+        'query_registry': [
+            {'product_domain': 'sales_agent', 'category': 'query', 'query_kind': 'base', 'keyword': '基础词'},
+            {'product_domain': 'sales_agent', 'category': 'query', 'query_kind': 'practice_scenario', 'keyword': '活动报名 线索'},
+            {'product_domain': 'sales_agent', 'category': 'query', 'query_kind': 'buyer_demand', 'keyword': '老板让我找工具'},
+        ]
+    }), encoding='utf-8')
+    queries, rows, version = load_registry_queries(
+        registry, 'sales_agent', query_kinds=['practice_scenario', 'buyer_demand'], limit=2
+    )
+    assert queries == ['活动报名 线索', '老板让我找工具']
+    assert {row['query_kind'] for row in rows} == {'practice_scenario', 'buyer_demand'}
+    assert version == 'v2'
+
+
 def test_discovery_replay_writes_product_scoped_plan_and_database(tmp_path):
     knowledge = tmp_path / 'knowledge'
     knowledge.mkdir()

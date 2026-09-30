@@ -179,13 +179,21 @@ def export_report(output: Path, rows: list[dict], checks: list[dict], target: in
     return summary
 
 
-def load_registry_queries(registry_path: Path, product: str, limit: int | None = None) -> tuple[list[str], list[dict], str]:
+def load_registry_queries(
+    registry_path: Path,
+    product: str,
+    limit: int | None = None,
+    query_kinds: list[str] | None = None,
+) -> tuple[list[str], list[dict], str]:
     """Load product-scoped query terms and provenance from the material registry."""
     registry = json.loads(Path(registry_path).read_text(encoding="utf-8"))
     rows = [
         row for row in registry.get("query_registry", registry.get("keywords", []))
         if row.get("product_domain") == product and row.get("category", "query") == "query"
     ]
+    if query_kinds:
+        allowed = {str(kind).strip() for kind in query_kinds if str(kind).strip()}
+        rows = [row for row in rows if str(row.get("query_kind") or "base") in allowed]
     if limit is not None:
         rows = rows[: max(0, limit)]
     queries = [str(row.get("keyword") or "").strip() for row in rows if str(row.get("keyword") or "").strip()]
@@ -205,6 +213,7 @@ def run_discovery(
     keyword_registry: Path | None = None,
     product_root: Path = Path('/Volumes/GameSSD-Dev/CodexProjects/home/Users/sexpistole111/Documents/GOODS/ZIgoAI'),
     query_limit: int | None = None,
+    query_kinds: list[str] | None = None,
     target: int = 10,
 ) -> dict:
     """Run one product-scoped, read-only ZigoAI discovery batch."""
@@ -224,7 +233,9 @@ def run_discovery(
     if keywords:
         selected_queries = [str(keyword).strip() for keyword in keywords if str(keyword).strip()]
     elif keyword_registry:
-        selected_queries, registry_rows, registry_version = load_registry_queries(keyword_registry, product, query_limit)
+        selected_queries, registry_rows, registry_version = load_registry_queries(
+            keyword_registry, product, query_limit, query_kinds
+        )
     else:
         selected_queries = list(config.keywords.values())
         if query_limit is not None:
@@ -246,6 +257,7 @@ def run_discovery(
         "product_domain": product,
         "registry_path": str(keyword_registry) if keyword_registry else "",
         "registry_version": registry_version,
+        "query_kinds": query_kinds or [],
         "queries": selected_queries,
         "query_sources": registry_rows,
         "platforms": config.platforms,

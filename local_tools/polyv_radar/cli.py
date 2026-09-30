@@ -215,6 +215,11 @@ def build_parser() -> argparse.ArgumentParser:
     zigo_discover_parser.add_argument("--checks", type=Path)
     zigo_discover_parser.add_argument("--keyword-registry", type=Path)
     zigo_discover_parser.add_argument("--query-limit", type=int)
+    zigo_discover_parser.add_argument(
+        "--query-kind", action="append",
+        choices=("base", "practice_scenario", "buyer_demand", "purchase_intent"),
+        help="只运行指定类型的注册表 query，可重复传入",
+    )
     zigo_discover_parser.add_argument("--target", type=int, default=10)
     zigo_discover_parser.add_argument("--product-root", type=Path, default=Path('/Volumes/GameSSD-Dev/CodexProjects/home/Users/sexpistole111/Documents/GOODS/ZIgoAI'))
     return parser
@@ -413,6 +418,7 @@ def main(argv: list[str] | None = None) -> int:
             keyword_registry=args.keyword_registry,
             product_root=args.product_root,
             query_limit=args.query_limit,
+            query_kinds=args.query_kind,
             target=args.target,
         )
     elif args.command == "zigo-keywords":

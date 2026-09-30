@@ -37,6 +37,14 @@ uv run python -m local_tools.polyv_radar zigo-discover \
 ```
 
 GEO 使用 `zigo-geo.toml` 和 `--product geo`；每次2条查询、每平台串行。若需要一次性测试指定长尾词，可重复传入 `--keyword`，它会覆盖资料注册表查询，但在 `query-plan.json` 中标为命令行查询，不伪装成 PDF 原文。
+
+注册表 query 按 `query_kind` 区分基础词、实践场景、买方需求和采购意图。需要优先验证客户侧表达时，可以重复传入筛选参数：
+
+```bash
+--query-kind practice_scenario --query-kind buyer_demand --query-limit 8
+```
+
+扩展 query 仍会保留 `scenario`、`source_terms`、`source_pages` 和 RAG 哈希；如果组合词没有逐字出现在材料中，会标记为 `curated_search_hypothesis`，不会伪装成资料原文。
 没有 `--collect` 只重放原始数据。`--checks <JSON数组>` 仅合并本轮独立核验结果。
 该入口不创建发送队列、不调用 dispatch、不写 POLYV SQLite 和历史发送日志。
 原始数据、筛选结果和 HTML 分别保存在配置的数据目录 raw、reports 和 workflow-runs。

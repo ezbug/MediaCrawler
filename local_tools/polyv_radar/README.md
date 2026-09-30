@@ -66,6 +66,20 @@ uv run python -m local_tools.polyv_radar zigo-discover \
   --collect
 ```
 
+如果本轮只验证实践场景和买方表达，可按注册表类型筛选，避免再次优先跑基础产品词：
+
+```bash
+uv run python -m local_tools.polyv_radar zigo-discover \
+  --config local_tools/polyv_radar/zigo-sales.toml \
+  --product sales_agent --run-id <run-id> \
+  --keyword-registry /Users/sexpistole111/Documents/workplace/polyv-radar-data/zigoai/keyword-registry.json \
+  --query-kind practice_scenario \
+  --query-kind buyer_demand \
+  --query-limit 8 --platform dy --taskspace <current-taskspace> --collect
+```
+
+`query_kind` 包括 `base`、`practice_scenario`、`buyer_demand` 和 `purchase_intent`；每条 query 的场景、来源词和材料页码会写入批次 `query-plan.json`。
+
 GEO 使用 `zigo-geo.toml --product geo`。省略 `--collect` 时只重放已有 raw JSONL；加入 `--collect` 时必须显式提供已登录的 Ego Lite TaskSpace。该入口只做发现、筛选、证据报告和独立入库，不调用 `dispatch`，不发表评论或私信。
 
 批次产物位于 `zigoai/<product_domain>/reports/<run-id>/`：`query-plan.json`、`product-evidence.json`、筛选 JSONL、`candidates.html` 和 `summary.json`。数据库固定为 `zigoai/radar.sqlite3`；重复运行同一批次会幂等更新，不会写入 `radar.sqlite3`。
