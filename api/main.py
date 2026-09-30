@@ -43,6 +43,7 @@ from local_tools.polyv_radar.dashboard import (
     merge_dashboard_queue,
 )
 from local_tools.polyv_radar.html_dashboard import latest_run_id, render_html_dashboard
+from local_tools.polyv_radar.unified_radar import UnifiedRadarReader
 
 # Project root directory (used for running subprocesses like uv run main.py)
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -89,6 +90,12 @@ def _manual_artifact_counts(rows: list[dict]) -> tuple[int, int]:
         and row.get("comment_id")
     )
     return len(content_keys), comment_count
+
+
+def _unified_reader() -> UnifiedRadarReader:
+    data_root = Path(os.environ.get("POLYV_RADAR_DATA_ROOT", "/Users/sexpistole111/Documents/workplace/polyv-radar-data"))
+    zigo_db = Path(os.environ.get("ZIGO_RADAR_DB", str(data_root / "zigoai" / "radar.sqlite3")))
+    return UnifiedRadarReader(data_root, zigo_db)
 
 
 @app.get("/")
@@ -405,6 +412,34 @@ async def radar_queue(run_id: str | None = None):
     )
     store.close()
     return {"queue": rows}
+
+
+@app.get("/api/radar/unified/summary")
+async def unified_radar_summary(brand: str = "all", product_domain: str | None = None):
+    """Read-only aggregate over the independent POLYV and ZigoAI databases."""
+    return _unified_reader().summary(brand, product_domain)
+
+
+@app.get("/api/radar/unified/runs")
+async def unified_radar_runs(brand: str = "all"):
+    return {"runs": _unified_reader().runs(brand)}
+
+
+@app.get("/api/radar/unified/leads")
+async def unified_radar_leads(
+    brand: str = "all",
+    product_domain: str | None = None,
+    run_id: str | None = None,
+    limit: int = 100,
+    include_excluded: bool = False,
+):
+    return {"leads": _unified_reader().leads(brand, product_domain, run_id, limit, include_excluded)}
+
+
+@app.get("/api/radar/unified/revision")
+async def unified_radar_revision():
+    reader = _unified_reader()
+    return {"revision": reader.last_updated()}
 
 
 # Mount static resources - must be placed after all routes

@@ -189,6 +189,28 @@ export interface RadarManualCandidate {
   reply_evidence_status?: string
 }
 
+export interface UnifiedRadarSummary {
+  brand: 'all' | 'polyv' | 'zigo'
+  product_domain: string | null
+  runs: number
+  contents: number
+  comments: number
+  candidates: number
+  verified: number
+  revision: number
+  last_updated: string
+  brands: { polyv: number; zigo: number }
+}
+
+export interface UnifiedRadarRun {
+  brand: 'polyv' | 'zigo'
+  product_domain: string
+  run_id: string
+  started_at: string
+  finished_at: string | null
+  status: string
+}
+
 export const radarApi = {
   getRuns: (limit = 30) => api.get<{ runs: RadarRun[] }>('/radar/runs', { params: { limit } }),
   getSummary: (runId?: string) => api.get<RadarSummary>('/radar/summary', { params: runId ? { run_id: runId } : {} }),
@@ -196,6 +218,12 @@ export const radarApi = {
     api.get<{ run_id: string; leads: RadarLead[]; raw_count: number; cleaned_count: number; filtered_count: number }>('/radar/leads', { params: { run_id: runId, limit, view } }),
   getQueue: (runId: string) => api.get<{ queue: RadarQueueItem[] }>('/radar/queue', { params: { run_id: runId } }),
   getManualCandidates: (runId: string, limit = 50) => api.get<{ run_id: string; candidates: RadarManualCandidate[] }>('/radar/manual-candidates', { params: { run_id: runId, limit } }),
+  getUnifiedSummary: (brand: 'all' | 'polyv' | 'zigo' = 'all', productDomain?: string) =>
+    api.get<UnifiedRadarSummary>('/radar/unified/summary', { params: { brand, product_domain: productDomain || undefined } }),
+  getUnifiedRuns: (brand: 'all' | 'polyv' | 'zigo' = 'all') =>
+    api.get<{ runs: UnifiedRadarRun[] }>('/radar/unified/runs', { params: { brand } }),
+  getUnifiedLeads: (brand: 'all' | 'polyv' | 'zigo' = 'all', productDomain?: string, runId?: string, limit = 50) =>
+    api.get<{ leads: Array<Record<string, unknown>> }>('/radar/unified/leads', { params: { brand, product_domain: productDomain || undefined, run_id: runId || undefined, limit } }),
 }
 
 export default api
