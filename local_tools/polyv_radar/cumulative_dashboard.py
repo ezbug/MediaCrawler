@@ -170,10 +170,11 @@ PAGE_CSS = (
     '.table-wrap{background:#fff;border:1px solid #dfe5ec;border-radius:8px;overflow:auto}'
     'table{border-collapse:collapse;width:100%;min-width:2480px}'
     'th,td{border-bottom:1px solid #edf0f3;padding:11px 12px;text-align:left;vertical-align:top;font-size:13px}'
-    'th{position:sticky;top:0;background:#f8fafc;color:#4d5968;z-index:1}'
+    'th{position:sticky;top:0;background:#f8fafc;color:#4d5968;z-index:1;white-space:nowrap}'
     '.quote{min-width:360px;max-width:520px;line-height:1.5}'
     '.reply{min-width:420px;max-width:620px;line-height:1.5;white-space:pre-wrap}'
     '.cell-wrap{min-width:180px;max-width:300px;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere}'
+    '.url-cell{min-width:270px;max-width:390px}.url-line{display:flex;align-items:flex-start;gap:9px;min-width:240px;line-height:1.45}.url-line a{flex:0 0 auto;white-space:nowrap}.url-value{display:block;min-width:0;overflow-wrap:anywhere;word-break:break-word;color:#6b7280;font-size:12px}'
     '.proof{display:flex;flex-wrap:wrap;gap:4px;min-width:220px}.proof span{display:inline-block;border-radius:999px;padding:3px 7px;font-size:11px;background:#eef1f5;color:#657080}.proof .ok{background:#e7f6ec;color:#21733c}.proof .warn{background:#fff4db;color:#8a5b00}.proof .bad{background:#fdebec;color:#a12a36}'
     '.badge,.status{display:inline-block;border-radius:999px;padding:3px 8px;background:#e8f1ff;'
     'color:#245a9c;font-size:12px}.status{background:#e7f6ec;color:#21733c}'
@@ -247,7 +248,7 @@ def _cell_value(row: dict, *names: str, fallback: str = "未记录") -> str:
 def _link(value: str, label: str) -> str:
     if not value:
         return "<small>未记录</small>"
-    return f'<a href="{_esc(value)}" target="_blank" rel="noreferrer">{_esc(label)}</a><br><small class="cell-wrap">{_esc(value)}</small>'
+    return f'<div class="url-line"><a href="{_esc(value)}" target="_blank" rel="noreferrer">{_esc(label)}</a><small class="url-value">{_esc(value)}</small></div>'
 
 
 def _artifact_link(value: str, label: str) -> str:
@@ -358,14 +359,14 @@ def render_cumulative_dashboard(view: DashboardView, generated_at: str, source_l
         f'    <td>{_esc(row.get("target_author"))}</td>\n'
         f'    <td class="quote">{_esc(_short(row.get("target_quote")))}</td>\n'
         f'    <td>{_esc(_display_time(row.get("timestamp")))}</td>\n'
-        f'    <td>{_link(_first_value(row, "target_url", "content_url", "url"), "打开来源")}</td>\n'
+        f'    <td class="url-cell">{_link(_first_value(row, "target_url", "content_url", "url"), "打开来源")}</td>\n'
         f'    <td>{_status_cell(row)}</td>\n'
         f'    <td class="cell-wrap">{_esc(_source_type(row))}</td>\n'
         f'    <td class="cell-wrap">{_esc(_cell_value(row, "title", "content_title", "event_type", "business_scene"))}</td>\n'
         f'    <td class="cell-wrap">{_esc(_cell_value(row, "author_url", "profile_url", "user_url"))}</td>\n'
         f'    <td class="cell-wrap">{_esc(_cell_value(row, "content_id", "native_content_id", "comment_id", "native_comment_id"))}</td>\n'
-        f'    <td>{_link(*_comment_locator(row))}</td>\n'
-        f'    <td>{_artifact_link(_first_value(row, "screenshot", "evidence_path"), "查看截图")}</td>\n'
+        f'    <td class="url-cell">{_link(*_comment_locator(row))}</td>\n'
+        f'    <td class="url-cell">{_artifact_link(_first_value(row, "screenshot", "evidence_path"), "查看截图")}</td>\n'
         f'    <td class="reply">{_esc(row.get("reply_text")) if row.get("reply_text") else "<small>未记录</small>"}</td>\n'
         f'    <td>{_proof_cell(row)}</td>\n'
         f'    <td class="cell-wrap">{_esc(_cell_value(row, "score", "qualification", "identity_confidence", "quality"))}</td>\n'
