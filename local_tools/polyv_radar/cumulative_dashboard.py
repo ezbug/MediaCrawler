@@ -250,6 +250,19 @@ def _link(value: str, label: str) -> str:
     return f'<a href="{_esc(value)}" target="_blank" rel="noreferrer">{_esc(label)}</a><br><small class="cell-wrap">{_esc(value)}</small>'
 
 
+def _artifact_link(value: str, label: str) -> str:
+    """Link a local evidence file through the API's guarded evidence route."""
+    raw = str(value or "").strip()
+    if not raw:
+        return "<small>未记录</small>"
+    if raw.startswith(("http://", "https://")):
+        return _link(raw, label)
+    marker = "/polyv-radar-data/"
+    if marker in raw:
+        return _link("/polyv-evidence/" + raw.split(marker, 1)[1], label)
+    return f'<small class="cell-wrap">{_esc(raw)}</small>'
+
+
 def _source_type(row: dict) -> str:
     raw = _first_value(row, "source_type")
     return SOURCE_TYPE_LABELS.get(raw.casefold(), raw) if raw else "未标注"
@@ -288,6 +301,19 @@ def _response_cell(row: dict) -> str:
     return '<small>未记录</small>'
 
 
+def _comment_locator(row: dict) -> tuple[str, str]:
+    """Return the best available comment/answer locator without inventing an anchor."""
+    direct = _first_value(row, "comment_url", "reply_url")
+    if direct:
+        return direct, "打开评论定位"
+    content = _first_value(row, "target_url", "content_url", "url")
+    if content and _source_type(row) in {"评论", "子评论"}:
+        return content, "打开评论页（无独立锚点）"
+    if content:
+        return content, "打开目标页（类型未记录）"
+    return "", "打开定位"
+
+
 
 def display_groups(view: DashboardView) -> list[tuple[str, int]]:
     """Ordered metric cards. zhihu+bili share one card, as in the original layout."""
@@ -321,7 +347,7 @@ def render_cumulative_dashboard(view: DashboardView, generated_at: str, source_l
     )
 
     options = "".join(
-        f'<option value="{_esc(label)}">{_esc(label)}</option>' for _code, label in groups
+        f'<option value="{_esc(label)}">{_esc(label)}</option>' for label, _count in groups
     )
 
     body = "\n".join(
@@ -338,8 +364,8 @@ def render_cumulative_dashboard(view: DashboardView, generated_at: str, source_l
         f'    <td class="cell-wrap">{_esc(_cell_value(row, "title", "content_title", "event_type", "business_scene"))}</td>\n'
         f'    <td class="cell-wrap">{_esc(_cell_value(row, "author_url", "profile_url", "user_url"))}</td>\n'
         f'    <td class="cell-wrap">{_esc(_cell_value(row, "content_id", "native_content_id", "comment_id", "native_comment_id"))}</td>\n'
-        f'    <td>{_link(_first_value(row, "comment_url", "reply_url"), "打开定位")}</td>\n'
-        f'    <td>{_link(_first_value(row, "screenshot", "evidence_path"), "打开证据")}</td>\n'
+        f'    <td>{_link(*_comment_locator(row))}</td>\n'
+        f'    <td>{_artifact_link(_first_value(row, "screenshot", "evidence_path"), "查看截图")}</td>\n'
         f'    <td class="reply">{_esc(row.get("reply_text")) if row.get("reply_text") else "<small>未记录</small>"}</td>\n'
         f'    <td>{_proof_cell(row)}</td>\n'
         f'    <td class="cell-wrap">{_esc(_cell_value(row, "score", "qualification", "identity_confidence", "quality"))}</td>\n'
@@ -367,7 +393,7 @@ def render_cumulative_dashboard(view: DashboardView, generated_at: str, source_l
 {cards}
 </section>
 <div class="toolbar"><input id="search" type="search" placeholder="搜索平台、来源类型、用户、原话、文案或链接"><select id="platform"><option value="">全部平台</option>{options}</select><span id="visible" style="padding:9px 2px;color:#5b6573;font-size:13px"></span></div>
-<div class="table-wrap"><table><thead><tr><th>#</th><th>平台</th><th>用户</th><th>原话</th><th>发送时间</th><th>来源</th><th>状态</th><th>来源类型</th><th>内容标题/业务场景</th><th>用户主页</th><th>目标 ID</th><th>评论/回答定位</th><th>发送证据</th><th>我方回复文案</th><th>发送链路</th><th>评分/质量</th><th>对方回复</th><th>失败/备注</th></tr></thead><tbody id="rows">
+<div class="table-wrap"><table><thead><tr><th>#</th><th>平台</th><th>用户</th><th>原话</th><th>发送时间</th><th>来源</th><th>状态</th><th>来源类型</th><th>内容标题/业务场景</th><th>用户主页</th><th>目标 ID</th><th>评论 URL / 回答定位</th><th>发送证据</th><th>我方回复文案</th><th>发送链路</th><th>评分/质量</th><th>对方回复</th><th>失败/备注</th></tr></thead><tbody id="rows">
 {body}
 </tbody></table></div>
 </main>

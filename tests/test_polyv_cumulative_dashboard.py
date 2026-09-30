@@ -134,7 +134,7 @@ def test_dashboard_exposes_send_and_evidence_fields(tmp_path: Path) -> None:
         "<th>内容标题/业务场景</th>",
         "<th>用户主页</th>",
         "<th>目标 ID</th>",
-        "<th>评论/回答定位</th>",
+        "<th>评论 URL / 回答定位</th>",
         "<th>发送证据</th>",
         "<th>我方回复文案</th>",
         "<th>发送链路</th>",
@@ -147,6 +147,24 @@ def test_dashboard_exposes_send_and_evidence_fields(tmp_path: Path) -> None:
     assert "定位✓" in html_text
     assert "草稿✓" in html_text
     assert "回查✓" in html_text
+
+
+def test_platform_filter_uses_platform_labels_not_counts(tmp_path: Path) -> None:
+    html_text, _ = render_from_ledger(_write_ledger(tmp_path, [
+        _row(platform="dy"),
+        _row(platform="xhs", target_url="u2"),
+    ]))
+    assert '<option value="抖音">抖音</option>' in html_text
+    assert '<option value="小红书">小红书</option>' in html_text
+    assert '<option value="知乎 / B站">知乎 / B站</option>' in html_text
+    assert '<option value="2">2</option>' not in html_text
+
+
+def test_comment_locator_falls_back_to_content_page_without_claiming_anchor(tmp_path: Path) -> None:
+    row = _row(source_type="comment", comment_url="")
+    html_text, _ = render_from_ledger(_write_ledger(tmp_path, [row]))
+    assert "打开评论页（无独立锚点）" in html_text
+    assert "https://zhuanlan.zhihu.com/p/1" in html_text
 
 
 def test_missing_extended_fields_are_explicitly_unrecorded(tmp_path: Path) -> None:
