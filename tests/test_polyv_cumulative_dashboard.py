@@ -17,8 +17,10 @@ from local_tools.polyv_radar.cumulative_dashboard import (
     build_view,
     is_send_event,
     load_history,
+    load_zigo_send_logs,
     render_cumulative_dashboard,
     render_from_ledger,
+    render_from_sources,
     target_key,
 )
 
@@ -158,6 +160,63 @@ def test_platform_filter_uses_platform_labels_not_counts(tmp_path: Path) -> None
     assert '<option value="小红书">小红书</option>' in html_text
     assert '<option value="知乎 / B站">知乎 / B站</option>' in html_text
     assert '<option value="2">2</option>' not in html_text
+
+
+def test_brand_filter_separates_polyv_and_zigoai(tmp_path: Path) -> None:
+    html_text, view = render_from_ledger(_write_ledger(tmp_path, [
+        _row(target_author="polyv-user"),
+        _row(brand="zigo", platform="xhs", target_author="zigo-user", target_url="zigo-url"),
+    ]))
+    assert view.target_count == 2
+    assert '<option value="">全部品牌</option>' in html_text
+    assert '<option value="polyv">POLYV</option>' in html_text
+    assert '<option value="zigo">ZigoAI</option>' in html_text
+    assert 'data-platform="知乎" data-brand="polyv"' in html_text
+    assert 'data-platform="小红书" data-brand="zigo"' in html_text
+    assert 'const activeMetrics=metrics[brand.value]' in html_text
+
+
+def test_brand_is_part_of_target_identity() -> None:
+    polyv = _row(brand="polyv")
+    zigo = _row(brand="zigo")
+    assert target_key(polyv) != target_key(zigo)
+    view = build_view([polyv, zigo])
+    assert view.event_count == 2
+    assert view.target_count == 2
+    assert view.duplicate_events == 0
+
+
+def test_zigo_send_log_is_projected_without_writing_source(tmp_path: Path) -> None:
+    log_dir = tmp_path / "zigoai" / "geo" / "outreach" / "run-1"
+    log_dir.mkdir(parents=True)
+    (log_dir / "001-after-send.png").write_bytes(b"png")
+    (log_dir / "send-log.json").write_text(json.dumps({
+        "platform": "xiaohongshu",
+        "recorded_at": "2026-09-30T23:38:40+08:00",
+        "records": [{
+            "candidate_id": "candidate-1",
+            "author": "Zigo 用户",
+            "source_type": "comment_reply",
+            "content_url": "https://www.xiaohongshu.com/explore/1",
+            "comment_url": "https://www.xiaohongshu.com/explore/1#comment-1",
+            "source_quote": "我们公司想做 GEO",
+            "draft": "这是一条公开回复。",
+            "status": "submitted_verified",
+            "screenshots": {"after": "001-after-send.png"},
+        }],
+    }, ensure_ascii=False), encoding="utf-8")
+
+    rows = load_zigo_send_logs(tmp_path)
+    assert len(rows) == 1
+    assert rows[0]["brand"] == "zigo"
+    assert rows[0]["platform"] == "xhs"
+    assert rows[0]["verified"] is True
+    assert rows[0]["screenshot"].endswith("001-after-send.png")
+
+    html_text, view = render_from_sources(tmp_path / "reply_history.jsonl", tmp_path)
+    assert view.target_count == 1
+    assert "Zigo 用户" in html_text
+    assert "candidate-1" in html_text
 
 
 def test_comment_locator_falls_back_to_content_page_without_claiming_anchor(tmp_path: Path) -> None:

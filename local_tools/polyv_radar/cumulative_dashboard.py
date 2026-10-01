@@ -13,6 +13,9 @@ Design rules
 ------------
 * One dedupe key (:func:`target_key`) is used for the header, the subtotals and
   the rows.
+* Brand is part of the target identity. POLYV and ZigoAI keep separate stores
+  and send ledgers, so identical-looking targets in the two brands are not
+  merged in the combined board.
 * A *send event* is a ledger row that was actually sent (``live`` mode and the
   click/legacy-submitted flag).  Duplicate events for the same target are
   reported explicitly rather than silently merged, so ``events`` and
@@ -54,6 +57,69 @@ def load_history(path: Path | str) -> list[dict]:
     return rows
 
 
+def load_zigo_send_logs(data_root: Path | str) -> list[dict]:
+    """Project ZigoAI send logs into the dashboard's read-only row shape.
+
+    ZigoAI deliberately keeps its own database and outreach files. This
+    adapter is only for the combined dashboard and never writes either source.
+    """
+    root = Path(data_root)
+    rows: list[dict] = []
+    for path in sorted(root.glob("zigoai/**/outreach/*/send-log.json")):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        platform = str(payload.get("platform") or "").casefold()
+        platform = {
+            "xiaohongshu": "xhs",
+            "xhs": "xhs",
+            "douyin": "dy",
+            "bilibili": "bili",
+            "zhihu": "zhihu",
+        }.get(platform, platform or "unknown")
+        recorded_at = payload.get("recorded_at") or ""
+        for item in payload.get("records") or []:
+            if not isinstance(item, dict):
+                continue
+            screenshots = item.get("screenshots") or {}
+            screenshot_name = screenshots.get("recheck") or screenshots.get("after") or screenshots.get("before")
+            screenshot = str(path.parent / screenshot_name) if screenshot_name else ""
+            status = str(item.get("status") or "")
+            rows.append({
+                "brand": "zigo",
+                "platform": platform,
+                "timestamp": item.get("timestamp") or recorded_at,
+                "target_author": item.get("author"),
+                "target_quote": item.get("source_quote"),
+                "target_url": item.get("content_url"),
+                "comment_url": item.get("comment_url"),
+                "native_comment_id": item.get("native_comment_id"),
+                "candidate_id": item.get("candidate_id"),
+                "reply_text": item.get("draft"),
+                "source_type": item.get("source_type"),
+                "mode": "live",
+                "clicked": True,
+                "submitted": True,
+                "verified": status == "submitted_verified",
+                "target_matched": True,
+                "draft_verified": True,
+                "screenshot": screenshot,
+                "status": status,
+                "notes": item.get("recheck") or item.get("submit_evidence"),
+                "source_file": str(path),
+                "product_domain": "zigoai",
+            })
+    return rows
+
+
+def load_combined_history(ledger_path: Path | str, data_root: Path | str) -> list[dict]:
+    """Read POLYV and ZigoAI send sources without merging their stores."""
+    return load_history(ledger_path) + load_zigo_send_logs(data_root)
+
+
 def is_send_event(row: dict) -> bool:
     """Whether a ledger row represents an actual send attempt that went out.
 
@@ -73,8 +139,8 @@ def _norm(value: object) -> str:
     return " ".join(str(value or "").split()).strip().casefold()
 
 
-def target_key(row: dict) -> tuple[str, str, str, str]:
-    """THE dedupe key: platform + author + url + original quote.
+def target_key(row: dict) -> tuple[str, str, str, str, str]:
+    """THE dedupe key: brand + platform + author + url + original quote.
 
     Deliberately excluded:
 
@@ -86,6 +152,7 @@ def target_key(row: dict) -> tuple[str, str, str, str]:
       collapse. (Including it silently split 20 real duplicates back out.)
     """
     return (
+        _norm(row.get("brand") or "polyv"),
         _norm(row.get("platform")),
         _norm(row.get("target_author")),
         _norm(row.get("target_url")),
@@ -97,6 +164,7 @@ def target_key(row: dict) -> tuple[str, str, str, str]:
 # The single data view
 # --------------------------------------------------------------------------
 
+BRAND_LABELS = {"polyv": "POLYV", "zigo": "ZigoAI"}
 PLATFORM_LABELS = {"dy": "抖音", "xhs": "小红书", "zhihu": "知乎", "bili": "B站"}
 
 
@@ -135,8 +203,13 @@ class DashboardView:
 
 def build_view(rows: list[dict]) -> DashboardView:
     """Collapse raw ledger rows into the one keyed view every number comes from."""
-    events = [row for row in rows if is_send_event(row)]
-    by_key: dict[tuple[str, str, str, str], dict] = {}
+    events = []
+    for row in rows:
+        if is_send_event(row):
+            normalized = dict(row)
+            normalized.setdefault("brand", "polyv")
+            events.append(normalized)
+    by_key: dict[tuple[str, str, str, str, str], dict] = {}
     duplicate_events = 0
     for row in sorted(events, key=lambda item: str(item.get("timestamp") or "")):
         key = target_key(row)
@@ -178,15 +251,19 @@ PAGE_CSS = (
     '.proof{display:flex;flex-wrap:wrap;gap:4px;min-width:220px}.proof span{display:inline-block;border-radius:999px;padding:3px 7px;font-size:11px;background:#eef1f5;color:#657080}.proof .ok{background:#e7f6ec;color:#21733c}.proof .warn{background:#fff4db;color:#8a5b00}.proof .bad{background:#fdebec;color:#a12a36}'
     '.badge,.status{display:inline-block;border-radius:999px;padding:3px 8px;background:#e8f1ff;'
     'color:#245a9c;font-size:12px}.status{background:#e7f6ec;color:#21733c}'
+    '.brand-badge{display:inline-block;border-radius:999px;padding:3px 8px;background:#f2eaff;'
+    'color:#7046a5;font-size:12px}'
     'small{color:#6b7280}a{color:#2364aa;text-decoration:none}a:hover{text-decoration:underline}'
     '.note{background:#fffbe8;border:1px solid #f0df9b;border-radius:8px;padding:12px 14px;'
     'margin:0 0 16px;color:#6b5515;font-size:13px}\n'
     '@media(max-width:700px){body{padding:16px}.metrics{grid-template-columns:repeat(2,1fr)}h1{font-size:22px}}'
 )
 
-FILTER_SCRIPT = """const search=document.querySelector('#search'), platform=document.querySelector('#platform'), body=document.querySelector('#rows'), visible=document.querySelector('#visible');
-function filter(){const q=search.value.trim().toLowerCase(), p=platform.value; let n=0; [...body.rows].forEach(row=>{const hit=(!p||row.dataset.platform===p)&&(!q||row.dataset.text.toLowerCase().includes(q));row.hidden=!hit;if(hit)n++;});visible.textContent='当前显示 '+n+' 条';}
-search.addEventListener('input',filter);platform.addEventListener('change',filter);filter();"""
+FILTER_SCRIPT = """const search=document.querySelector('#search'), brand=document.querySelector('#brand'), platform=document.querySelector('#platform'), body=document.querySelector('#rows'), visible=document.querySelector('#visible');
+const metrics=window.DASHBOARD_METRICS||{};
+function updateMetrics(){const activeMetrics=metrics[brand.value]||metrics.all||{}; const keys=['targets','events','group:dy','group:xhs','group:zhihu']; [...document.querySelectorAll('.metric strong')].forEach((node,index)=>{node.textContent=String(activeMetrics[keys[index]]??0);});}
+function filter(){const q=search.value.trim().toLowerCase(), b=brand.value, p=platform.value; let n=0; [...body.rows].forEach(row=>{const hit=(!b||row.dataset.brand===b)&&(!p||row.dataset.platform===p)&&(!q||row.dataset.text.toLowerCase().includes(q));row.hidden=!hit;if(hit)n++;});updateMetrics();visible.textContent='当前显示 '+n+' 条';}
+search.addEventListener('input',filter);brand.addEventListener('change',filter);platform.addEventListener('change',filter);filter();"""
 
 #: Display grouping for the metric cards / filter dropdown. B站 shares the
 #: 知乎 card because B站 carries no live sends in this ledger — the card label
@@ -226,6 +303,7 @@ def _status_cell(row: dict) -> str:
 SOURCE_TYPE_LABELS = {
     "comment": "评论",
     "reply": "子评论",
+    "comment_reply": "子评论",
     "answer": "回答",
     "post": "帖子",
     "content": "内容",
@@ -260,7 +338,12 @@ def _artifact_link(value: str, label: str) -> str:
         return _link(raw, label)
     marker = "/polyv-radar-data/"
     if marker in raw:
-        return _link("/polyv-evidence/" + raw.split(marker, 1)[1], label)
+        api_link = _link("/polyv-evidence/" + raw.split(marker, 1)[1], label)
+        local_path = Path(raw).expanduser()
+        if local_path.is_file():
+            local_link = _link(local_path.resolve().as_uri(), "本地文件")
+            return f'<div class="url-cell">{api_link}{local_link}</div>'
+        return api_link
     return f'<small class="cell-wrap">{_esc(raw)}</small>'
 
 
@@ -338,12 +421,28 @@ def render_cumulative_dashboard(view: DashboardView, generated_at: str, source_l
     groups = display_groups(view)
     rows = sorted(view.targets, key=lambda row: str(row.get("timestamp") or ""), reverse=True)
 
+    brand_views = {"all": view}
+    for brand in BRAND_LABELS:
+        brand_views[brand] = build_view(
+            [row for row in view.events if str(row.get("brand") or "polyv") == brand]
+        )
+
+    def metric_values(selected: DashboardView) -> dict[str, int]:
+        values = {"targets": selected.target_count, "events": selected.event_count}
+        for entry, (_label, count) in zip(DISPLAY_GROUPS, display_groups(selected)):
+            values[f"group:{entry[0]}"] = count
+        return values
+
+    metrics_json = json.dumps(
+        {key: metric_values(selected) for key, selected in brand_views.items()},
+        ensure_ascii=False,
+    ).replace("</", "<\\/")
     cards = "\n".join(
         f'  <div class="metric"><span>{_esc(label)}</span><strong>{count}</strong></div>'
-        for label, count in [
-            ("去重后发送线索", view.target_count),
-            ("原始已发送记录", view.event_count),
-            *groups,
+        for metric_key, label, count in [
+            ("targets", "去重后发送线索", view.target_count),
+            ("events", "原始已发送记录", view.event_count),
+            *[(f"group:{entry[0]}", entry[1], count) for entry, (_label, count) in zip(DISPLAY_GROUPS, groups)],
         ]
     )
 
@@ -351,10 +450,15 @@ def render_cumulative_dashboard(view: DashboardView, generated_at: str, source_l
         f'<option value="{_esc(label)}">{_esc(label)}</option>' for label, _count in groups
     )
 
+    brand_options = '<option value="">全部品牌</option>' + "".join(
+        f'<option value="{_esc(code)}">{_esc(label)}</option>' for code, label in BRAND_LABELS.items()
+    )
+
     body = "\n".join(
-        f'<tr data-platform="{_esc(PLATFORM_LABELS.get(str(row.get("platform") or ""), str(row.get("platform") or "")))}"'
-        f' data-text="{_esc(" ".join(part for part in [PLATFORM_LABELS.get(str(row.get("platform") or ""), str(row.get("platform") or "")), _source_type(row), str(row.get("target_author") or ""), str(row.get("target_quote") or ""), str(row.get("reply_text") or ""), str(row.get("target_url") or "")] if part))}">\n'
+        f'<tr data-platform="{_esc(PLATFORM_LABELS.get(str(row.get("platform") or ""), str(row.get("platform") or "")))}" data-brand="{_esc(str(row.get("brand") or "polyv"))}"'
+        f' data-text="{_esc(" ".join(part for part in [BRAND_LABELS.get(str(row.get("brand") or "polyv"), str(row.get("brand") or "")), PLATFORM_LABELS.get(str(row.get("platform") or ""), str(row.get("platform") or "")), _source_type(row), str(row.get("target_author") or ""), str(row.get("target_quote") or ""), str(row.get("reply_text") or ""), str(row.get("target_url") or "")] if part))}">\n'
         f'    <td>{index}</td>\n'
+        f'    <td><span class="brand-badge">{_esc(BRAND_LABELS.get(str(row.get("brand") or "polyv"), str(row.get("brand") or "")))}</span></td>\n'
         f'    <td><span class="badge">{_esc(PLATFORM_LABELS.get(str(row.get("platform") or ""), str(row.get("platform") or "")))}</span></td>\n'
         f'    <td>{_esc(row.get("target_author"))}</td>\n'
         f'    <td class="quote">{_esc(_short(row.get("target_quote")))}</td>\n'
@@ -364,7 +468,7 @@ def render_cumulative_dashboard(view: DashboardView, generated_at: str, source_l
         f'    <td class="cell-wrap">{_esc(_source_type(row))}</td>\n'
         f'    <td class="cell-wrap">{_esc(_cell_value(row, "title", "content_title", "event_type", "business_scene"))}</td>\n'
         f'    <td class="cell-wrap">{_esc(_cell_value(row, "author_url", "profile_url", "user_url"))}</td>\n'
-        f'    <td class="cell-wrap">{_esc(_cell_value(row, "content_id", "native_content_id", "comment_id", "native_comment_id"))}</td>\n'
+        f'    <td class="cell-wrap">{_esc(_cell_value(row, "content_id", "native_content_id", "comment_id", "native_comment_id", "candidate_id"))}</td>\n'
         f'    <td class="url-cell">{_link(*_comment_locator(row))}</td>\n'
         f'    <td class="url-cell">{_artifact_link(_first_value(row, "screenshot", "evidence_path"), "查看截图")}</td>\n'
         f'    <td class="reply">{_esc(row.get("reply_text")) if row.get("reply_text") else "<small>未记录</small>"}</td>\n'
@@ -381,24 +485,25 @@ def render_cumulative_dashboard(view: DashboardView, generated_at: str, source_l
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>POLYV 全项目发送线索累计大板</title>
+<title>POLYV + ZigoAI 全项目发送线索累计大板</title>
 <style>
 {PAGE_CSS}
 </style>
 </head>
 <body><main>
-<h1>POLYV 全项目发送线索累计大板</h1>
-<p>数据源：<code>{_esc(source_label)}</code>｜生成时间：{_esc(generated_at)}｜按平台、作者、来源链接和目标原话去重（不含回复文案、不含来源类型）</p>
-<div class="note">“已发送并回查”只表示我方发送成功且页面回查通过。顶部卡片、平台分组与下表行数均来自同一个去重视图：{view.event_count} 条原始已发送记录 − {view.duplicate_events} 条重复触达 = {view.target_count} 条去重后发送线索。</div>
+<h1>POLYV + ZigoAI 全项目发送线索累计大板</h1>
+<p>数据源：<code>{_esc(source_label)}</code>｜生成时间：{_esc(generated_at)}｜品牌分别读取，按品牌、平台、作者、来源链接和目标原话去重（不含回复文案、不含来源类型）</p>
+<div class="note">“已发送并回查”只表示我方发送成功且页面回查通过。POLYV 与 ZigoAI 的数据库和发送账本保持独立；顶部统计和下表可用品牌筛选分别查看。当前全部视图：{view.event_count} 条原始已发送记录 − {view.duplicate_events} 条重复触达 = {view.target_count} 条去重后发送线索。</div>
 <section class="metrics">
 {cards}
 </section>
-<div class="toolbar"><input id="search" type="search" placeholder="搜索平台、来源类型、用户、原话、文案或链接"><select id="platform"><option value="">全部平台</option>{options}</select><span id="visible" style="padding:9px 2px;color:#5b6573;font-size:13px"></span></div>
-<div class="table-wrap"><table><thead><tr><th>#</th><th>平台</th><th>用户</th><th>原话</th><th>发送时间</th><th>来源</th><th>状态</th><th>来源类型</th><th>内容标题/业务场景</th><th>用户主页</th><th>目标 ID</th><th>评论 URL / 回答定位</th><th>发送证据</th><th>我方回复文案</th><th>发送链路</th><th>评分/质量</th><th>对方回复</th><th>失败/备注</th></tr></thead><tbody id="rows">
+<div class="toolbar"><input id="search" type="search" placeholder="搜索品牌、平台、来源类型、用户、原话、文案或链接"><select id="brand">{brand_options}</select><select id="platform"><option value="">全部平台</option>{options}</select><span id="visible" style="padding:9px 2px;color:#5b6573;font-size:13px"></span></div>
+<div class="table-wrap"><table><thead><tr><th>#</th><th>品牌</th><th>平台</th><th>用户</th><th>原话</th><th>发送时间</th><th>来源</th><th>状态</th><th>来源类型</th><th>内容标题/业务场景</th><th>用户主页</th><th>目标 ID</th><th>评论 URL / 回答定位</th><th>发送证据</th><th>我方回复文案</th><th>发送链路</th><th>评分/质量</th><th>对方回复</th><th>失败/备注</th></tr></thead><tbody id="rows">
 {body}
 </tbody></table></div>
 </main>
 <script>
+window.DASHBOARD_METRICS={metrics_json};
 {FILTER_SCRIPT}
 </script>
 </body></html>
@@ -413,3 +518,13 @@ def render_from_ledger(ledger_path: Path | str) -> tuple[str, DashboardView]:
     view = build_view(rows)
     stamp = _dt.datetime.now().astimezone().strftime("%Y-%m-%d")
     return render_cumulative_dashboard(view, stamp, Path(ledger_path).name), view
+
+
+def render_from_sources(ledger_path: Path | str, data_root: Path | str) -> tuple[str, DashboardView]:
+    """Render the combined send board while keeping source stores separate."""
+    import datetime as _dt
+
+    rows = load_combined_history(ledger_path, data_root)
+    view = build_view(rows)
+    stamp = _dt.datetime.now().astimezone().strftime("%Y-%m-%d")
+    return render_cumulative_dashboard(view, stamp, "reply_history.jsonl + zigoai/**/send-log.json"), view
