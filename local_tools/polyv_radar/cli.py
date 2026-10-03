@@ -160,6 +160,7 @@ def build_parser() -> argparse.ArgumentParser:
     dispatch_parser.add_argument("--taskspace", type=int, required=True)
     dispatch_parser.add_argument("--page", default="p1", help="Ego Lite TaskSpace 内的页面标签，例如 p2")
     dispatch_parser.add_argument("--submit", action="store_true", help="真实发送；省略时仅执行 Dry-Run")
+    dispatch_parser.add_argument("--own-account", default="", help="真实发送使用的已核实我方账号")
     dispatch_parser.add_argument("--max-sends", type=int, default=0, help="最多发送条数；0表示不设任务条数上限")
     dispatch_parser.add_argument("--cooldown-seconds", type=float, default=30)
     dispatch_parser.add_argument("--output")
@@ -222,13 +223,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
     zigo_discover_parser.add_argument("--target", type=int, default=10)
     zigo_discover_parser.add_argument("--product-root", type=Path, default=Path('/Volumes/GameSSD-Dev/CodexProjects/home/Users/sexpistole111/Documents/GOODS/ZIgoAI'))
+    campaign_parser = subparsers.add_parser("customer-campaign", help="POLYV 企业客户作业账本")
+    campaign_parser.add_argument("--config", required=True)
+    campaign_parser.add_argument("--campaign-id", required=True)
+    campaign_parser.add_argument("--action", choices=("init", "import", "report", "exchange"), default="report")
+    campaign_parser.add_argument("--sector", default="企业管理培训与内训服务机构")
+    campaign_parser.add_argument("--input", type=Path)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     config = load_config(Path(args.config))
-    if args.command == "collect":
+    if args.command == "customer-campaign":
+        from .customer_campaign_artifacts import run_customer_campaign
+        payload = run_customer_campaign(config, args)
+    elif args.command == "collect":
         config = apply_collect_overrides(config, args)
         result = collect(config, Path(args.repo_root), collector=args.collector, taskspace=args.taskspace)
         payload = {"run_id": result.run_id, "store_path": str(result.store_path), "failures": result.failures}
@@ -472,6 +482,7 @@ def main(argv: list[str] | None = None) -> int:
             max_sends=None if args.max_sends == 0 else args.max_sends,
             cooldown_seconds=args.cooldown_seconds,
             page=args.page,
+            own_account=args.own_account,
         )
         output = Path(args.output) if args.output else config.data_root / "dispatch" / f"dispatch-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.jsonl"
         write_dispatch_results(output, results)

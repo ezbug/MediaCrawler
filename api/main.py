@@ -34,6 +34,8 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi import HTTPException
 
 from .routers import crawler_router, data_router, websocket_router
+from .routers.customer_campaign import latest_history_run, router as customer_campaign_router
+from local_tools.polyv_radar.customer_campaign_dashboard import campaign_navigation
 from local_tools.polyv_radar.storage import RadarStore
 from local_tools.polyv_radar.dashboard import (
     clean_dashboard_leads,
@@ -75,6 +77,7 @@ app.add_middleware(
 app.include_router(crawler_router, prefix="/api")
 app.include_router(data_router, prefix="/api")
 app.include_router(websocket_router, prefix="/api")
+app.include_router(customer_campaign_router, prefix="/api")
 
 
 def _manual_artifact_counts(rows: list[dict]) -> tuple[int, int]:
@@ -113,13 +116,18 @@ async def serve_frontend():
 
 
 @app.get("/polyv-dashboard.html", response_class=HTMLResponse)
-async def serve_polyv_html_dashboard(run_id: str | None = None):
+async def serve_polyv_html_dashboard(run_id: str | None = None, campaign_id: str | None = None):
     """Serve the Antigravity-style current HTML table dashboard."""
     data_root = Path(os.environ.get("POLYV_RADAR_DATA_ROOT", "/Users/sexpistole111/Documents/workplace/polyv-radar-data"))
-    selected_run = run_id or latest_run_id(data_root)
+    if campaign_id:
+        from .routers.customer_campaign import dashboard
+        return dashboard(campaign_id)
+    selected_run = run_id or latest_history_run()
     if not selected_run:
-        raise HTTPException(status_code=404, detail="没有可用的雷达批次")
-    return HTMLResponse(render_html_dashboard(data_root, selected_run))
+        return HTMLResponse('<!doctype html><html lang="zh-CN"><meta charset="utf-8"><body>'
+                            + campaign_navigation() + '<p>没有可用的雷达批次</p></body></html>')
+    page = render_html_dashboard(data_root, selected_run)
+    return HTMLResponse(page.replace("<body>", "<body>" + campaign_navigation(), 1))
 
 
 @app.get("/polyv-evidence/{evidence_path:path}")

@@ -4,7 +4,7 @@ import json
 import re
 import subprocess
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Iterable
@@ -35,6 +35,7 @@ class DispatchItem:
     comment_url: str = ""
     source_type: str = "comment"
     author_id: str = ""
+    own_account: str = ""
 
     def to_dict(self) -> dict[str, str]:
         return {
@@ -49,6 +50,7 @@ class DispatchItem:
             "comment_url": self.comment_url,
             "source_type": self.source_type,
             "author_id": self.author_id,
+            "own_account": self.own_account,
         }
 
 
@@ -68,6 +70,7 @@ def _item_from_dict(value: dict) -> DispatchItem:
         comment_url=str(value.get("comment_url", "")).strip(),
         source_type=source_type,
         author_id=str(value.get("author_id", value.get("user_id", ""))).strip(),
+        own_account=str(value.get("own_account") or "").strip(),
     )
     if item.platform not in SUPPORTED_PLATFORMS:
         raise ValueError(f"不支持的平台：{item.platform or '空值'}")
@@ -312,6 +315,8 @@ def write_dispatch_queue(path: Path, items: Iterable[DispatchItem]) -> None:
 def build_dispatch_command(item: DispatchItem, taskspace: int, submit: bool, page: str = "p1") -> list[str]:
     if taskspace <= 0:
         raise ValueError("必须提供有效的 Ego Lite TaskSpace 编号")
+    if submit and not item.own_account.strip():
+        raise ValueError("submit 必须提供显式 own_account / --own-account")
     command = [
         str(AUTO_REPLY_SCRIPT),
         "--taskspace", str(taskspace),
@@ -324,6 +329,8 @@ def build_dispatch_command(item: DispatchItem, taskspace: int, submit: bool, pag
     ]
     if item.quote:
         command.extend(["--quote", item.quote])
+    if item.own_account.strip():
+        command.extend(["--own-account", item.own_account.strip()])
     if submit:
         command.append("--submit")
     return command
@@ -358,6 +365,17 @@ def _read_structured_result(previous_size: int, item: DispatchItem) -> dict | No
     return None
 
 
+def verified_submission(structured: dict | None) -> bool:
+    """Validate runtime evidence without promoting legacy or unknown ownership."""
+    if not structured or structured.get("submitted") is not True or structured.get("verified") is not True:
+        return False
+    verification = structured.get("verification")
+    return isinstance(verification, dict) and all(
+        verification.get(field) is True
+        for field in ("posted_text", "own_account", "target_relation")
+    )
+
+
 def dispatch_queue(
     items: Iterable[DispatchItem],
     taskspace: int,
@@ -367,13 +385,21 @@ def dispatch_queue(
     page: str = "p1",
     runner: Callable[..., subprocess.CompletedProcess] = subprocess.run,
     sleeper: Callable[[float], None] = time.sleep,
+    own_account: str = "",
 ) -> list[dict]:
     if max_sends is not None and max_sends <= 0:
         raise ValueError("max_sends 必须大于 0")
     results: list[dict] = []
-    runtime_status = require_skill_runtime() if submit else inspect_skill_runtime()
     last_sent_at: dict[str, float] = {}
     selected_items = list(items) if max_sends is None else list(items)[:max_sends]
+    selected_items = [
+        replace(item, own_account=item.own_account.strip() or own_account.strip())
+        for item in selected_items
+    ]
+    # Validate the entire selected batch before any subprocess can open a browser.
+    if submit and any(not item.own_account for item in selected_items):
+        raise ValueError("submit 队列每条记录必须提供显式 own_account / --own-account")
+    runtime_status = require_skill_runtime() if submit else inspect_skill_runtime()
     for item in selected_items:
         previous = last_sent_at.get(item.platform)
         if submit and previous is not None:
@@ -385,15 +411,18 @@ def dispatch_queue(
         try:
             completed = runner(command, text=True, capture_output=True, check=False, timeout=180)
             structured = _read_structured_result(history_size, item)
+            verified = verified_submission(structured)
             if not submit:
                 status = "dry_run" if completed.returncode == 0 and (structured is None or structured.get("draft_verified", True)) else "failed"
             elif completed.returncode != 0:
                 status = classify_dispatch_failure(structured, completed.stderr or completed.stdout)
-            elif structured and structured.get("verified") is True:
+            elif verified:
                 status = "submitted_verified"
             elif structured and structured.get("submitted") is True:
                 status = "submitted_unverified"
             else:
+                status = "submitted_unverified"
+            if status == "submitted_verified" and not verified:
                 status = "submitted_unverified"
             result = {
                 **item.to_dict(),
@@ -401,18 +430,18 @@ def dispatch_queue(
                 "status": status,
                 "lead_status": status,
                 "submitted": bool((structured or {}).get("submitted", False)),
-                "verified": bool((structured or {}).get("verified", False)),
+                "verified": verified,
                 "draft_verified": bool((structured or {}).get("draft_verified", False)),
                 "target_matched": bool((structured or {}).get("target_matched", False)),
                 "returncode": completed.returncode,
                 "structured_result": structured or {},
                 "screenshot": (structured or {}).get("screenshot", ""),
                 "message": (completed.stderr or completed.stdout or "").strip()[-1000:],
-                "failure_code": status if status not in {"submitted_verified", "submitted_unverified", "dry_run"} else "",
+                "failure_code": str((structured or {}).get("failure_code") or status) if status not in {"submitted_verified", "submitted_unverified", "dry_run"} else "",
                 "executed_at": datetime.now(timezone.utc).isoformat(),
                 "skill_runtime": runtime_status,
             }
-            if submit and status == "submitted_verified":
+            if submit and status in {"submitted_verified", "submitted_unverified"}:
                 last_sent_at[item.platform] = time.monotonic()
         except (OSError, subprocess.TimeoutExpired) as exc:
             result = {

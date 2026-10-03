@@ -15,6 +15,7 @@ from local_tools.polyv_radar.dispatch import (
     dispatch_queue,
     filter_previously_queued,
     load_dispatch_queue,
+    verified_submission,
     write_dispatch_queue,
 )
 from local_tools.polyv_radar.models import LeadEvidence
@@ -38,6 +39,19 @@ def _lead(**updates) -> LeadEvidence:
     for key, value in updates.items():
         setattr(lead, key, value)
     return lead
+
+
+def test_failed_dry_run_preserves_runtime_failure_reason(monkeypatch):
+    from local_tools.polyv_radar import dispatch
+    item = DispatchItem(platform="bili", url="https://example.test/video", author="Provider", text="Draft")
+    monkeypatch.setattr(dispatch, "_read_structured_result", lambda *args: {
+        "draft_verified": False, "failure_code": "input_unavailable", "submitted": False,
+    })
+    result = dispatch_queue([item], taskspace=1, runner=lambda *args, **kwargs:
+                            subprocess.CompletedProcess(args[0], 1, stdout="", stderr="no editor"))
+    assert result[0]["failure_code"] == "input_unavailable"
+    assert result[0]["status"] == "failed"
+    assert result[0]["submitted"] is False
 
 
 def test_build_dispatch_queue_selects_verified_reviewed_leads_only() -> None:
@@ -73,7 +87,7 @@ def test_model_dispatch_rejects_generic_author_editorial_content() -> None:
 
 
 def test_dispatch_queue_uses_ego_wrapper_and_explicit_submit() -> None:
-    item = DispatchItem("dy", "https://www.douyin.com/video/1", "目标用户", "测试回复")
+    item = DispatchItem("dy", "https://www.douyin.com/video/1", "目标用户", "测试回复", own_account="我方账号")
     command = build_dispatch_command(item, taskspace=12, submit=True)
     assert command[0].endswith("polyv-lead-auto-reply/scripts/auto_reply")
     assert "--taskspace" in command and "12" in command and "--submit" in command
@@ -130,6 +144,7 @@ def test_dispatch_queue_preserves_target_quote_for_zhihu_matching() -> None:
         "起风了",
         "测试回复",
         quote="中小企业培训数字化选型",
+        own_account="我方账号",
     )
     command = build_dispatch_command(item, taskspace=8, submit=True)
 
@@ -151,7 +166,7 @@ def test_dispatch_queue_file_requires_target_author(tmp_path: Path) -> None:
 def test_dispatch_exit_zero_without_structured_success_is_unverified() -> None:
     item = DispatchItem("dy", "https://www.douyin.com/video/unverified", "目标用户", "回复内容")
     results = dispatch_queue(
-        [item], taskspace=12, submit=True, cooldown_seconds=0,
+        [item], taskspace=12, submit=True, cooldown_seconds=0, own_account="我方账号",
         runner=lambda command, **_: subprocess.CompletedProcess(command, 0, "done", ""),
     )
     assert results[0]["status"] == "submitted_unverified"
@@ -247,3 +262,97 @@ def test_dispatch_identity_ignores_reply_wording_and_tracking_query() -> None:
     )
 
     assert dispatch_key(first) == dispatch_key(second)
+
+
+@pytest.mark.parametrize("account", ["", "Our account", "id:123"])
+def test_own_account_round_trips_queue(tmp_path: Path, account: str) -> None:
+    item = DispatchItem("xhs", "https://example.test/1", "Target", "Reply", own_account=account)
+    path = tmp_path / "queue.jsonl"
+    write_dispatch_queue(path, [item])
+    assert load_dispatch_queue(path)[0].to_dict() == item.to_dict()
+    command = build_dispatch_command(item, taskspace=1, submit=False)
+    assert ("--own-account" in command) == bool(account)
+    if account:
+        assert command[command.index("--own-account") + 1] == account
+
+
+def test_legacy_dry_run_without_account_remains_compatible(tmp_path: Path) -> None:
+    path = tmp_path / "legacy.jsonl"
+    path.write_text(json.dumps({"platform": "dy", "url": "https://example.test/1", "author": "Target", "text": "Reply"}) + "\n")
+    items = load_dispatch_queue(path)
+    assert items[0].own_account == ""
+    results = dispatch_queue(items, taskspace=1, runner=lambda cmd, **_: subprocess.CompletedProcess(cmd, 0, "", ""))
+    assert results[0]["status"] == "dry_run"
+
+
+@pytest.mark.parametrize("account", ["", "  "])
+def test_submit_missing_account_fails_before_any_runner_or_runtime_check(monkeypatch: pytest.MonkeyPatch, account: str) -> None:
+    from local_tools.polyv_radar import dispatch as module
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("preflight must reject the batch before runner/runtime inspection")
+
+    monkeypatch.setattr(module, "require_skill_runtime", unexpected)
+    known = DispatchItem("dy", "https://example.test/1", "Target", "Reply", own_account="Our account")
+    missing = DispatchItem("dy", "https://example.test/2", "Target", "Reply", own_account=account)
+    with pytest.raises(ValueError, match="own_account"):
+        build_dispatch_command(missing, taskspace=1, submit=True)
+    with pytest.raises(ValueError, match="own_account"):
+        dispatch_queue([known, missing], taskspace=1, submit=True, runner=unexpected)
+
+
+def test_explicit_account_injection_fills_only_missing_item_accounts(monkeypatch: pytest.MonkeyPatch) -> None:
+    from local_tools.polyv_radar import dispatch as module
+
+    monkeypatch.setattr(module, "_read_structured_result", lambda *_: None)
+    items = [
+        DispatchItem("dy", "https://example.test/1", "Target", "Reply"),
+        DispatchItem("xhs", "https://example.test/2", "Target", "Reply", own_account="Item account"),
+    ]
+    calls = []
+    results = dispatch_queue(
+        items, taskspace=1, submit=True, own_account=" Explicit account ",
+        runner=lambda cmd, **_: calls.append(cmd) or subprocess.CompletedProcess(cmd, 0, "", ""),
+    )
+    assert [cmd[cmd.index("--own-account") + 1] for cmd in calls] == ["Explicit account", "Item account"]
+    assert [row["own_account"] for row in results] == ["Explicit account", "Item account"]
+    assert items[0].own_account == ""
+
+
+@pytest.mark.parametrize("field", ["posted_text", "own_account", "target_relation"])
+@pytest.mark.parametrize("value", [None, False, "true", 1])
+def test_verification_requires_positive_boolean_evidence(field: str, value: object) -> None:
+    evidence = {"posted_text": True, "own_account": True, "target_relation": True}
+    assert verified_submission({"submitted": True, "verified": True, "verification": evidence})
+    evidence[field] = value
+    assert not verified_submission({"submitted": True, "verified": True, "verification": evidence})
+
+
+@pytest.mark.parametrize("evidence", [None, {}, [], "true"])
+def test_legacy_verified_flag_alone_is_not_verified_submission(evidence: object) -> None:
+    assert not verified_submission({"submitted": True, "verified": True, "verification": evidence})
+
+
+@pytest.mark.parametrize("returncode", [0, 1])
+@pytest.mark.parametrize("own_evidence", [None, False, True])
+def test_runtime_result_ownership_controls_dispatch_status(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, returncode: int, own_evidence: bool | None) -> None:
+    from local_tools.polyv_radar import dispatch as module
+
+    history = tmp_path / "reply_history.jsonl"
+    monkeypatch.setattr(module, "REPLY_HISTORY_PATH", history)
+    item = DispatchItem("xhs", "https://example.test/1", "Target", "Reply", own_account="Our account")
+
+    def runner(cmd, **kwargs):
+        history.write_text(json.dumps({
+            "platform": item.platform, "target_url": item.url,
+            "target_author": item.author, "reply_text": item.text,
+            "submitted": True, "verified": True, "status": "submitted_verified",
+            "verification": {"posted_text": True, "own_account": own_evidence, "target_relation": True},
+        }) + "\n")
+        return subprocess.CompletedProcess(cmd, returncode, "", "")
+
+    result = dispatch_queue([item], taskspace=1, submit=True, runner=runner)[0]
+    assert result["verified"] is (own_evidence is True)
+    assert result["status"] == ("submitted_verified" if own_evidence is True else "submitted_unverified")
+    assert result["submitted"] is True
+    assert result["structured_result"]["verified"] is True

@@ -11,6 +11,11 @@ REQUIRED_MARKERS = (
     "screenshot_skipped",
     "submitted",
     "verified",
+    "--own-account",
+    "if (submit && !ownAccount.trim())",
+    "verification?.own_account === true",
+    "verification?.target_relation === true",
+    "verified = verifiedSubmission(verification)",
 )
 
 

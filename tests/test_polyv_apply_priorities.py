@@ -232,11 +232,13 @@ def test_live_ledger_merge_is_consistent() -> None:
         assert summary["actionable_count"] == 5
         assert sum(updated["sales_priority_counts"].values()) == 20
     else:
-        # already merged: re-running must be a no-op on the meaningful fields
-        updated, summary = apply_priorities(on_disk, TODAY)
+        # Live data may have been recomputed on another date. Test idempotence
+        # at the same frozen date without treating that live snapshot as a fixture.
+        baseline, _ = apply_priorities(on_disk, TODAY)
+        updated, summary = apply_priorities(baseline, TODAY)
         assert summary["scope_rows"] == 20
         assert summary["actionable_count"] == 5
-        for before, after in zip(on_disk["rows"], updated["rows"]):
+        for before, after in zip(baseline["rows"], updated["rows"]):
             for key in ("sales_priority", "pipeline_state",
                         "sales_priority_original", "priority_basis"):
                 assert before.get(key) == after.get(key), f"{before.get('id')}::{key} drifts"
