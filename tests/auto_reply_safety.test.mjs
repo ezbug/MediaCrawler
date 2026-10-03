@@ -11,7 +11,20 @@ import {
   ensureWindowRestored,
   assertReplyRateLimit,
   matchesZhihuTarget,
+  verifyXhsPostedText,
 } from "/Users/sexpistole111/.codex/skills/polyv-lead-auto-reply/scripts/auto_reply.mjs";
+
+test("XHS delayed comment is checked before refreshing", async () => {
+  let calls = 0;
+  let reloads = 0;
+  const page = {
+    evaluate: async () => (++calls === 25 ? true : false),
+    waitForTimeout: async () => {},
+    reload: async () => { reloads += 1; },
+  };
+  assert.equal(await verifyXhsPostedText(page, "回复", "作者", "原话", "post"), true);
+  assert.equal(reloads, 0);
+});
 
 test("CLI defaults to dry-run and parses target fields", () => {
   const args = parseArgs([
