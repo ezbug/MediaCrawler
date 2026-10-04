@@ -118,9 +118,14 @@ async def serve_frontend():
 
 
 @app.get("/polyv-dashboard.html", response_class=HTMLResponse)
-async def serve_polyv_html_dashboard(run_id: str | None = None, campaign_id: str | None = None):
+async def serve_polyv_html_dashboard(
+    run_id: str | None = None, campaign_id: str | None = None, zigo_campaign_id: str | None = None,
+):
     """Serve the Antigravity-style current HTML table dashboard."""
     data_root = Path(os.environ.get("POLYV_RADAR_DATA_ROOT", "/Users/sexpistole111/Documents/workplace/polyv-radar-data"))
+    if zigo_campaign_id:
+        from .routers.zigo_campaign import dashboard as zigo_dashboard
+        return zigo_dashboard(zigo_campaign_id)
     if campaign_id:
         from .routers.customer_campaign import dashboard
         return dashboard(campaign_id)

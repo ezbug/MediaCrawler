@@ -52,6 +52,10 @@ def test_zigo_board_reads_only_configured_ledger(client, tmp_path):
     assert page.headers["cache-control"] == "no-store"
     assert "社媒账号线索不等于已核验企业主体" in page.text
     assert "已发送触达</span><strong>0" in page.text
+    integrated = client.get("/polyv-dashboard.html", params={"zigo_campaign_id": campaign})
+    assert integrated.status_code == 200
+    assert "ZigoAI 可信 GEO · 社媒买方线索活动" in integrated.text
+    assert "Buyer &lt;one&gt;" in integrated.text
     assert (root / campaign / "verified-candidates.jsonl").read_bytes() == before
 
 

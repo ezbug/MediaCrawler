@@ -122,6 +122,24 @@ def test_history_dashboard_keeps_existing_render(client, monkeypatch):
     assert "campaign-selector" in page.text
 
 
+def test_big_board_navigation_lists_brands(client, tmp_path, monkeypatch):
+    import api.main as main
+    root = tmp_path / "zigo-runs" / "zigo-run"
+    root.mkdir(parents=True)
+    (root / "verified-candidates.jsonl").write_text(
+        '{"candidate_id":"z1","author":"buyer","evidence_layer":"content_buyer_verified","sent":false}\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ZIGO_CAMPAIGN_DATA_ROOT", str(tmp_path / "zigo-runs"))
+    monkeypatch.setattr(main, "latest_history_run", lambda: "history")
+    monkeypatch.setattr(main, "render_html_dashboard", lambda *args: '<html><body><table id="historical">history</table></body></html>')
+    page = client.get("/polyv-dashboard.html")
+    assert "POLYV · " in page.text
+    assert "/api/radar/zigo-campaigns" in page.text
+    assert "ZigoAI · " in page.text
+    assert "zigo_campaign_id" in page.text
+
+
 def test_database_failures_are_visible_without_exposing_paths(client, tmp_path):
     root = tmp_path / "radar"
     root.mkdir()

@@ -23,8 +23,8 @@ def _link(value: object, label: object = "打开来源") -> str:
     return f'<a href="{_text(url)}" target="_blank" rel="noopener noreferrer">{_text(label)}</a>'
 
 
-def campaign_navigation(campaign_id: str = "") -> str:
-    selected = _text(campaign_id)
+def campaign_navigation(campaign_id: str = "", zigo_campaign_id: str = "") -> str:
+    selected = _text(f"zigo:{zigo_campaign_id}" if zigo_campaign_id else f"polyv:{campaign_id}")
     return f'''<nav id="campaign-navigation" style="margin-bottom:16px;display:flex;gap:16px;align-items:center;flex-wrap:wrap">
 <a href="/polyv-dashboard.html">历史雷达</a>
 <label>国庆客户活动 <select id="campaign-selector" data-selected="{selected}"><option value="">选择活动</option></select></label>
@@ -34,16 +34,25 @@ def campaign_navigation(campaign_id: str = "") -> str:
  const select = document.getElementById('campaign-selector');
  const error = document.getElementById('campaign-navigation-error');
  select.addEventListener('change', () => {{
-   if (select.value) location.href = '/api/radar/campaigns/' + encodeURIComponent(select.value) + '/dashboard.html';
+   if (!select.value) return;
+   const [kind, id] = select.value.split(':', 2);
+   if (kind === 'zigo') location.href = '/polyv-dashboard.html?zigo_campaign_id=' + encodeURIComponent(id);
+   else location.href = '/polyv-dashboard.html?campaign_id=' + encodeURIComponent(id);
  }});
  async function loadCampaigns() {{
    try {{
-     const response = await fetch('/api/radar/campaigns', {{cache:'no-store'}});
-     if (!response.ok) throw new Error('HTTP ' + response.status);
-     const data = await response.json();
+     const [polyvResponse, zigoResponse] = await Promise.all([
+       fetch('/api/radar/campaigns', {{cache:'no-store'}}),
+       fetch('/api/radar/zigo-campaigns', {{cache:'no-store'}}),
+     ]);
+     if (!polyvResponse.ok || !zigoResponse.ok) throw new Error('HTTP ' + (!polyvResponse.ok ? polyvResponse.status : zigoResponse.status));
+     const [polyvData, zigoData] = await Promise.all([polyvResponse.json(), zigoResponse.json()]);
      const options = [new Option('选择活动', '')];
-     for (const item of data.campaigns) {{
-       options.push(new Option(String(item.campaign_id) + ' · ' + String(item.sector || ''), String(item.campaign_id)));
+     for (const item of polyvData.campaigns) {{
+       options.push(new Option('POLYV · ' + String(item.campaign_id) + ' · ' + String(item.sector || ''), 'polyv:' + String(item.campaign_id)));
+     }}
+     for (const item of zigoData.campaigns) {{
+       options.push(new Option('ZigoAI · ' + String(item.campaign_id) + ' · ' + String(item.product_domain || ''), 'zigo:' + String(item.campaign_id)));
      }}
      select.replaceChildren(...options);
      select.value = select.dataset.selected;

@@ -34,7 +34,7 @@ def zigo_campaign_navigation(campaign_id: str = "") -> str:
  const select = document.getElementById('zigo-campaign-selector');
  const error = document.getElementById('zigo-campaign-navigation-error');
  select.addEventListener('change', () => {{
-   if (select.value) location.href = '/api/radar/zigo-campaigns/' + encodeURIComponent(select.value) + '/dashboard.html';
+   if (select.value) location.href = '/polyv-dashboard.html?zigo_campaign_id=' + encodeURIComponent(select.value);
  }});
  async function loadCampaigns() {{
    try {{
