@@ -35,6 +35,7 @@ from fastapi import HTTPException
 
 from .routers import crawler_router, data_router, websocket_router
 from .routers.customer_campaign import latest_history_run, router as customer_campaign_router
+from .routers.zigo_campaign import latest_campaign as latest_zigo_campaign, router as zigo_campaign_router
 from local_tools.polyv_radar.customer_campaign_dashboard import campaign_navigation
 from local_tools.polyv_radar.storage import RadarStore
 from local_tools.polyv_radar.dashboard import (
@@ -78,6 +79,7 @@ app.include_router(crawler_router, prefix="/api")
 app.include_router(data_router, prefix="/api")
 app.include_router(websocket_router, prefix="/api")
 app.include_router(customer_campaign_router, prefix="/api")
+app.include_router(zigo_campaign_router, prefix="/api")
 
 
 def _manual_artifact_counts(rows: list[dict]) -> tuple[int, int]:
@@ -128,6 +130,16 @@ async def serve_polyv_html_dashboard(run_id: str | None = None, campaign_id: str
                             + campaign_navigation() + '<p>没有可用的雷达批次</p></body></html>')
     page = render_html_dashboard(data_root, selected_run)
     return HTMLResponse(page.replace("<body>", "<body>" + campaign_navigation(), 1))
+
+
+@app.get("/zigo-dashboard.html", response_class=HTMLResponse)
+async def serve_zigo_dashboard(campaign_id: str | None = None):
+    """Serve the separate ZigoAI business lead board."""
+    from .routers.zigo_campaign import dashboard
+    selected_campaign = campaign_id or latest_zigo_campaign()
+    if not selected_campaign:
+        return HTMLResponse('<!doctype html><html lang="zh-CN"><meta charset="utf-8"><body><p>没有可用的 ZigoAI 线索活动</p></body></html>')
+    return dashboard(selected_campaign)
 
 
 @app.get("/polyv-evidence/{evidence_path:path}")
