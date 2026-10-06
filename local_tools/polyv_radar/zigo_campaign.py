@@ -53,9 +53,14 @@ def load_campaign(root: Path, campaign_id: str) -> tuple[list[dict], dict]:
         reply_status = str(record.get("reply_status") or "draft_only_not_sent")
         pending_submission = record.get("submission_attempted") is True and record.get("publication_verified") is not True
         outreach_status = "已发送" if sent else "未发送；不具备自动触达资格"
+        if sent:
+            next_action = "原帖评论已核验发布；等待对方实质回复"
         if pending_submission:
             outreach_status = "曾点击提交；发布待核验"
             next_action = "核验我方账号、完整回复及目标关系；结果明确前不重发"
+        if record.get("publication_observed") is True and record.get("target_relation_verified") is not True:
+            outreach_status = "我方顶层评论已发布；未回复到指定评论下"
+            next_action = "保留截图证据；本条不计指定评论回复成功，不重发"
         leads.append({
             "candidate_id": record.get("candidate_id"), "author": record.get("author"),
             "identity_status": "社媒账号；非企业主体核验", "evidence_status": evidence_status,
@@ -75,4 +80,8 @@ def load_campaign(root: Path, campaign_id: str) -> tuple[list[dict], dict]:
         "replies": sum(record.get("reply_status") == "reply_verified" for record in records),
     }
     summary["submission_pending"] = sum(record.get("submission_attempted") is True and record.get("publication_verified") is not True for record in records)
+    observed = sum(record.get("publication_observed") is True for record in records)
+    if observed:
+        summary["publication_observed"] = observed
+        summary["target_mismatch"] = sum(record.get("publication_observed") is True and record.get("target_relation_verified") is not True for record in records)
     return leads, summary

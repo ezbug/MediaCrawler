@@ -62,6 +62,8 @@ def render_zigo_campaign_dashboard(leads: list[dict], summary: dict, campaign_id
         ("content_buyer_verified", "内容级需求已核验"), ("pending_evidence", "待补证据"),
         ("outreach_sent", "已发送触达"), ("submission_pending", "发布待核验"), ("replies", "已收到回复"),
     ]
+    if "publication_observed" in summary:
+        metrics.extend([("publication_observed", "原帖已见我方评论"), ("target_mismatch", "未回复到指定评论")])
     counts = "".join(
         f'<div><span>{label}</span><strong>{_text(summary.get(key, 0))}</strong></div>'
         for key, label in metrics
