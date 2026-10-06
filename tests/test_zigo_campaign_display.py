@@ -45,7 +45,7 @@ def test_zigo_board_reads_only_configured_ledger(client, tmp_path):
     assert summary == {
         "campaign_id": campaign, "brand": "ZigoAI", "product_domain": "可信 GEO", "total_leads": 3,
         "comment_verified": 1, "content_buyer_verified": 1, "pending_evidence": 1,
-        "outreach_sent": 0, "replies": 0,
+        "outreach_sent": 0, "submission_pending": 0, "replies": 0,
     }
     page = client.get(f"/api/radar/zigo-campaigns/{campaign}/dashboard.html")
     assert page.status_code == 200

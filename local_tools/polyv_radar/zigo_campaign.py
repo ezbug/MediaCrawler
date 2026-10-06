@@ -51,13 +51,18 @@ def load_campaign(root: Path, campaign_id: str) -> tuple[list[dict], dict]:
         evidence_status, buyer_signal, next_action = _lead_status(record)
         sent = record.get("sent") is True
         reply_status = str(record.get("reply_status") or "draft_only_not_sent")
+        pending_submission = record.get("submission_attempted") is True and record.get("publication_verified") is not True
+        outreach_status = "已发送" if sent else "未发送；不具备自动触达资格"
+        if pending_submission:
+            outreach_status = "曾点击提交；发布待核验"
+            next_action = "核验我方账号、完整回复及目标关系；结果明确前不重发"
         leads.append({
             "candidate_id": record.get("candidate_id"), "author": record.get("author"),
             "identity_status": "社媒账号；非企业主体核验", "evidence_status": evidence_status,
             "source_quote": record.get("source_quote"), "published_at": record.get("published_at"),
             "content_url": record.get("content_url"), "buyer_signal": buyer_signal,
             "reply_suggestion": record.get("reply_suggestion"),
-            "outreach_status": "已发送" if sent else "未发送；不具备自动触达资格",
+            "outreach_status": outreach_status,
             "reply_status": "已有回复" if reply_status == "reply_verified" else "暂无回复证据",
             "next_action": next_action if evidence_status != "待补证据" else (record.get("verification_error") or next_action),
         })
@@ -69,4 +74,5 @@ def load_campaign(root: Path, campaign_id: str) -> tuple[list[dict], dict]:
         "outreach_sent": sum(record.get("sent") is True for record in records),
         "replies": sum(record.get("reply_status") == "reply_verified" for record in records),
     }
+    summary["submission_pending"] = sum(record.get("submission_attempted") is True and record.get("publication_verified") is not True for record in records)
     return leads, summary

@@ -60,7 +60,7 @@ def render_zigo_campaign_dashboard(leads: list[dict], summary: dict, campaign_id
     metrics = [
         ("total_leads", "社媒线索"), ("comment_verified", "评论级已核验"),
         ("content_buyer_verified", "内容级需求已核验"), ("pending_evidence", "待补证据"),
-        ("outreach_sent", "已发送触达"), ("replies", "已收到回复"),
+        ("outreach_sent", "已发送触达"), ("submission_pending", "发布待核验"), ("replies", "已收到回复"),
     ]
     counts = "".join(
         f'<div><span>{label}</span><strong>{_text(summary.get(key, 0))}</strong></div>'
@@ -91,10 +91,10 @@ def render_zigo_campaign_dashboard(leads: list[dict], summary: dict, campaign_id
 @media(max-width:800px){{body{{padding:12px}} h1{{font-size:18px}}}}
 </style></head><body><div class="wrap">{zigo_campaign_navigation(campaign_id)}
 <h1>ZigoAI 可信 GEO · 社媒买方线索活动</h1>
-<p>社媒账号线索不等于已核验企业主体；页面仅汇总公开需求证据和未发送草稿。</p>
+<p>社媒账号线索不等于已核验企业主体；页面汇总公开需求证据、回复文案和发布状态；点击提交不等于发布成功。</p>
 <div id="refresh-error" role="alert"></div><div id="refresh-status" role="status"></div>
 <section class="metrics" id="campaign-metrics">{counts}</section>
-<div class="table-wrap"><table><thead><tr><th>账号身份</th><th>证据层级</th><th>来源原话 / 日期 / URL</th><th>买方信号</th><th>回复草稿（未发送）</th><th>触达状态</th><th>回复状态</th><th>下一步</th></tr></thead>
+<div class="table-wrap"><table><thead><tr><th>账号身份</th><th>证据层级</th><th>来源原话 / 日期 / URL</th><th>买方信号</th><th>回复文案</th><th>触达状态</th><th>回复状态</th><th>下一步</th></tr></thead>
 <tbody id="campaign-rows">{body}</tbody></table></div></div>
 <script>
 (() => {{
