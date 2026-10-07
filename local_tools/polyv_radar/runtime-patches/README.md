@@ -28,3 +28,15 @@ node --test tests/auto_reply_safety.test.mjs tests/search_relevance.test.mjs tes
 Before a manual application, verify the before hash, save the existing runtime,
 and dry-run the patch with `patch --dry-run`. Verify the after hash and tests after
 application. Applying this patch never starts a browser or submits a reply.
+
+## XHS rich-text readiness
+
+- Patch: `xhs-rich-wait.patch` (apply after `xhs-rich-text.patch`).
+- Before SHA-256: `638d40aa6aa0da4a9b9b5802233a2a975d7e31293b64502aedf2b3235e54dd2a`
+- After SHA-256: `e0907becf8635ac9372ad68153f1bbeea40b249e8928ad8f5f98785049f6fb47`
+
+The target readiness check reuses the rich-text locator in `probeOnly` mode.
+It requires a unique author/quote match and a reply control without clicking it.
+Unlike `document.body.innerText`, this recognizes native emoji tokens within a
+full quote. Ambiguous and unresolved-image targets remain blocked. The same Node
+regression command above verifies that probing does not click or submit.

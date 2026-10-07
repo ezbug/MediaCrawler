@@ -83,9 +83,12 @@ test('XHS same-name users require a unique matching quote', () => {
   }});
   try {
     globalThis.document = {querySelectorAll:() => [item('another quote'),item('my clients do not reply')]};
+    assert.equal(clickUniqueXhsReplyTarget({targetAuthor:'momo',targetQuote:'my clients do not reply',probeOnly:true}),true);
+    assert.equal(clicked,0);
     assert.equal(clickUniqueXhsReplyTarget({targetAuthor:'momo',targetQuote:'my clients do not reply'}),true);
     assert.equal(clicked,1);
     globalThis.document = {querySelectorAll:() => [item('same'),item('same')]};
+    assert.equal(clickUniqueXhsReplyTarget({targetAuthor:'momo',targetQuote:'same',probeOnly:true}),false);
     assert.equal(clickUniqueXhsReplyTarget({targetAuthor:'momo',targetQuote:'same'}),false);
     assert.equal(clicked,1);
   } finally { globalThis.document = previous; }

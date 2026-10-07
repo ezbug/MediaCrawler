@@ -1,0 +1,32 @@
+--- auto_reply.mjs
++++ auto_reply.mjs
+@@ -105,7 +105,7 @@
+   );
+ }
+ 
+-export function clickUniqueXhsReplyTarget({targetAuthor, targetQuote}) {
++export function clickUniqueXhsReplyTarget({targetAuthor, targetQuote, probeOnly = false}) {
+   const normalize = value => String(value || '').normalize('NFKC').replace(/\s+/g, ' ').trim();
+   const richText = node => {
+     if (!node?.querySelector?.('img')) return node?.innerText;
+@@ -133,6 +133,7 @@
+   if (matches.length !== 1) return false;
+   const reply = matches[0].querySelector('.comment-inner-container .info .interactions .reply');
+   if (!reply) return false;
++  if (probeOnly) return true;
+   reply.click();
+   return true;
+ }
+@@ -212,10 +213,8 @@
+ 
+ async function waitForXhsTarget(page, author, quote) {
+   for (let attempt = 0; attempt < 12; attempt += 1) {
+-    const found = await page.evaluate(({ targetAuthor, targetQuote }) => {
+-      const body = document.body?.innerText || '';
+-      return body.includes(targetAuthor) && body.includes(targetQuote);
+-    }, { targetAuthor: author, targetQuote: quote });
++    const found = await page.evaluate(clickUniqueXhsReplyTarget,
++      { targetAuthor: author, targetQuote: quote, probeOnly: true });
+     if (found) return true;
+     await page.waitForTimeout(1000);
+   }
