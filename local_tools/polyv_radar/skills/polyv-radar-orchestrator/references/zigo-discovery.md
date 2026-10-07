@@ -74,6 +74,13 @@ GEO 使用 `zigo-geo.toml` 和 `--product geo`；每次2条查询、每平台串
 该入口不创建发送队列、不调用 dispatch、不写 POLYV SQLite 和历史发送日志。
 原始数据、筛选结果和 HTML 分别保存在配置的数据目录 raw、reports 和 workflow-runs。
 
+重复热门帖子占比高时，可通过 `RADAR_SEEN_XHS_CONTENT_IDS_FILE` 指定数据目录内
+的JSON字符串数组，记录该产品已成功落盘的小红书内容ID。采集器在相关性过滤后
+跳过已读ID，不用旧帖子补采集数量；未配置时保持原逻辑。每个查询保存
+`xhs-source-selection.json`，展示相关数、已读跳过数和选中ID。内容及评论落盘成功后
+才原子更新已读集合，失败页面不标已读。同一文件仅由串行浏览器任务写入。
+该选项减少重复来源，不改变用户去重、真实时间、需求证据或发送资格门槛。
+
 筛选结果完成后可写入独立 ZigoAI 数据库：
 
 ```sh

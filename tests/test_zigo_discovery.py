@@ -14,6 +14,14 @@ from types import SimpleNamespace
 NOW = datetime(2026, 9, 30, tzinfo=timezone.utc)
 
 
+def test_batch_launcher_passes_and_clears_optional_seen_note_file(monkeypatch):
+    args=(Path('/tmp/ego_xhs_crawler.mjs'),['GEO'],5,30,Path('/tmp/out'),1,Path('/tmp/snapshots'))
+    monkeypatch.setenv('RADAR_SEEN_XHS_CONTENT_IDS_FILE','/tmp/seen.json')
+    assert 'process.env.RADAR_SEEN_XHS_CONTENT_IDS_FILE = "/tmp/seen.json";' in build_ego_batch_launcher(*args)
+    monkeypatch.delenv('RADAR_SEEN_XHS_CONTENT_IDS_FILE')
+    assert 'process.env.RADAR_SEEN_XHS_CONTENT_IDS_FILE = "";' in build_ego_batch_launcher(*args)
+
+
 def row(text, **overrides):
     return dict(platform='xhs', content_id='p1', comment_id='c1', author='a',
                 author_id='u1', text=text, source_type='comment',

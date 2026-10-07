@@ -227,6 +227,13 @@ export function searchRelevance(keyword, text, profile = process.env.RADAR_PRODU
   };
 }
 
+export function selectUnseenResults(items, limit, seenIds = []) {
+  if (!Array.isArray(seenIds) || seenIds.some(id => typeof id !== 'string' || !id)) throw Error('seen IDs must be a nonempty-string array');
+  if (!Number.isInteger(limit) || limit < 0) throw Error('invalid content limit');
+  const seen = new Set(seenIds);
+  return items.filter(item => !seen.has(item.id)).slice(0, limit);
+}
+
 export function filterSearchResults(keyword, items, profile = process.env.RADAR_PRODUCT_PROFILE || 'polyv') {
   return items
     .map((item) => {

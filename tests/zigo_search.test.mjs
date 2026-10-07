@@ -1,6 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { searchRelevance, filterSearchResults } from '../local_tools/polyv_radar/ego_helpers.mjs';
+import { searchRelevance, filterSearchResults, selectUnseenResults } from '../local_tools/polyv_radar/ego_helpers.mjs';
+
+test('new-source selection skips old IDs without falling back to duplicates', () => {
+  const rows=[{id:'old'},{id:'new-1'},{id:'new-2'}];
+  assert.deepEqual(selectUnseenResults(rows,1,['old']),[{id:'new-1'}]);
+  assert.deepEqual(selectUnseenResults(rows,5,['old','new-1','new-2']),[]);
+  assert.deepEqual(selectUnseenResults(rows,2,[]),rows.slice(0,2));
+  assert.deepEqual(selectUnseenResults(rows,0,[]),[]);
+  assert.throws(()=>selectUnseenResults(rows,2,{old:true}),/array/);
+});
 
 test('sales scene containers do not require exact product phrases', () => {
   assert.equal(searchRelevance('销售求助', '新人销售不会谈单求助', 'zigo_sales').accepted, true);

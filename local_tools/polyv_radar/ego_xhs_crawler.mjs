@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { filterSearchResults, gotoWithCommittedPageCheck, isExpectedXhsNoteUrl, loadUntilStable, nativePublishedAt, parseDisplayedTime, profileIdFromUrl, waitForResults, xhsDetailReady } from './ego_helpers.mjs';
+import { filterSearchResults, gotoWithCommittedPageCheck, isExpectedXhsNoteUrl, loadUntilStable, nativePublishedAt, parseDisplayedTime, profileIdFromUrl, waitForResults, xhsDetailReady, selectUnseenResults } from './ego_helpers.mjs';
 
 // Support env vars or CLI arguments
 const args = process.argv.slice(2);
@@ -63,7 +63,10 @@ const candidateNotes = await page.evaluate(() => {
 });
 
 const relevantNotes = filterSearchResults(keyword, candidateNotes);
-const targetNotes = relevantNotes.slice(0, maxContents);
+const seenIdsFile = process.env.RADAR_SEEN_XHS_CONTENT_IDS_FILE || '';
+const seenIds = seenIdsFile ? JSON.parse(await fs.readFile(seenIdsFile, 'utf8')) : [];
+const targetNotes = selectUnseenResults(relevantNotes, maxContents, seenIds);
+await fs.writeFile(path.join(outputDir, 'xhs-source-selection.json'), JSON.stringify({keyword,novelty_enabled:Boolean(seenIdsFile),seen_ids_file:seenIdsFile,seen_count:seenIds.length,relevant_count:relevantNotes.length,selected_ids:targetNotes.map(n=>n.id),skipped_seen_count:relevantNotes.filter(n=>seenIds.includes(n.id)).length},null,2));
 console.log(`[XhsCrawler] Found ${candidateNotes.length} raw candidates with token, ${relevantNotes.length} relevant, selected ${targetNotes.length} notes.`);
 if (relevantNotes.length === 0) {
   console.error(`[XhsCrawler] No relevant note candidates found for "${keyword}".`);
@@ -279,5 +282,9 @@ await fs.writeFile(
 );
 
 console.log(`[XhsCrawler] Successfully saved:`);
+if (seenIdsFile) {
+  await fs.writeFile(seenIdsFile + '.tmp', JSON.stringify([...new Set([...seenIds, ...contents.map(r=>r.content_id)])], null, 2));
+  await fs.rename(seenIdsFile + '.tmp', seenIdsFile);
+}
 console.log(`  - Contents: ${contents.length} -> ${contentsFile}`);
 console.log(`  - Comments: ${comments.length} -> ${commentsFile}`);
