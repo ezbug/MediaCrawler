@@ -28,6 +28,12 @@ def test_two_sales_dimensions_can_qualify_without_standard_procurement_words():
     assert result['identity_confidence'] == 'low'
 
 
+def test_platform_native_ai_agent_is_not_a_customer():
+    result = screen_record(row('我们企微客户太多跟不过来，求工具', platform_ai_agent=True), 'sales_agent', NOW)
+    assert result['decision'] == 'excluded'
+    assert 'platform_ai_agent_not_prospect' in result['exclusion_reasons']
+
+
 def test_context_does_not_supply_comment_purchase_evidence():
     assert screen_record(row('怎么收费'), 'sales_agent', NOW)['decision'] == 'excluded'
 

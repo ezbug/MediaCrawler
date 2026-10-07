@@ -53,6 +53,8 @@ def screen_record(record: dict, product: str, now: datetime | None = None) -> di
     age = (now - published).total_seconds() / 86400 if published else None
     freshness = "unknown" if age is None else "future" if age < -1 else "current" if age <= 90 else "historical" if age <= 730 else "stale"
     reasons = []
+    if record.get('platform_ai_agent') is True:
+        reasons.append('platform_ai_agent_not_prospect')
     if not quote:
         reasons.append("empty_quote")
     if any(normalized(term) in normalized(author) for term in TAXONOMY["excluded_authors"]):
