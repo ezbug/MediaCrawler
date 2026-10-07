@@ -48,6 +48,11 @@ def screen_record(record: dict, product: str, now: datetime | None = None) -> di
     signals = {name: [term for term in terms if normalized(term) in text]
                for name, terms in rules["signals"].items()}
     signals = {name: terms for name, terms in signals.items() if terms}
+    # An isolated plan expression is one signal, not two independent dimensions.
+    if product == 'geo' and signals.get('purchase_intent') == ['想做'] and any(
+        normalized(term) in text for term in ('想做GEO', '准备做GEO', '打算做GEO')
+    ):
+        signals.pop('purchase_intent')
     # Existing collectors write capture time into create_time. Never infer a public date from it.
     published = parse_datetime(record.get("published_at"))
     age = (now - published).total_seconds() / 86400 if published else None

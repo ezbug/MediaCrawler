@@ -76,6 +76,7 @@ def test_explicit_geo_provider_request_enters_investigation_not_verified_list():
     assert result['decision_role'] == 'unknown'
     assert result['outreach_allowed'] is False
     assert screen_record(row('GEO怎么做'), 'geo', NOW)['decision'] == 'excluded'
+    assert screen_record(row('我想做GEO'), 'geo', NOW)['decision'] == 'excluded'
 
 
 def test_unknown_or_old_date_never_counts_as_verified():
