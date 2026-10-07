@@ -20,7 +20,37 @@ import {
   clickBiliReplyDom,
   clickUniqueXhsReplyTarget,
   clickUniqueBiliReplyTarget,
+  expandUniqueXhsRepliesDom,
 } from "/Users/sexpistole111/.codex/skills/polyv-lead-auto-reply/scripts/auto_reply.mjs";
+
+test('XHS recheck expands only uniquely matched target replies', () => {
+  const previous = globalThis.document;
+  let clicked = 0;
+  const item = quote => ({querySelector(selector) {
+    return {innerText: selector === '.content' ? quote : '同名'};
+  }, closest: () => ({querySelector: () => ({click(){clicked++;}})})});
+  try {
+    globalThis.document = {querySelectorAll: () => [item('其他原话'),item('完整需求')]};
+    assert.equal(expandUniqueXhsRepliesDom({targetAuthor:'同名',targetQuote:'完整需求'}),true);
+    assert.equal(clicked,1);
+    globalThis.document = {querySelectorAll: () => [item('完整需求'),item('完整需求')]};
+    assert.equal(expandUniqueXhsRepliesDom({targetAuthor:'同名',targetQuote:'完整需求'}),false);
+    assert.equal(expandUniqueXhsRepliesDom({targetAuthor:'同名',targetQuote:''}),false);
+    assert.equal(clicked,1);
+  } finally {globalThis.document=previous;}
+});
+
+test('XHS comment recheck expands multiple pages without another submission', async () => {
+  let expansions = 0;
+  let reloads = 0;
+  const page = {evaluate: async fn => {
+    if(fn === expandUniqueXhsRepliesDom){expansions++;return true;}
+    return {posted_text:expansions >= 3,own_account:true,target_relation:true};
+  }, waitForTimeout:async()=>{},reload:async()=>{reloads++;}};
+  assert.equal(await verifyXhsPostedText(page,'完整回复','作者','原话','comment','id:ours'),true);
+  assert.equal(expansions,3);
+  assert.equal(reloads,0);
+});
 
 test('Bili same-name users require exactly one full-quote match', () => {
   const previous = globalThis.document;
