@@ -110,14 +110,30 @@ def load_zigo_send_logs(data_root: Path | str) -> list[dict]:
                 "status": status,
                 "notes": item.get("recheck") or item.get("submit_evidence"),
                 "source_file": str(path),
-                "product_domain": "zigoai",
+                "product_domain": item.get("product_domain") or payload.get("product_domain") or "zigoai",
             })
     return rows
 
 
 def load_combined_history(ledger_path: Path | str, data_root: Path | str) -> list[dict]:
     """Read POLYV and ZigoAI send sources without merging their stores."""
-    return load_history(ledger_path) + load_zigo_send_logs(data_root)
+    history = load_history(ledger_path)
+    projections = load_zigo_send_logs(data_root)
+    def event_key(row):
+        return tuple(str(row.get(key) or '') for key in ('platform', 'timestamp', 'target_author', 'target_url', 'target_quote', 'reply_text'))
+    metadata = {event_key(row): row for row in projections}
+    matched = set()
+    for row in history:
+        key = event_key(row)
+        if key in metadata:
+            row['brand'] = 'zigo'
+            row['product_domain'] = metadata[key]['product_domain']
+            if metadata[key].get('verified') is True:
+                row['verified'] = True
+                row['status'] = metadata[key]['status']
+                row['screenshot'] = metadata[key]['screenshot'] or row.get('screenshot', '')
+            matched.add(key)
+    return history + [row for row in projections if event_key(row) not in matched]
 
 
 def is_send_event(row: dict) -> bool:

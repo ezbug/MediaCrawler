@@ -39,6 +39,12 @@ test('XHS same-name users require a unique matching quote', () => {
   } finally { globalThis.document = previous; }
 });
 
+test('XHS committed navigation timeout requires actual expected page proof', async () => {
+  const error = Object.assign(new Error('timeout'), {name:'PageNavigationTimeoutError'});
+  await openReplyPage({goto:async()=>{throw error;},evaluate:async()=>true},'xhs','https://www.xiaohongshu.com/explore/note');
+  await assert.rejects(openReplyPage({goto:async()=>{throw error;},evaluate:async()=>false},'xhs','https://www.xiaohongshu.com/explore/note'), /timeout/);
+});
+
 test("XHS delayed comment is checked before refreshing", async () => {
   let calls = 0;
   let reloads = 0;

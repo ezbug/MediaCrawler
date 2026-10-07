@@ -18,6 +18,7 @@ from local_tools.polyv_radar.cumulative_dashboard import (
     is_send_event,
     load_history,
     load_zigo_send_logs,
+    load_combined_history,
     render_cumulative_dashboard,
     render_from_ledger,
     render_from_sources,
@@ -25,6 +26,17 @@ from local_tools.polyv_radar.cumulative_dashboard import (
 )
 
 REAL_LEDGER = Path("/Users/sexpistole111/Documents/workplace/polyv-radar-data/reply_history.jsonl")
+
+
+def test_zigo_projection_labels_matching_global_event_without_double_count(tmp_path):
+    ledger = _write_ledger(tmp_path, [_row(platform='xhs',target_url='https://example.test/note',target_author='buyer',target_quote='need')])
+    directory = tmp_path / 'zigoai' / 'sales_agent' / 'outreach' / 'campaign'
+    directory.mkdir(parents=True)
+    (directory / 'send-log.json').write_text(json.dumps({'platform':'xhs','product_domain':'sales_agent','recorded_at':'2026-09-20T09:49:10.977Z','records':[{'author':'buyer','content_url':'https://example.test/note','source_quote':'need','draft':'第一版文案','status':'submitted_verified'}]}))
+    rows = load_combined_history(ledger, tmp_path)
+    assert len(rows) == 1
+    assert rows[0]['brand'] == 'zigo'
+    assert rows[0]['product_domain'] == 'sales_agent'
 
 
 def _row(**overrides) -> dict:
