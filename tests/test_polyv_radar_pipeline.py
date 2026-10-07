@@ -953,6 +953,12 @@ def test_ego_collection_launches_one_process_per_platform_and_persists_workflow(
 
     def fake_run(command, **kwargs):
         calls.append({"command": command, "input": kwargs.get("input", "")})
+        result_path = tmp_path / "data/workflow-runs/workflow-run/dy-batch.json"
+        result_path.parent.mkdir(parents=True, exist_ok=True)
+        result_path.write_text(json.dumps({"tasks": [
+            {"keyword": "公司年会直播", "status": "success"},
+            {"keyword": "员工线上培训", "status": "success"},
+        ]}))
         return subprocess.CompletedProcess(command, 0, "batch-complete", "")
 
     monkeypatch.setattr("local_tools.polyv_radar.ego_crawl_all.subprocess.run", fake_run)
@@ -975,3 +981,35 @@ def test_ego_collection_launches_one_process_per_platform_and_persists_workflow(
     assert workflow["mode"] == "ego_snapshot_batch"
     assert workflow["platforms"][0]["keywords"] == ["公司年会直播", "员工线上培训"]
     assert (config.data_root / "workflow-runs" / "workflow-run" / "workflow-candidate.json").is_file()
+
+
+def test_ego_zero_exit_does_not_hide_failed_query(tmp_path: Path, monkeypatch) -> None:
+    config = load_config(Path("local_tools/polyv_radar/pilot.toml"))
+    config = config.__class__(data_root=tmp_path / "data", platforms=["xhs"],
+                              keywords={"官网": "企业官网", "工厂": "外贸工厂"})
+    def fake_run(command, **kwargs):
+        result_path = config.data_root / "workflow-runs/partial/xhs-batch.json"
+        result_path.parent.mkdir(parents=True, exist_ok=True)
+        result_path.write_text(json.dumps({"tasks": [
+            {"keyword": "企业官网", "status": "success", "raw_contents": 4},
+            {"keyword": "外贸工厂", "status": "failed", "error": "Runtime.evaluate timeout"},
+        ]}))
+        return subprocess.CompletedProcess(command, 0, "", "")
+    monkeypatch.setattr("local_tools.polyv_radar.ego_crawl_all.subprocess.run", fake_run)
+    result = run_ego_crawlers("partial", ["xhs"], config, Path.cwd(), config.data_root, 1)
+    assert result == {"xhs": False}
+    platform = load_workflow_run(config.data_root, "partial")["platforms"][0]
+    assert platform["status"] == "partial"
+    assert "外贸工厂" in platform["error"] and "Runtime.evaluate timeout" in platform["error"]
+    assert platform["tasks"][0]["raw_contents"] == 4
+
+
+def test_ego_zero_exit_without_structured_tasks_is_not_success(tmp_path: Path, monkeypatch) -> None:
+    config = load_config(Path("local_tools/polyv_radar/pilot.toml"))
+    config = config.__class__(data_root=tmp_path / "data", platforms=["xhs"], keywords={"官网": "企业官网"})
+    monkeypatch.setattr("local_tools.polyv_radar.ego_crawl_all.subprocess.run",
+                        lambda command, **kwargs: subprocess.CompletedProcess(command, 0, "", ""))
+    assert run_ego_crawlers("missing", ["xhs"], config, Path.cwd(), config.data_root, 1) == {"xhs": False}
+    platform = load_workflow_run(config.data_root, "missing")["platforms"][0]
+    assert platform["status"] == "failed"
+    assert "任务记录" in platform["error"]

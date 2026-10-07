@@ -40,6 +40,11 @@ POLYV_TASKSPACE_ID=<current-taskspace> uv run python -m local_tools.polyv_radar 
 
 浏览器会话必须由用户提供；TaskSpace 不存在、登录失效或页面受限时，任务会停止并记录状态，不会新建备用浏览器空间。
 
+Ego 批次完成以结构化关键词任务记录为准，不以进程退出码 0 代替验收。
+全部查询成功才标 `success`；部分查询失败标 `partial`，无已确认成功查询标 `failed`。
+缺失或不匹配的任务记录也不计成功。已落盘数据保留，恢复时只处理未完成查询，
+并使用新批次号，避免覆盖原始批次或重复触达。
+
 ## ZigoAI 发现构建入口
 
 ZigoAI 使用自己的资料词库、筛选规则和 SQLite，不读取 POLYV 词库，不进入 POLYV 回复队列。先生成资料来源可追溯的关键词注册表：

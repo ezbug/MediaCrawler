@@ -150,6 +150,24 @@ def run_ego_crawlers(run_id: str, platforms: list[str], config, repo_root: Path,
                     batch_payload = parsed
             except (OSError, json.JSONDecodeError):
                 batch_payload = {}
+        tasks = batch_payload.get("tasks", [])
+        if not isinstance(tasks, list):
+            tasks = []
+        expected_keywords = [keyword.strip() for keyword in plat_keywords]
+        task_keywords = [task.get("keyword") if isinstance(task, dict) else None for task in tasks]
+        if plat_success and task_keywords != expected_keywords:
+            plat_success = False
+            error = "批次任务记录缺失或关键词不匹配，不能确认采集完成"
+        elif plat_success:
+            failures = [task for task in tasks if task.get("status") != "success"]
+            if failures:
+                plat_success = False
+                error = "; ".join(f"{task['keyword']}: {task.get('error') or task.get('status') or '状态缺失'}" for task in failures)[-500:]
+        completed_keywords = {
+            task.get("keyword") for task in tasks
+            if isinstance(task, dict) and task.get("keyword") in expected_keywords and task.get("status") == "success"
+        }
+        platform_status = "success" if plat_success else "partial" if completed_keywords else "failed"
         results[plat] = plat_success
         workflow_platforms.append(
             {
@@ -164,11 +182,11 @@ def run_ego_crawlers(run_id: str, platforms: list[str], config, repo_root: Path,
                 "started_at": started_at.isoformat(),
                 "finished_at": finished_at.isoformat(),
                 "duration_seconds": max(0.0, (finished_at - started_at).total_seconds()),
-                "status": "success" if plat_success else "partial",
+                "status": platform_status,
                 "error": error,
                 "stdout_tail": stdout[-2000:],
                 "stderr_tail": stderr[-2000:],
-                "tasks": batch_payload.get("tasks", []),
+                "tasks": tasks,
             }
         )
     workflow_payload = {
