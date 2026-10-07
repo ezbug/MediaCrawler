@@ -337,3 +337,23 @@ def test_own_low_conversion_is_an_execution_gap(text):
 def test_other_people_conversion_is_not_own_sales_evidence(text):
     result = screen_record({'text': text, 'author': '普通用户', 'source_type': 'comment'}, 'sales_agent')
     assert not any('我卖' in term or '我们卖' in term for term in result['signals'].get('execution_gap', []))
+def test_commissioned_geo_procurement_needs_own_responsibility_not_a_hashtag():
+    text = '求靠谱推荐！我们客户公司最近启动GEO供应商招标，我们的核心需求是交付稳定，急需团队补充候选名单。#算法招聘 #供应商招标'
+    result = screen_record({'text': text, 'author': '公开作者', 'source_type': 'post'}, 'geo')
+    assert 'business_scene' in result['signals']
+    assert 'purchase_intent' in result['signals']
+    assert 'provider_or_noise:招聘' not in result['exclusion_reasons']
+    assert 'publisher_is_not_established_buyer' not in result['exclusion_reasons']
+
+
+def test_recruitment_in_body_is_not_hidden_by_procurement_context():
+    text = '我们客户公司最近启动GEO供应商招标，我们的核心需求是交付稳定，急需团队补充候选名单。同时招聘算法工程师。#GEO'
+    result = screen_record({'text': text, 'author': '公开作者', 'source_type': 'post'}, 'geo')
+    assert 'provider_or_noise:招聘' in result['exclusion_reasons']
+
+
+def test_observed_client_procurement_does_not_establish_own_responsibility():
+    text = '我看到客户公司正在启动GEO供应商招标，算法很有趣。#公司 #求推荐'
+    result = screen_record({'text': text, 'author': '公开作者', 'source_type': 'post'}, 'geo')
+    assert 'publisher_is_not_established_buyer' in result['exclusion_reasons']
+    assert not result['signals'].get('purchase_intent')

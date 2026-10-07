@@ -43,7 +43,8 @@ def screen_record(record: dict, product: str, now: datetime | None = None) -> di
     rules = TAXONOMY[product]
     now = now or datetime.now(timezone.utc)
     quote = str(record.get("text") or record.get("quote") or "").strip()
-    text = normalized(quote)
+    evidence_text = re.sub(r'(?:^|[\s。！？；，])#[^\s#]+', ' ', quote) if record.get('source_type') in {'post', 'answer'} else quote
+    text = normalized(evidence_text)
     author = str(record.get("author") or "")
     # A post's own title may establish its plan; selection evidence must stay in its body.
     company_geo_selection = (
@@ -55,6 +56,17 @@ def screen_record(record: dict, product: str, now: datetime | None = None) -> di
     signals = {name: [term for term in terms if normalized(term) in text]
                for name, terms in rules["signals"].items()}
     signals = {name: terms for name, terms in signals.items() if terms}
+    if company_geo_selection:
+        selection = re.search(r'想了解.{0,12}(?:价格|报价|效果)', text)
+        signals.setdefault('purchase_intent', []).append(selection.group())
+    commissioned_geo_selection = (
+        product == 'geo' and record.get('source_type') == 'post'
+        and '我们客户公司' in text and '供应商招标' in text
+        and '我们的核心需求' in text and '候选名单' in text
+    )
+    if commissioned_geo_selection:
+        signals.setdefault('business_scene', []).append('我们客户公司')
+        signals.setdefault('purchase_intent', []).append('供应商招标')
     if product == 'sales_agent' and '客户' in text and re.search(r'我|我们', text):
         acquisition = re.search(r'没开发出.{0,5}客户|自主开发.{0,25}难开发', text)
         if acquisition:
@@ -98,7 +110,7 @@ def screen_record(record: dict, product: str, now: datetime | None = None) -> di
         reasons.append("fewer_than_two_signal_types")
     if product == "sales_agent" and "execution_gap" not in signals and not re.search(r"跟进|接待|探需|成交|唤醒|回扫|转化|意向", text):
         reasons.append("no_sales_execution_need")
-    if product == "geo" and not any(normalized(term) in text for term in rules["search_terms"]):
+    if product == "geo" and not any(normalized(term) in normalized(quote) for term in rules["search_terms"]):
         reasons.append("no_ai_search_or_recommendation_need")
     if not company_geo_selection and not re.search(r"我|我们|公司|求|请问|怎么|有没有|能不能|一直|每天|太多|不过来|跟不上|不回|想做|准备做|打算做", text):
         reasons.append("no_personal_need_expression")
