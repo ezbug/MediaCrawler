@@ -188,7 +188,10 @@ export function searchRelevance(keyword, text, profile = process.env.RADAR_PRODU
     if (!domain) throw new Error(`Unknown search profile: ${profile}`);
     const eventMatches = zigoTaxonomy[domain].search_terms.filter(term => normalized.includes(normalizedSearchText(term)));
     // This gate finds content containers; buyer qualification uses each author's own words later.
-    const accepted = eventMatches.some(term => term !== '报价') || (eventMatches.includes('报价') && /客户|销售|跟进/.test(normalized));
+    const salesSceneContainer = domain === 'sales_agent' && /销售|外贸|成交/.test(normalized)
+      && /客户|新人|求助|跟进|报价|谈单|接待|不会|培养|培训|探需|陌拜|话术/.test(normalized)
+      && !/求职|招聘|面试|考证|考试/.test(normalized);
+    const accepted = salesSceneContainer || eventMatches.some(term => term !== '报价') || (eventMatches.includes('报价') && /客户|销售|跟进/.test(normalized));
     return { accepted, score: eventMatches.length + queryHits, queryHits, eventMatches };
   }
   const eventMatches = SEARCH_EVENT_TERMS.filter((term) => normalized.includes(normalizedSearchText(term)));

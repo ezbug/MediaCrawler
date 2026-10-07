@@ -2,6 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { searchRelevance, filterSearchResults } from '../local_tools/polyv_radar/ego_helpers.mjs';
 
+test('sales scene containers do not require exact product phrases', () => {
+  assert.equal(searchRelevance('销售求助', '新人销售不会谈单求助', 'zigo_sales').accepted, true);
+  assert.equal(searchRelevance('销售求助', 'Tob销售陌拜如何开拓客户', 'zigo_sales').accepted, true);
+  assert.equal(searchRelevance('销售求助', '销售面试考证培训', 'zigo_sales').accepted, false);
+  assert.equal(searchRelevance('销售求助', '销售各种实力排行', 'zigo_sales').accepted, false);
+  assert.equal(searchRelevance('GEO', '新人销售不会谈单求助', 'zigo_geo').accepted, false);
+});
+
 test('sales profile retains sales execution content, not POLYV events', () => {
   assert.equal(searchRelevance('投流线索 跟不上', '投流线索来了，销售跟进不过来', 'zigo_sales').accepted, true);
   assert.equal(searchRelevance('客户跟进', '企业年会直播平台报价', 'zigo_sales').accepted, false);
