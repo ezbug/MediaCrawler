@@ -71,7 +71,9 @@ def screen_record(record: dict, product: str, now: datetime | None = None) -> di
     if record.get("source_type") in {"post", "answer"}:
         if not re.search(r"我们|我司|我公司|我在|我做|我的|求助|求推荐|有没有", text):
             reasons.append("publisher_is_not_established_buyer")
-        if any(term in text for term in ("教程", "攻略", "盘点", "干货", "指南")):
+        if any(term in text for term in ("教程", "攻略", "盘点", "干货", "指南")) or re.search(
+            r"(?:整理|分享|教你|教大家).{0,12}(?:话术|技巧|策略)|破冰(?:三|3|两|2)句话|(?:三|3|两|2)句(?:话|破冰)|话术[:：]|错误应对|核心心法", text
+        ):
             reasons.append("guide_content")
     if freshness in {"stale", "future"}:
         reasons.append("publication_date_" + freshness)

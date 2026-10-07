@@ -66,6 +66,16 @@ export function xhsDetailReady(state, expected) {
   return Boolean(idMatch && idMatch[1] === expectedId && titleMatches && String(state?.authorHref || '').trim());
 }
 
+export async function gotoWithCommittedPageCheck(page, url, verifyPage) {
+  try {
+    await page.goto(url);
+    return 'loaded';
+  } catch (error) {
+    if (error.name !== 'PageNavigationTimeoutError' || !await verifyPage()) throw error;
+    return 'committed_timeout';
+  }
+}
+
 export function requiresSearchLogin(bodyText, resultCount = 0) {
   if (Number(resultCount) > 0) return false;
   return /登录后即可搜索更多精彩视频|扫码登录/.test(String(bodyText || ""));

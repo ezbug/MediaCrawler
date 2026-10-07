@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { filterSearchResults, isExpectedXhsNoteUrl, loadUntilStable, parseDisplayedTime, profileIdFromUrl, waitForResults, xhsDetailReady } from './ego_helpers.mjs';
+import { filterSearchResults, gotoWithCommittedPageCheck, isExpectedXhsNoteUrl, loadUntilStable, parseDisplayedTime, profileIdFromUrl, waitForResults, xhsDetailReady } from './ego_helpers.mjs';
 
 // Support env vars or CLI arguments
 const args = process.argv.slice(2);
@@ -16,10 +16,17 @@ if (!Number.isInteger(taskspaceId) || taskspaceId <= 0) throw new Error('需要�
 const task = await taskSpace(taskspaceId);
 
 const page = task.page("p1");
+if (task.ownership !== 'agent') throw new Error('USER_CONTROL_STOP');
 
 console.log(`[XhsCrawler] Searching Xiaohongshu for "${keyword}" (max ${maxContents} notes)...`);
 const searchUrl = `https://www.xiaohongshu.com/search_result?keyword=${encodeURIComponent(keyword)}`;
-await page.goto(searchUrl);
+await gotoWithCommittedPageCheck(page, searchUrl, () => page.evaluate(expected => {
+  const url = new URL(location.href);
+  return url.hostname === 'www.xiaohongshu.com' && url.pathname === '/search_result'
+    && url.searchParams.get('keyword') === expected
+    && document.querySelector('a[href*="/search_result/"]') !== null
+    && !/安全验证|验证码/.test(document.body.innerText);
+}, keyword));
 await page.waitForLoadState({ timeout: 15000 }).catch(() => {});
 await waitForResults(page, 'a[href*="/search_result/"]');
 
@@ -68,9 +75,19 @@ const comments = [];
 
 for (let i = 0; i < targetNotes.length; i++) {
   const n = targetNotes[i];
+  if (task.ownership !== 'agent') throw new Error('USER_CONTROL_STOP');
   console.log(`[XhsCrawler] (${i + 1}/${targetNotes.length}) Fetching note: ${n.id} -> ${n.url}`);
   try {
-    await page.goto(n.url);
+    await gotoWithCommittedPageCheck(page, n.url, async () => {
+      const state = await page.evaluate(() => ({
+        path: location.pathname,
+        title: document.querySelector('#detail-title')?.innerText?.trim() || '',
+        authorHref: document.querySelector('#noteContainer a[href*="/user/profile/"]')?.href || '',
+        blocked: /安全验证|验证码|你访问的页面不见了/.test(document.body.innerText),
+        hasBody: Boolean(document.querySelector('#detail-desc, .comments-container')),
+      }));
+      return !state.blocked && state.hasBody && xhsDetailReady(state, n);
+    });
     await page.waitForLoadState({ timeout: 15000 }).catch(() => {});
     const detailDeadline = Date.now() + 15000;
     let detailReady = false;

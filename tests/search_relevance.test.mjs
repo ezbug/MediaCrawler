@@ -2,6 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { cardTitleFromText, extractPublishedTimeText, filterSearchResults, isExpectedXhsNoteUrl, isGenericPlatformRedirect, normalizeZhihuCommentLines, parseDisplayedTime, requiresSearchLogin, searchRelevance, xhsDetailReady } from '../local_tools/polyv_radar/ego_helpers.mjs';
+import { gotoWithCommittedPageCheck } from '../local_tools/polyv_radar/ego_helpers.mjs';
+
+test('navigation timeout only recovers after expected page verification', async () => {
+  const error = Object.assign(new Error('navigation timeout'), {name:'PageNavigationTimeoutError'});
+  const page = {goto:async () => {throw error;}};
+  assert.equal(await gotoWithCommittedPageCheck(page, 'https://example.test', async () => true), 'committed_timeout');
+  await assert.rejects(gotoWithCommittedPageCheck(page, 'https://example.test', async () => false), /navigation timeout/);
+  await assert.rejects(gotoWithCommittedPageCheck({goto:async () => {throw Error('login blocked');}}, 'x', async () => true), /login blocked/);
+});
 
 test('extracts the title from a Douyin search card', () => {
   const title = cardTitleFromText('01:14\n57\n神鹏品牌全国经销商大会圆满召开\n@郑州三邦机电（周晓峰）\n3周前');

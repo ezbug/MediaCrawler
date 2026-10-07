@@ -41,6 +41,14 @@ def test_provider_post_does_not_poison_independent_comment():
     assert screen_record(row('投流客户销售跟不过来，求推荐工具'), 'sales_agent', NOW)['decision'] == 'candidate_pending_verification'
 
 
+def test_sales_guide_quoted_dialogue_is_not_the_publishers_own_request():
+    post = row('客户不回怎么办？我整理了3句破冰话术，话术：“我的客户不回，有没有工具？”')
+    post['source_type'] = 'post'
+    result = screen_record(post, 'sales_agent', NOW)
+    assert result['decision'] == 'excluded'
+    assert 'guide_content' in result['exclusion_reasons']
+
+
 def test_geo_product_does_not_borrow_sales_signals():
     assert screen_record(row('我们企微客户销售跟不过来，求推荐工具'), 'geo', NOW)['decision'] == 'excluded'
     assert screen_record(row('我们品牌豆包搜不到，AI总推荐竞品，有没有工具'), 'geo', NOW)['decision'] == 'candidate_pending_verification'
