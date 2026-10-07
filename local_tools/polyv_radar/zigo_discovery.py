@@ -72,6 +72,13 @@ def screen_record(record: dict, product: str, now: datetime | None = None) -> di
         if acquisition:
             signals.setdefault('execution_gap', []).append(acquisition.group())
     if product == 'sales_agent':
+        if re.search(r'怎么办|怎么应对|如何处理', text) and not re.search(r'假如|假设|课堂举例|教程|教你', text):
+            lost_customer = re.search(r'我(?:们)?(?:有个|的|这个)客户[^。！？；]{0,80}被[^。！？；]{0,40}(?:抢走|劫走)', text)
+            price_list = re.search(r'我(?:尝试过|已经|曾经)?问客户[^。！？；]{0,80}客户(?:就是)?(?:坚持|只想|只要)[^。！？；]{0,20}价格表', text)
+            own_problem = lost_customer or price_list
+            if own_problem:
+                signals.setdefault('business_scene', []).append(own_problem.group())
+                signals.setdefault('execution_gap', []).append(own_problem.group())
         own_conversion = re.search(
             r'我(?:们)?卖[^，。！？；]{1,20}?(?:总是|一直|太)?(?:成交|转化)(?:率)?(?:低|差|不好)', text
         )

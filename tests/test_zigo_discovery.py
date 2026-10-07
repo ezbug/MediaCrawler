@@ -331,6 +331,29 @@ def test_own_low_conversion_is_an_execution_gap(text):
 
 
 @pytest.mark.parametrize('text', [
+    '我有个客户被一家价格很低的公司劫走了，我也说了我们的产品优势，这种该怎么办',
+    '我尝试过问客户比较感兴趣哪一类产品，但是客户坚持想要价格表。这种情况怎么办呢',
+])
+def test_own_customer_loss_or_price_list_problem_enters_review(text):
+    result = screen_record(row(text), 'sales_agent', NOW)
+    assert result['decision'] == 'candidate_pending_verification'
+    assert {'business_scene', 'execution_gap'} <= set(result['signals'])
+    assert result['identity_confidence'] == 'low'
+    assert result['outreach_allowed'] is False
+
+
+@pytest.mark.parametrize('text', [
+    '假如我有个客户被低价公司抢走，应该怎么办，这是课堂举例',
+    '客户被低价竞争者抢走应该怎么办，分享技巧',
+    '我看过别人问客户，但客户坚持想要价格表，这种情况怎么办',
+])
+def test_customer_problem_needs_own_experience_not_hypothetical(text):
+    result = screen_record(row(text), 'sales_agent', NOW)
+    assert not any(term.startswith(('我有个客户', '我尝试过问客户'))
+                   for term in result['signals'].get('execution_gap', []))
+
+
+@pytest.mark.parametrize('text', [
     '我卖课程，欢迎报名解决你成交低的问题',
     '教程分析：卖餐桌的人总是成交低应该怎么办',
 ])
