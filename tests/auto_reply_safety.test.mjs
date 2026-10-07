@@ -19,7 +19,28 @@ import {
   installBiliPlaybackGuardDom,
   clickBiliReplyDom,
   clickUniqueXhsReplyTarget,
+  clickUniqueBiliReplyTarget,
 } from "/Users/sexpistole111/.codex/skills/polyv-lead-auto-reply/scripts/auto_reply.mjs";
+
+test('Bili same-name users require exactly one full-quote match', () => {
+  const previous = globalThis.document;
+  let clicked = 0;
+  const thread = text => ({shadowRoot:{querySelector:()=>({shadowRoot:{querySelector:selector => {
+    if(selector==='bili-comment-user-info')return {shadowRoot:{querySelector:()=>({innerText:'同名'})}};
+    if(selector==='bili-rich-text')return {shadowRoot:{querySelector:()=>({innerText:text})}};
+    return {shadowRoot:{querySelector:()=>({click(){clicked++;}})}};
+  }}})}});
+  try {
+    let threads = [thread('别人的原话'),thread('我的完整需求')];
+    globalThis.document={querySelector:()=>({shadowRoot:{querySelectorAll:()=>threads}})};
+    assert.equal(clickUniqueBiliReplyTarget({targetAuthor:'同名',targetQuote:'我的完整需求'}),true);
+    assert.equal(clicked,1);
+    assert.equal(clickUniqueBiliReplyTarget({targetAuthor:'同名',targetQuote:''}),false);
+    threads=[thread('我的完整需求'),thread('我的完整需求')];
+    assert.equal(clickUniqueBiliReplyTarget({targetAuthor:'同名',targetQuote:'我的完整需求'}),false);
+    assert.equal(clicked,1);
+  } finally {globalThis.document=previous;}
+});
 
 test('XHS same-name users require a unique matching quote', () => {
   const previous = globalThis.document;
