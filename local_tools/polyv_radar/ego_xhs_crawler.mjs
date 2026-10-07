@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { filterSearchResults, gotoWithCommittedPageCheck, isExpectedXhsNoteUrl, loadUntilStable, parseDisplayedTime, profileIdFromUrl, waitForResults, xhsDetailReady } from './ego_helpers.mjs';
+import { filterSearchResults, gotoWithCommittedPageCheck, isExpectedXhsNoteUrl, loadUntilStable, nativePublishedAt, parseDisplayedTime, profileIdFromUrl, waitForResults, xhsDetailReady } from './ego_helpers.mjs';
 
 // Support env vars or CLI arguments
 const args = process.argv.slice(2);
@@ -132,6 +132,15 @@ for (let i = 0; i < targetNotes.length; i++) {
       const commentNodes = document.querySelectorAll('.comments-container .comment-item');
       const parsedComments = [];
       const seenComments = new Set();
+      const currentNoteId = location.pathname.split('/').pop();
+      const detail = window.__INITIAL_STATE__?.note?.noteDetailMap?.[currentNoteId];
+      const nativeComments = new Map();
+      const indexNative = (c) => {
+        if (!c?.id) return;
+        nativeComments.set(c.id, c);
+        for (const sub of c.subComments || []) indexNative(sub);
+      };
+      for (const c of detail?.comments?.list || []) indexNative(c);
       for (let idx = 0; idx < commentNodes.length; idx++) {
         const el = commentNodes[idx];
         const lines = el.innerText.split('\n').map(s => s.trim()).filter(Boolean);
@@ -143,6 +152,8 @@ for (let i = 0; i < targetNotes.length; i++) {
         if (text === '作者' && lines.length > 2) text = lines[2];
         const publishedAtRaw = [...lines].reverse().find(line => /刚刚|刚才|今天|昨天|\d+\s*(秒|分钟|小时|天|周|月|个月|年)前|20\d{2}[-/.]\d{1,2}[-/.]\d{1,2}/.test(line)) || "";
         const nativeCommentId = el.getAttribute('data-comment-id') || el.getAttribute('data-cid') || el.getAttribute('data-id') || el.id?.replace(/^comment-/, '') || "";
+        const native = nativeComments.get(nativeCommentId);
+        const nativeMatches = native?.content === text && native?.userInfo?.nickname === author;
         const parentWrapper = el.closest('.parent-comment');
         const rootNode = parentWrapper?.querySelector(':scope > .comment-item:not(.comment-item-sub)');
         const rootId = rootNode?.getAttribute('data-comment-id') || rootNode?.getAttribute('data-cid') || rootNode?.getAttribute('data-id') || rootNode?.id?.replace(/^comment-/, '') || "";
@@ -172,7 +183,8 @@ for (let i = 0; i < targetNotes.length; i++) {
           source_type: nativeParentId ? "reply" : "comment",
           published_at_raw: publishedAtRaw,
           author,
-          author_url: authorLink?.href || "",
+          author_url: nativeMatches && native.userInfo?.userId ? `https://www.xiaohongshu.com/user/profile/${native.userInfo.userId}` : (authorLink?.href || ""),
+          native_published_time: nativeMatches ? native.createTime : null,
           parent_comment_id: nativeParentId,
           text,
           likes
@@ -186,6 +198,7 @@ for (let i = 0; i < targetNotes.length; i++) {
         author_url: authorLink?.href || "",
         page_url: location.href,
         tags,
+        native_published_time: detail?.note?.noteId === currentNoteId ? detail.note.time : null,
         comments: parsedComments
       };
     });
@@ -208,6 +221,9 @@ for (let i = 0; i < targetNotes.length; i++) {
       author_id: profileIdFromUrl(pageData.author_url, "xhs"),
       tags: pageData.tags,
       source_keyword: keyword,
+      source_type: 'post',
+      published_at: nativePublishedAt(pageData.native_published_time),
+      publication_time_source: pageData.native_published_time ? 'loaded_note_state.time' : 'unknown',
       create_time: new Date().toISOString()
     };
     contents.push(contentRecord);
@@ -226,6 +242,8 @@ for (let i = 0; i < targetNotes.length; i++) {
       comment_url: c.comment_url || "",
       source_type: c.source_type || "comment",
       published_at_raw: c.published_at_raw || "",
+      published_at: nativePublishedAt(c.native_published_time) || parseDisplayedTime(c.published_at_raw)?.toISOString() || '',
+      publication_time_source: c.native_published_time ? 'loaded_comment_state.createTime' : c.published_at_raw ? 'displayed_comment_time' : 'unknown',
       likes: c.likes,
       source_keyword: keyword,
       create_time: parseDisplayedTime(c.published_at_raw)?.toISOString() || ""

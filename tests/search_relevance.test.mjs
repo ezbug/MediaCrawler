@@ -3,6 +3,14 @@ import assert from 'node:assert/strict';
 
 import { cardTitleFromText, extractPublishedTimeText, filterSearchResults, isExpectedXhsNoteUrl, isGenericPlatformRedirect, normalizeZhihuCommentLines, parseDisplayedTime, requiresSearchLogin, searchRelevance, xhsDetailReady } from '../local_tools/polyv_radar/ego_helpers.mjs';
 import { gotoWithCommittedPageCheck } from '../local_tools/polyv_radar/ego_helpers.mjs';
+import { nativePublishedAt } from '../local_tools/polyv_radar/ego_helpers.mjs';
+
+test('native publication time accepts epoch seconds or milliseconds, not arbitrary values', () => {
+  assert.equal(nativePublishedAt(1791349703), '2026-10-07T05:08:23.000Z');
+  assert.equal(nativePublishedAt(1791349703000), '2026-10-07T05:08:23.000Z');
+  assert.equal(nativePublishedAt(undefined), '');
+  assert.equal(nativePublishedAt(123), '');
+});
 
 test('navigation timeout only recovers after expected page verification', async () => {
   const error = Object.assign(new Error('navigation timeout'), {name:'PageNavigationTimeoutError'});

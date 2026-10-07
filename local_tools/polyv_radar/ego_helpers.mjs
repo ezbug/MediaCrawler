@@ -253,6 +253,14 @@ export function parseDisplayedTime(value, now = new Date()) {
   return milliseconds ? new Date(base.getTime() - amount * milliseconds) : null;
 }
 
+export function nativePublishedAt(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 1e9 || number > 1e13) return '';
+  const milliseconds = number < 1e11 ? number * 1000 : number;
+  const date = new Date(milliseconds);
+  return Number.isNaN(date.getTime()) ? '' : date.toISOString();
+}
+
 export function extractPublishedTimeText(value) {
   const lines = String(value || '')
     .split(/\n+/)
