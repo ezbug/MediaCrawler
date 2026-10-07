@@ -59,6 +59,16 @@ def screen_record(record: dict, product: str, now: datetime | None = None) -> di
         acquisition = re.search(r'没开发出.{0,5}客户|自主开发.{0,25}难开发', text)
         if acquisition:
             signals.setdefault('execution_gap', []).append(acquisition.group())
+    if product == 'sales_agent':
+        # Own acquisition constraints can use order/KPI language rather than "客户".
+        if '我想精细开发' in text and '邮件数kpi' in text and '公司' in text:
+            signals.setdefault('business_scene', []).append('邮件数kpi')
+            signals.setdefault('execution_gap', []).append('我想精细开发')
+        if '自主开发不知道怎么做' in text:
+            order_gap = re.search(r'没单子|零售小单', text)
+            if order_gap:
+                signals.setdefault('business_scene', []).append(order_gap.group())
+                signals.setdefault('execution_gap', []).append('自主开发不知道怎么做')
     # An isolated plan expression is one signal, not two independent dimensions.
     if product == 'geo' and signals.get('purchase_intent') == ['想做'] and any(
         normalized(term) in text for term in ('想做GEO', '准备做GEO', '打算做GEO')

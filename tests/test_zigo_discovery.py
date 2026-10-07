@@ -109,6 +109,27 @@ def test_geo_product_does_not_borrow_sales_signals():
     assert screen_record(row('我们品牌豆包搜不到，AI总推荐竞品，有没有工具'), 'geo', NOW)['decision'] == 'candidate_pending_verification'
 
 
+@pytest.mark.parametrize('text', [
+    '四个月八百多封邮件吗，我不到一个月已经快一万邮件了，我想精细开发但是公司这边有邮件数kpi',
+    '羡慕，接接接。没单子，要么就是零售小单，几千美金。挖机配件太难了，自主开发不知道怎么做',
+])
+def test_sales_acquisition_constraints_require_own_execution_context(text):
+    result = screen_record(row(text), 'sales_agent', NOW)
+    assert result['decision'] == 'candidate_pending_verification'
+    assert result['rule_score'] >= 4
+    assert result['outreach_allowed'] is False
+    assert result['identity_confidence'] == 'low'
+
+
+@pytest.mark.parametrize('text', [
+    '我们公司邮件软件自主开发不知道怎么做',
+    '我想精细开发游戏，公司这边有代码数kpi',
+    '自主开发不知道怎么做',
+])
+def test_acquisition_constraints_do_not_admit_general_development(text):
+    assert screen_record(row(text), 'sales_agent', NOW)['decision'] == 'excluded'
+
+
 def test_explicit_geo_provider_request_enters_investigation_not_verified_list():
     result = screen_record(row('想做GEO，有服务商吗？'), 'geo', NOW)
     assert result['decision'] == 'candidate_pending_verification'
