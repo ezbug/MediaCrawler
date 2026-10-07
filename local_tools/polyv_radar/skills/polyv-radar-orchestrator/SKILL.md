@@ -17,7 +17,7 @@ metadata:
 
 用户指定 ZigoAI 时，先读取 [ZigoAI 只读发现](references/zigo-discovery.md)，采用
 `zigo-sales.toml` 或 `zigo-geo.toml`，不使用 POLYV 的词库扩展、评分及发送入口。
-销冠与可信 GEO 分池；本轮仅候选发现与证据归档。历史 POLYV 功能和账本保留。
+销冠与可信 GEO 分池；发现入口只做候选发现与证据归档。独立活动获得明确公开发送授权后，可按 Zigo 分支规则执行同品牌队列的 Dry-Run、提交和回查。历史 POLYV 功能和账本保留。
 POLYV 与 ZigoAI 使用不同的 SQLite 文件和表结构；统一大板只在读取层合并，任何品牌的候选、评分、发送和回查状态都不得写入另一品牌数据库。
 ZigoAI 的实际运行入口统一使用 `zigo-discover`；资料 query、产品域、批次和 Ego Lite TaskSpace
 必须显式留痕，`zigo-discover` 不调用 POLYV 的 dispatch 或回复 Skill。
@@ -91,7 +91,7 @@ uv run python -m local_tools.polyv_radar zigo-keywords \
 
 | 类型 | 定义 | 计入什么 | 不计入什么 |
 |---|---|---|---|
-| `buyer_demand` | 社媒上明确表达采购意向的买方 | 买方候选（最低 4 分 + 业务证据门槛） | 服务商投放、机构公告 |
+| `buyer_demand` | 社媒上明确表达采购意向，或本人业务场景与具体执行痛点成立的需求账号 | 需求候选（最低 4 分 + 业务证据门槛；不等于销售合格商机） | 服务商宣传、机构公告 |
 | `provider_outreach` | 服务商/行业内容下的互动 | 独立活动授权内的互动事件 | **不计为买方潜客** |
 | `institutional_demand` | 机构公开采购/需求公告 | 机构需求分级（P0/P1/P2/待核） | **不计入社媒发送目标** |
 
