@@ -66,6 +66,24 @@ test('XHS committed navigation timeout requires actual expected page proof', asy
   await assert.rejects(openReplyPage({goto:async()=>{throw error;},evaluate:async()=>false},'xhs','https://www.xiaohongshu.com/explore/note'), /timeout/);
 });
 
+test('Bili committed timeout requires canonical, native video and comments proof', async () => {
+  const saved = {document:globalThis.document, location:globalThis.location, window:globalThis.window};
+  const url = 'https://www.bilibili.com/video/BV1rGaV6WEwf/';
+  const error = Object.assign(new Error('timeout'), {name:'PageNavigationTimeoutError'});
+  globalThis.location = {href:url};
+  globalThis.window = {__INITIAL_STATE__:{bvid:'BV1rGaV6WEwf'}};
+  globalThis.document = {body:{innerText:'评论'}, querySelector:selector=>selector.includes('canonical')?{getAttribute:()=>url}: {}, querySelectorAll:()=>[], addEventListener:()=>{}};
+  const page = {goto:async()=>{throw error;},evaluate:async(fn,arg)=>fn(arg)};
+  try {
+    await openReplyPage(page,'bili',url);
+    globalThis.window.__INITIAL_STATE__.bvid='BVwrong';
+    await assert.rejects(openReplyPage(page,'bili',url), /timeout/);
+    globalThis.window.__INITIAL_STATE__.bvid='BV1rGaV6WEwf';
+    globalThis.document.body.innerText='安全验证';
+    await assert.rejects(openReplyPage(page,'bili',url), /timeout/);
+  } finally {Object.assign(globalThis,saved);}
+});
+
 test("XHS delayed comment is checked before refreshing", async () => {
   let calls = 0;
   let reloads = 0;
