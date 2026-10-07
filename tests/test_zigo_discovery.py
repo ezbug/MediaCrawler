@@ -319,3 +319,21 @@ def test_discovery_replay_writes_product_scoped_plan_and_database(tmp_path):
     assert plan['queries'] == ['报价后 客户不回']
     assert plan['registry_version'] == 'v-test'
     assert Path(result['zigo_db']).is_file()
+@pytest.mark.parametrize('text', [
+    '怪不得我卖变形餐桌总是成交低，明明价格和质量都比别的工厂有优势，原来是这个原因',
+    '我们卖工业零件一直转化率低，应该先排查哪个环节',
+])
+def test_own_low_conversion_is_an_execution_gap(text):
+    result = screen_record({'text': text, 'author': '普通用户', 'source_type': 'comment'}, 'sales_agent')
+    assert 'business_scene' in result['signals']
+    assert 'execution_gap' in result['signals']
+    assert 'fewer_than_two_signal_types' not in result['exclusion_reasons']
+
+
+@pytest.mark.parametrize('text', [
+    '我卖课程，欢迎报名解决你成交低的问题',
+    '教程分析：卖餐桌的人总是成交低应该怎么办',
+])
+def test_other_people_conversion_is_not_own_sales_evidence(text):
+    result = screen_record({'text': text, 'author': '普通用户', 'source_type': 'comment'}, 'sales_agent')
+    assert not any('我卖' in term or '我们卖' in term for term in result['signals'].get('execution_gap', []))

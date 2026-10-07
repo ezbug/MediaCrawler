@@ -597,6 +597,42 @@ test('XHS flat subreply requires native target ID and matching author identity',
   }finally{if(previous===undefined)delete globalThis.window;else globalThis.window=previous;}
 });
 
+test('XHS emoji quote requires a unique platform image mapping and exact native relation', () => {
+  const previous = globalThis.window;
+  const target = comment('Target', '', {id:'buyer'});
+  target.attrs.id = 'comment-target';
+  const words = node('span', '', 'Original question');
+  words.nodeType = 1; words.tagName = 'SPAN';
+  words.childNodes = [{nodeType:3,textContent:'Original question'}];
+  const image = node('img', 'note-content-emoji', '', {src:'https://static.example/emoji.png'});
+  image.nodeType = 1; image.tagName = 'IMG'; image.childNodes = [];
+  const rich = node('span', 'note-text', '', {}, [words,image]);
+  rich.nodeType = 1; rich.tagName = 'SPAN'; rich.childNodes = [words,image];
+  target.children[1].children = [rich]; rich.parentElement = target.children[1];
+  const ours = comment('Our account','Full reply',{id:'ours'});
+  ours.attrs.id = 'comment-published';
+  const root = node('div','parent-comment','',{},[comment('Different parent','Parent question'),target,ours]);
+  const nativeTarget = {id:'target',content:'Original question[笑哭R]',userInfo:{userId:'buyer'}};
+  const nativeReply = {id:'published',content:'Full reply',userInfo:{userId:'ours'},targetComment:{id:'target',userInfo:{userId:'buyer'}}};
+  const map = {'[笑哭R]':'https://static.example/emoji.png'};
+  try {
+    globalThis.window = {__INITIAL_STATE__:{emojiData:{emojiParseMap:{_rawValue:map}},note:{noteDetailMap:{'1':{note:{noteId:'1'},comments:{list:[{id:'root',subComments:[nativeTarget,nativeReply]}]}}}}}};
+    const args = {currentPlatform:'xhs',ownName:'id:ours',targetUrl:'https://www.xiaohongshu.com/explore/1'};
+    assert.equal(verifiedSubmission(inspectFixture([root],args)),true);
+    assert.equal(verifiedSubmission(inspectFixture([root],{...args,targetQuote:'Original question[笑哭R]'})),true);
+    nativeTarget.content = 'Original question[其他R]';
+    assert.equal(verifiedSubmission(inspectFixture([root],args)),false);
+    nativeTarget.content = 'Original question[笑哭R]';
+    nativeReply.targetComment.userInfo.userId = 'different';
+    assert.equal(verifiedSubmission(inspectFixture([root],args)),false);
+    nativeReply.targetComment.userInfo.userId = 'buyer';
+    map['[重复R]'] = map['[笑哭R]'];
+    assert.equal(verifiedSubmission(inspectFixture([root],{...args,targetQuote:'Original question[笑哭R]'})),false);
+    delete map['[重复R]']; delete map['[笑哭R]'];
+    assert.equal(verifiedSubmission(inspectFixture([root],{...args,targetQuote:'Original question[笑哭R]'})),false);
+  } finally {if(previous===undefined)delete globalThis.window;else globalThis.window=previous;}
+});
+
 test("body, article fragments and editor drafts cannot prove XHS publication", () => {
   const article = node("article", "note-detail", "Our account Full reply Target Original question");
   const editor = node("div", "", "", { contenteditable: "true" }, [comment("Our account", "Full reply")]);

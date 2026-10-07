@@ -1,0 +1,65 @@
+--- auto_reply.mjs.before
++++ auto_reply.mjs.after
+@@ -107,9 +107,26 @@
+ 
+ export function clickUniqueXhsReplyTarget({targetAuthor, targetQuote}) {
+   const normalize = value => String(value || '').normalize('NFKC').replace(/\s+/g, ' ').trim();
++  const richText = node => {
++    if (!node?.querySelector?.('img')) return node?.innerText;
++    const ref = window.__INITIAL_STATE__?.emojiData?.emojiParseMap;
++    const map = ref?._rawValue || ref?._value || ref || {};
++    const read = current => {
++      if (current.nodeType === 3) return current.textContent;
++      if (current.nodeType !== 1) return '';
++      if (current.tagName === 'IMG') {
++        const tokens = Object.entries(map).filter(([,src]) => src === current.getAttribute('src')).map(([token]) => token);
++        if (!current.matches('.note-content-emoji') || tokens.length !== 1) throw new Error('UNRESOLVED_COMMENT_IMAGE');
++        return tokens[0];
++      }
++      return [...current.childNodes].map(read).join('');
++    };
++    try { return read(node); } catch { return null; }
++  };
+   const matches = [...document.querySelectorAll('.comment-item')].filter(item => {
+     const name = item.querySelector('.author .name, .author a')?.innerText;
+-    const content = item.querySelector('.content')?.innerText;
++    const noteText = item.querySelector('.content .note-text');
++    const content = richText(noteText?.matches?.('.note-text') ? noteText : item.querySelector('.content'));
+     return normalize(name) === normalize(targetAuthor) && Boolean(targetQuote)
+       && normalize(content).includes(normalize(targetQuote));
+   });
+@@ -552,7 +569,22 @@
+ // Self-contained so the same DOM inspection runs in the browser and fixture tests.
+ export function inspectPostedDom({ currentPlatform, replyText, targetAuthor, targetQuote, ownName, contentLevelTarget, targetUrl }) {
+   const clean = (value) => String(value || '').replace(/\r\n/g, '\n').trim();
+-  const textOf = (node) => clean(node?.innerText || node?.textContent);
++  const textOf = (node) => {
++    if (currentPlatform !== 'xhs' || !node?.matches?.('.note-text') || !node.querySelector('img')) return clean(node?.innerText || node?.textContent);
++    const ref = typeof window !== 'undefined' ? window.__INITIAL_STATE__?.emojiData?.emojiParseMap : null;
++    const map = ref?._rawValue || ref?._value || ref || {};
++    const read = current => {
++      if (current.nodeType === 3) return current.textContent;
++      if (current.nodeType !== 1) return '';
++      if (current.tagName === 'IMG') {
++        const tokens = Object.entries(map).filter(([,src]) => src === current.getAttribute('src')).map(([token]) => token);
++        if (!current.matches('.note-content-emoji') || tokens.length !== 1) throw new Error('UNRESOLVED_COMMENT_IMAGE');
++        return tokens[0];
++      }
++      return [...current.childNodes].map(read).join('');
++    };
++    try { return clean(read(node)); } catch { return ''; }
++  };
+   const containers = '.comment-item, .parent-comment, [data-e2e="comment-item"], .CommentItem, .CommentItemV2, bili-comment-renderer, bili-comment-reply-renderer';
+   const editors = 'textarea, input, [contenteditable="true"], [contenteditable=""]';
+   const parent = (node) => node?.parentElement || node?.getRootNode?.()?.host || null;
+@@ -616,7 +648,9 @@
+     const replyUser = userId(authorOf(holder));
+     if (!targetId || !replyId || !targetUser || !replyUser) return false;
+     const all = entry.comments.list.flatMap(root => [root, ...(root.subComments || [])]);
+-    const targetsNative = all.filter(r => r.id === targetId && r.userInfo?.userId === targetUser && clean(r.content) === clean(targetQuote));
++    const richTarget = targets[0].querySelector('.content .note-text');
++    const completeTargetQuote = richTarget?.querySelector('img') ? textOf(richTarget) : clean(targetQuote);
++    const targetsNative = all.filter(r => r.id === targetId && r.userInfo?.userId === targetUser && clean(r.content) === completeTargetQuote);
+     const repliesNative = all.filter(r => r.id === replyId && r.userInfo?.userId === replyUser && clean(r.content) === needle && r.targetComment?.id === targetId && r.targetComment?.userInfo?.userId === targetUser);
+     return targetsNative.length === 1 && repliesNative.length === 1;
+   };

@@ -60,6 +60,12 @@ def screen_record(record: dict, product: str, now: datetime | None = None) -> di
         if acquisition:
             signals.setdefault('execution_gap', []).append(acquisition.group())
     if product == 'sales_agent':
+        own_conversion = re.search(
+            r'我(?:们)?卖[^，。！？；]{1,20}?(?:总是|一直|太)?(?:成交|转化)(?:率)?(?:低|差|不好)', text
+        )
+        if own_conversion:
+            signals.setdefault('business_scene', []).append(own_conversion.group())
+            signals.setdefault('execution_gap', []).append(own_conversion.group())
         # Own acquisition constraints can use order/KPI language rather than "客户".
         if '我想精细开发' in text and '邮件数kpi' in text and '公司' in text:
             signals.setdefault('business_scene', []).append('邮件数kpi')
