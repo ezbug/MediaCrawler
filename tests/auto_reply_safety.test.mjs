@@ -21,6 +21,7 @@ import {
   clickUniqueXhsReplyTarget,
   clickUniqueBiliReplyTarget,
   expandUniqueXhsRepliesDom,
+  advanceXhsContentCommentsDom,
 } from "/Users/sexpistole111/.codex/skills/polyv-lead-auto-reply/scripts/auto_reply.mjs";
 
 test('XHS recheck expands only uniquely matched target replies', () => {
@@ -118,12 +119,27 @@ test("XHS delayed comment is checked before refreshing", async () => {
   let calls = 0;
   let reloads = 0;
   const page = {
-    evaluate: async () => ({ posted_text: ++calls === 25, own_account: true, target_relation: true }),
+    evaluate: async fn => fn === advanceXhsContentCommentsDom ? {advanced:false} : ({ posted_text: ++calls === 25, own_account: true, target_relation: true }),
     waitForTimeout: async () => {},
     reload: async () => { reloads += 1; },
   };
   assert.equal(await verifyXhsPostedText(page, "回复", "作者", "原话", "post", "我方账号"), true);
   assert.equal(reloads, 0);
+});
+
+test('XHS post publication loads later comment pages without sending again', async () => {
+  let advances=0;
+  const page={evaluate:async fn=>fn===advanceXhsContentCommentsDom ? {advanced:true,count:++advances*10} : {posted_text:advances>=3,own_account:true,target_relation:true},waitForTimeout:async()=>{},reload:async()=>{throw Error('Unexpected reload');}};
+  assert.equal(await verifyXhsPostedText(page,'full reply','author','quote','post','id:ours','https://www.xiaohongshu.com/explore/note'),true);
+  assert.equal(advances,3);
+});
+
+test('XHS post comment paging stops while a draft is still present',()=>{
+  const previous=globalThis.document;
+  try{
+    globalThis.document={querySelector:()=>({innerText:'pending draft'})};
+    assert.deepEqual(advanceXhsContentCommentsDom({targetUrl:'',targetQuote:'quote'}),{advanced:false});
+  }finally{globalThis.document=previous;}
 });
 
 test("CLI defaults to dry-run and parses target fields", () => {
