@@ -372,6 +372,12 @@ def _source_type(row: dict) -> str:
     return SOURCE_TYPE_LABELS.get(raw.casefold(), raw) if raw else "未标注"
 
 
+def _evidence_link(row: dict) -> str:
+    value = _first_value(row, "screenshot", "evidence_path")
+    label = "查看DOM证据" if row.get("evidence_type") == "dom_snapshot" or Path(value).suffix.casefold() in {".json", ".html", ".txt"} else "查看截图"
+    return _artifact_link(value, label)
+
+
 def _proof_badge(label: str, value: object, *, missing: str = "未记录") -> str:
     if value is True:
         return f'<span class="ok">{_esc(label)}✓</span>'
@@ -490,7 +496,7 @@ def render_cumulative_dashboard(view: DashboardView, generated_at: str, source_l
         f'    <td class="cell-wrap">{_esc(_cell_value(row, "author_url", "profile_url", "user_url"))}</td>\n'
         f'    <td class="cell-wrap">{_esc(_cell_value(row, "content_id", "native_content_id", "comment_id", "native_comment_id", "candidate_id"))}</td>\n'
         f'    <td class="url-cell">{_link(*_comment_locator(row))}</td>\n'
-        f'    <td class="url-cell">{_artifact_link(_first_value(row, "screenshot", "evidence_path"), "查看截图")}</td>\n'
+        f'    <td class="url-cell">{_evidence_link(row)}</td>\n'
         f'    <td class="reply">{_esc(row.get("reply_text")) if row.get("reply_text") else "<small>未记录</small>"}</td>\n'
         f'    <td>{_proof_cell(row)}</td>\n'
         f'    <td class="cell-wrap">{_esc(_cell_value(row, "score", "qualification", "identity_confidence", "quality"))}</td>\n'

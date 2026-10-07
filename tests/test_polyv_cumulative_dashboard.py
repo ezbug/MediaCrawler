@@ -28,6 +28,12 @@ from local_tools.polyv_radar.cumulative_dashboard import (
 REAL_LEDGER = Path("/Users/sexpistole111/Documents/workplace/polyv-radar-data/reply_history.jsonl")
 
 
+def test_dom_proof_is_not_labelled_as_a_screenshot():
+    page = render_cumulative_dashboard(build_view([_row(screenshot='https://example.test/proof.json')]), '2026-10-08', 'test')
+    assert '查看DOM证据' in page
+    assert '查看截图' not in page
+
+
 def test_zigo_projection_labels_matching_global_event_without_double_count(tmp_path):
     ledger = _write_ledger(tmp_path, [_row(platform='xhs',target_url='https://example.test/note',target_author='buyer',target_quote='need')])
     directory = tmp_path / 'zigoai' / 'sales_agent' / 'outreach' / 'campaign'
