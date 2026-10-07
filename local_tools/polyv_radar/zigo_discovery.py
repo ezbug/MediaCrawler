@@ -45,6 +45,13 @@ def screen_record(record: dict, product: str, now: datetime | None = None) -> di
     quote = str(record.get("text") or record.get("quote") or "").strip()
     text = normalized(quote)
     author = str(record.get("author") or "")
+    # A post's own title may establish its plan; selection evidence must stay in its body.
+    company_geo_selection = (
+        product == 'geo' and record.get('source_type') == 'post'
+        and re.search(r'(?:我们公司|我司|公司)(?:想做|准备做|打算做)geo', normalized(record.get('title', '')))
+        and re.search(r'想了解.{0,12}(?:价格|报价|效果)', text)
+        and re.search(r'(?:合适|合适的话)(?:可|可以)合作', text)
+    )
     signals = {name: [term for term in terms if normalized(term) in text]
                for name, terms in rules["signals"].items()}
     signals = {name: terms for name, terms in signals.items() if terms}
@@ -73,10 +80,10 @@ def screen_record(record: dict, product: str, now: datetime | None = None) -> di
         reasons.append("no_sales_execution_need")
     if product == "geo" and not any(normalized(term) in text for term in rules["search_terms"]):
         reasons.append("no_ai_search_or_recommendation_need")
-    if not re.search(r"我|我们|公司|求|请问|怎么|有没有|能不能|一直|每天|太多|不过来|跟不上|不回|想做|准备做|打算做", text):
+    if not company_geo_selection and not re.search(r"我|我们|公司|求|请问|怎么|有没有|能不能|一直|每天|太多|不过来|跟不上|不回|想做|准备做|打算做", text):
         reasons.append("no_personal_need_expression")
     if record.get("source_type") in {"post", "answer"}:
-        if not re.search(r"我们|我司|我公司|我在|我做|我的|求助|求推荐|有没有", text):
+        if not company_geo_selection and not re.search(r"我们|我司|我公司|我在|我做|我的|求助|求推荐|有没有", text):
             reasons.append("publisher_is_not_established_buyer")
         if any(term in text for term in ("教程", "攻略", "盘点", "干货", "指南")) or re.search(
             r"(?:整理|分享|教你|教大家).{0,12}(?:话术|技巧|策略)|破冰(?:三|3|两|2)句话|(?:三|3|两|2)句(?:话|破冰)|话术[:：]|错误应对|核心心法", text

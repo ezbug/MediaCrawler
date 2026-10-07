@@ -109,6 +109,19 @@ def test_geo_travel_store_selection_post_enters_verification_without_identity_cl
     assert result['outreach_allowed'] is False
 
 
+def test_geo_company_plan_title_requires_independent_body_selection_evidence():
+    record = row('智能穿戴和ai方向产品，想了解一下市面价格和效果，合适可合作#geo #geo优化')
+    record.update(source_type='post', title='公司想做GEO')
+    result = screen_record(record, 'geo', NOW)
+    assert result['decision'] == 'candidate_pending_verification'
+    assert result['identity_confidence'] == 'low'
+    assert result['outreach_allowed'] is False
+    record['text'] = 'GEO优化知识分享'
+    assert screen_record(record, 'geo', NOW)['decision'] == 'excluded'
+    record.update(source_type='comment', text='智能穿戴和ai方向产品，想了解一下市面价格和效果，合适可合作#geo #geo优化')
+    assert screen_record(record, 'geo', NOW)['decision'] == 'excluded'
+
+
 def test_unknown_or_old_date_never_counts_as_verified():
     unknown = row('我们企微客户跟不过来')
     unknown.update(published_at='', published_at_raw='', create_time=NOW.isoformat())
