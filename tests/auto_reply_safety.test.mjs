@@ -541,6 +541,22 @@ test("XHS reply belongs to exact author and closest target parent", () => {
   assert.equal(inspectFixture([parent], { ownName: "" }).own_account, null);
 });
 
+test('XHS avatar link before display name does not hide exact author relation', () => {
+  const withAvatar = (item, id) => {
+    const avatar = node('a', '', '', {href:`/user/profile/${id}`});
+    avatar.parentElement = item;
+    item.children.unshift(avatar);
+    return item;
+  };
+  const target = withAvatar(comment('Target','Original question',{id:'target'}),'target');
+  const ours = withAvatar(comment('Our account','Full reply',{id:'ours'}),'ours');
+  const parent = node('div','parent-comment','',{},[target,ours]);
+  const evidence = inspectFixture([parent],{ownName:'id:ours'});
+  assert.equal(verifiedSubmission(evidence),true);
+  assert.equal(evidence.container_author,'Our account');
+  assert.equal(verifiedSubmission(inspectFixture([parent],{ownName:'id:wrong'})),false);
+});
+
 test("body, article fragments and editor drafts cannot prove XHS publication", () => {
   const article = node("article", "note-detail", "Our account Full reply Target Original question");
   const editor = node("div", "", "", { contenteditable: "true" }, [comment("Our account", "Full reply")]);
