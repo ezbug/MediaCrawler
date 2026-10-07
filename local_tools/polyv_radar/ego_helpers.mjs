@@ -66,13 +66,18 @@ export function xhsDetailReady(state, expected) {
   return Boolean(idMatch && idMatch[1] === expectedId && titleMatches && String(state?.authorHref || '').trim());
 }
 
-export async function gotoWithCommittedPageCheck(page, url, verifyPage) {
+export async function gotoWithCommittedPageCheck(page, url, verifyPage, { readinessTimeout = 0 } = {}) {
   try {
     await page.goto(url);
     return 'loaded';
   } catch (error) {
-    if (error.name !== 'PageNavigationTimeoutError' || !await verifyPage()) throw error;
-    return 'committed_timeout';
+    if (error.name !== 'PageNavigationTimeoutError') throw error;
+    const deadline = Date.now() + readinessTimeout;
+    do {
+      if (await verifyPage()) return 'committed_timeout';
+      if (Date.now() >= deadline) throw error;
+      await page.waitForTimeout(Math.min(500, deadline - Date.now()));
+    } while (true);
   }
 }
 

@@ -26,7 +26,7 @@ await gotoWithCommittedPageCheck(page, searchUrl, () => page.evaluate(expected =
     && url.searchParams.get('keyword') === expected
     && document.querySelector('a[href*="/search_result/"]') !== null
     && !/安全验证|验证码/.test(document.body.innerText);
-}, keyword));
+}, keyword), { readinessTimeout: 20000 });
 await page.waitForLoadState({ timeout: 15000 }).catch(() => {});
 await waitForResults(page, 'a[href*="/search_result/"]');
 

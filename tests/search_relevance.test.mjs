@@ -25,6 +25,19 @@ test('extracts the title from a Douyin search card', () => {
   assert.equal(title, '神鹏品牌全国经销商大会圆满召开');
 });
 
+test('committed navigation waits for delayed results without another navigation', async () => {
+  let navigations = 0;
+  let checks = 0;
+  let waits = 0;
+  const page = {
+    goto: async () => { navigations++; throw Object.assign(Error('timeout'), { name: 'PageNavigationTimeoutError' }); },
+    waitForTimeout: async () => { waits++; },
+  };
+  assert.equal(await gotoWithCommittedPageCheck(page, 'x', async () => ++checks === 2, { readinessTimeout: 1000 }), 'committed_timeout');
+  assert.equal(navigations, 1);
+  assert.equal(waits, 1);
+});
+
 test('does not treat Bilibili metadata as a title', () => {
   assert.equal(cardTitleFromText('1257\n0\n01:12'), '');
 });
