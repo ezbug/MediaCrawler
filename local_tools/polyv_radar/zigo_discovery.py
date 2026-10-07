@@ -68,7 +68,7 @@ def screen_record(record: dict, product: str, now: datetime | None = None) -> di
         reasons.append("no_sales_execution_need")
     if product == "geo" and not any(normalized(term) in text for term in rules["search_terms"]):
         reasons.append("no_ai_search_or_recommendation_need")
-    if not re.search(r"我|我们|公司|求|请问|怎么|有没有|能不能|一直|每天|太多|不过来|跟不上|不回", text):
+    if not re.search(r"我|我们|公司|求|请问|怎么|有没有|能不能|一直|每天|太多|不过来|跟不上|不回|想做|准备做|打算做", text):
         reasons.append("no_personal_need_expression")
     if record.get("source_type") in {"post", "answer"}:
         if not re.search(r"我们|我司|我公司|我在|我做|我的|求助|求推荐|有没有", text):

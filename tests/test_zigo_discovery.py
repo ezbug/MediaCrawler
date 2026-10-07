@@ -69,6 +69,15 @@ def test_geo_product_does_not_borrow_sales_signals():
     assert screen_record(row('我们品牌豆包搜不到，AI总推荐竞品，有没有工具'), 'geo', NOW)['decision'] == 'candidate_pending_verification'
 
 
+def test_explicit_geo_provider_request_enters_investigation_not_verified_list():
+    result = screen_record(row('想做GEO，有服务商吗？'), 'geo', NOW)
+    assert result['decision'] == 'candidate_pending_verification'
+    assert result['rule_score'] >= 4
+    assert result['decision_role'] == 'unknown'
+    assert result['outreach_allowed'] is False
+    assert screen_record(row('GEO怎么做'), 'geo', NOW)['decision'] == 'excluded'
+
+
 def test_unknown_or_old_date_never_counts_as_verified():
     unknown = row('我们企微客户跟不过来')
     unknown.update(published_at='', published_at_raw='', create_time=NOW.isoformat())
