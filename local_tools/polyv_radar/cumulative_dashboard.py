@@ -128,10 +128,14 @@ def load_combined_history(ledger_path: Path | str, data_root: Path | str) -> lis
         if key in metadata:
             row['brand'] = 'zigo'
             row['product_domain'] = metadata[key]['product_domain']
+            for field in ('native_comment_id', 'candidate_id', 'comment_url', 'notes'):
+                if metadata[key].get(field):
+                    row[field] = metadata[key][field]
             if metadata[key].get('verified') is True:
                 row['verified'] = True
                 row['status'] = metadata[key]['status']
                 row['screenshot'] = metadata[key]['screenshot'] or row.get('screenshot', '')
+                row['failure_code'] = None
             matched.add(key)
     return history + [row for row in projections if event_key(row) not in matched]
 
