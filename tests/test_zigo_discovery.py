@@ -90,6 +90,16 @@ def test_explicit_geo_provider_request_enters_investigation_not_verified_list():
     assert screen_record(row('我想做GEO'), 'geo', NOW)['decision'] == 'excluded'
 
 
+def test_geo_travel_store_selection_post_enters_verification_without_identity_claim():
+    record = row('想做GEO，经过半个月的了解，想问问有没有人懂，北京旅行社门店，适合做哪种啊，哪个代理旅行社经验丰富，请大神们指点指点')
+    record['source_type'] = 'post'
+    result = screen_record(record, 'geo', NOW)
+    assert result['decision'] == 'candidate_pending_verification'
+    assert result['rule_score'] >= 4
+    assert result['identity_confidence'] == 'low'
+    assert result['outreach_allowed'] is False
+
+
 def test_unknown_or_old_date_never_counts_as_verified():
     unknown = row('我们企微客户跟不过来')
     unknown.update(published_at='', published_at_raw='', create_time=NOW.isoformat())
