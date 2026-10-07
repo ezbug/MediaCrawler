@@ -630,6 +630,8 @@ test('XHS emoji quote requires a unique platform image mapping and exact native 
     assert.equal(verifiedSubmission(inspectFixture([root],{...args,targetQuote:'Original question[笑哭R]'})),false);
     delete map['[重复R]']; delete map['[笑哭R]'];
     assert.equal(verifiedSubmission(inspectFixture([root],{...args,targetQuote:'Original question[笑哭R]'})),false);
+    const directParent = node('div','parent-comment','',{},[target,ours]);
+    assert.equal(verifiedSubmission(inspectFixture([directParent],args)),false);
   } finally {if(previous===undefined)delete globalThis.window;else globalThis.window=previous;}
 });
 

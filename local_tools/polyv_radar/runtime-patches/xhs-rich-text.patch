@@ -52,7 +52,24 @@
    const containers = '.comment-item, .parent-comment, [data-e2e="comment-item"], .CommentItem, .CommentItemV2, bili-comment-renderer, bili-comment-reply-renderer';
    const editors = 'textarea, input, [contenteditable="true"], [contenteditable=""]';
    const parent = (node) => node?.parentElement || node?.getRootNode?.()?.host || null;
-@@ -616,7 +648,9 @@
+@@ -592,9 +624,13 @@
+   const empty = { posted_text: false, target_relation: false, own_account: ownName ? false : null, container_author: '' };
+   if (!needle) return empty;
+   const holders = query(document, containers);
+-  const targetMatches = (holder) => identity(authorOf(holder), targetAuthor)
+-    && Boolean(clean(targetQuote))
+-    && contentOf(holder).some((node) => textOf(node).includes(clean(targetQuote)));
++  const targetMatches = (holder) => {
++    const rich = holder.querySelector('.content .note-text');
++    if (currentPlatform === 'xhs' && rich?.querySelector('img') && !textOf(rich)) return false;
++    return identity(authorOf(holder), targetAuthor)
++      && Boolean(clean(targetQuote))
++      && contentOf(holder).some((node) => textOf(node).includes(clean(targetQuote)));
++  };
+   const nativeXhsRelation = (holder) => {
+     if (currentPlatform !== 'xhs' || typeof window === 'undefined' || !targetUrl) return false;
+     let noteId;
+@@ -616,7 +652,9 @@
      const replyUser = userId(authorOf(holder));
      if (!targetId || !replyId || !targetUser || !replyUser) return false;
      const all = entry.comments.list.flatMap(root => [root, ...(root.subComments || [])]);

@@ -9,7 +9,7 @@ runtime revision without reviewing its source and rerunning the safety tests.
 
 - Patch: `xhs-rich-text.patch`
 - Before SHA-256: `a2275e027efd4b696a183a3c89eaf277b7d927524590a5a366f8d6ddedec9292`
-- After SHA-256: `11d485f1056d2c77107b729af5aa1b358fd109135f88aa82842eaab1d0c6dc02`
+- After SHA-256: `638d40aa6aa0da4a9b9b5802233a2a975d7e31293b64502aedf2b3235e54dd2a`
 - Runtime: `~/.codex/skills/polyv-lead-auto-reply/scripts/auto_reply.mjs`
 
 The locator reconstructs emoji images only from unique mappings supplied by the
