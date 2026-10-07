@@ -47,6 +47,15 @@ def test_provider_post_does_not_poison_independent_comment():
     assert screen_record(row('投流客户销售跟不过来，求推荐工具'), 'sales_agent', NOW)['decision'] == 'candidate_pending_verification'
 
 
+def test_geo_provider_turnkey_offer_is_not_a_buyers_request():
+    offer = 'GEO获客就是让AI大模型主动推荐你的产品，现在正成为企业必争的新流量入口！我们专做AI获客落地，从内容优化到AI超级员工矩阵一条龙全包，有需求直接滴滴'
+    result = screen_record(row(offer), 'geo', NOW)
+    assert result['decision'] == 'excluded'
+    assert any(reason.startswith('provider_or_noise:') for reason in result['exclusion_reasons'])
+    buyer = screen_record(row('我们品牌豆包搜不到，想找一条龙的GEO服务，有没有工具'), 'geo', NOW)
+    assert buyer['decision'] == 'candidate_pending_verification'
+
+
 def test_sales_guide_quoted_dialogue_is_not_the_publishers_own_request():
     post = row('客户不回怎么办？我整理了3句破冰话术，话术：“我的客户不回，有没有工具？”')
     post['source_type'] = 'post'
