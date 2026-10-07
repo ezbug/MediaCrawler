@@ -573,6 +573,30 @@ test('XHS avatar link before display name does not hide exact author relation', 
   assert.equal(verifiedSubmission(inspectFixture([parent],{ownName:'id:wrong'})),false);
 });
 
+test('XHS flat subreply requires native target ID and matching author identity', () => {
+  const previous = globalThis.window;
+  const target = comment('Target', 'Original question', {id:'buyer'});
+  target.attrs.id='comment-target';
+  const ours = comment('Our account', '', {id:'ours'});
+  ours.attrs.id='comment-published';
+  ours.children[1].children=[node('span','nickname','Target'),node('span','note-text','Full reply')];
+  for(const child of ours.children[1].children)child.parentElement=ours.children[1];
+  const root=node('div','parent-comment','',{},[comment('Different parent','Parent question'),target,ours]);
+  const nativeTarget={id:'target',content:'Original question',userInfo:{userId:'buyer'}};
+  const nativeReply={id:'published',content:'Full reply',userInfo:{userId:'ours'},targetComment:{id:'target',userInfo:{userId:'buyer'}}};
+  try{
+    globalThis.window={__INITIAL_STATE__:{note:{noteDetailMap:{'1':{note:{noteId:'1'},comments:{list:[{id:'root',subComments:[nativeTarget,nativeReply]}]}}}}}};
+    const args={currentPlatform:'xhs',ownName:'id:ours',targetUrl:'https://www.xiaohongshu.com/explore/1'};
+    assert.equal(verifiedSubmission(inspectFixture([root],args)),true);
+    nativeReply.targetComment.id='different';
+    assert.equal(verifiedSubmission(inspectFixture([root],args)),false);
+    nativeReply.targetComment.id='target';nativeReply.targetComment.userInfo.userId='different';
+    assert.equal(verifiedSubmission(inspectFixture([root],args)),false);
+    nativeReply.targetComment.userInfo.userId='buyer';nativeReply.content='Different reply';
+    assert.equal(verifiedSubmission(inspectFixture([root],args)),false);
+  }finally{if(previous===undefined)delete globalThis.window;else globalThis.window=previous;}
+});
+
 test("body, article fragments and editor drafts cannot prove XHS publication", () => {
   const article = node("article", "note-detail", "Our account Full reply Target Original question");
   const editor = node("div", "", "", { contenteditable: "true" }, [comment("Our account", "Full reply")]);
