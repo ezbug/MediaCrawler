@@ -18,7 +18,26 @@ import {
   assertBiliVideoTarget,
   installBiliPlaybackGuardDom,
   clickBiliReplyDom,
+  clickUniqueXhsReplyTarget,
 } from "/Users/sexpistole111/.codex/skills/polyv-lead-auto-reply/scripts/auto_reply.mjs";
+
+test('XHS same-name users require a unique matching quote', () => {
+  const previous = globalThis.document;
+  let clicked = 0;
+  const item = text => ({querySelector(selector) {
+    if (selector.includes('.author')) return {innerText:'momo'};
+    if (selector === '.content') return {innerText:text};
+    return {click(){clicked++;}};
+  }});
+  try {
+    globalThis.document = {querySelectorAll:() => [item('another quote'),item('my clients do not reply')]};
+    assert.equal(clickUniqueXhsReplyTarget({targetAuthor:'momo',targetQuote:'my clients do not reply'}),true);
+    assert.equal(clicked,1);
+    globalThis.document = {querySelectorAll:() => [item('same'),item('same')]};
+    assert.equal(clickUniqueXhsReplyTarget({targetAuthor:'momo',targetQuote:'same'}),false);
+    assert.equal(clicked,1);
+  } finally { globalThis.document = previous; }
+});
 
 test("XHS delayed comment is checked before refreshing", async () => {
   let calls = 0;
