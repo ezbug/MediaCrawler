@@ -84,6 +84,14 @@ def test_sales_guide_quoted_dialogue_is_not_the_publishers_own_request():
     assert 'guide_content' in result['exclusion_reasons']
 
 
+def test_sales_no_one_replies_requires_own_business_scene():
+    result = screen_record(row('都没客户回我 每天发开发信 没人回'), 'sales_agent', NOW)
+    assert result['decision'] == 'candidate_pending_verification'
+    assert result['rule_score'] >= 4
+    assert result['outreach_allowed'] is False
+    assert screen_record(row('我发朋友圈没人回'), 'sales_agent', NOW)['decision'] == 'excluded'
+
+
 def test_geo_product_does_not_borrow_sales_signals():
     assert screen_record(row('我们企微客户销售跟不过来，求推荐工具'), 'geo', NOW)['decision'] == 'excluded'
     assert screen_record(row('我们品牌豆包搜不到，AI总推荐竞品，有没有工具'), 'geo', NOW)['decision'] == 'candidate_pending_verification'
