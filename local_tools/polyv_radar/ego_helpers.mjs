@@ -31,6 +31,32 @@ export async function loadUntilStable(page, selector, maxItems, stableRounds = 3
   }
 }
 
+export async function loadBiliComments(page, maxItems, timeoutMs = 20000) {
+  try {
+    await page.waitForFunction(() => Boolean(document.querySelector('bili-comments')?.shadowRoot), undefined, { timeout: timeoutMs });
+    await page.evaluate(() => document.querySelector('bili-comments').scrollIntoView({ block: 'start' }));
+    await page.waitForFunction(() => document.querySelector('bili-comments')?.shadowRoot?.querySelectorAll('bili-comment-thread-renderer').length > 0, undefined, { timeout: timeoutMs });
+  } catch (error) {
+    if (!/timed out|timeout/i.test(error.message)) throw error;
+    return { status: 'loading_timeout', count: 0 };
+  }
+  let previous = 0;
+  let stable = 0;
+  for (let round = 0; round < 24; round++) {
+    const count = await page.evaluate(() => document.querySelector('bili-comments')?.shadowRoot?.querySelectorAll('bili-comment-thread-renderer').length || 0);
+    if (count >= maxItems) return { status: 'loaded', count };
+    stable = count === previous ? stable + 1 : 0;
+    if (stable >= 3) return { status: 'loaded', count };
+    previous = count;
+    await page.evaluate(() => {
+      const threads = document.querySelector('bili-comments')?.shadowRoot?.querySelectorAll('bili-comment-thread-renderer');
+      threads?.[threads.length - 1]?.scrollIntoView({ block: 'end' });
+    });
+    await page.waitForTimeout(400);
+  }
+  return { status: 'loaded', count: previous };
+}
+
 function isZhihuCommentMetaLine(value) {
   const line = String(value || '').trim();
   return !line

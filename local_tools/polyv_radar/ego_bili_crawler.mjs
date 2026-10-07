@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { cardTitleFromText, filterSearchResults, loadUntilStable, parseDisplayedTime, profileIdFromUrl, waitForResults } from './ego_helpers.mjs';
+import { cardTitleFromText, filterSearchResults, loadBiliComments, nativePublishedAt, parseDisplayedTime, profileIdFromUrl, waitForResults } from './ego_helpers.mjs';
 
 const args = process.argv.slice(2);
 const keyword = process.env.KEYWORD || args[0] || "员工培训";
@@ -81,13 +81,13 @@ for (let i = 0; i < targetVideos.length; i++) {
   try {
     await page.goto(v.url);
     await page.waitForLoadState({ timeout: 15000 }).catch(() => {});
-    await page.evaluate(() => window.scrollBy(0, 1200));
-    await loadUntilStable(page, 'bili-comments bili-comment-thread-renderer', maxComments);
+    const commentLoad = await loadBiliComments(page, maxComments);
+    console.log(`  -> Comment loading: ${commentLoad.status} (${commentLoad.count})`);
 
     const pageData = await page.evaluate(() => {
       const titleEl = document.querySelector('h1, .video-title, [class*="video-title"]');
       const descEl = document.querySelector('.basic-desc-info, .desc-info-text');
-      const upLink = document.querySelector('a[href*="space.bilibili.com"]');
+      const upLink = document.querySelector('.up-info-container a[href*="space.bilibili.com"], .up-info a[href*="space.bilibili.com"], a.up-name[href*="space.bilibili.com"]');
       const upEl = upLink || document.querySelector('.up-name, .up-info__name');
       const tags = Array.from(document.querySelectorAll('.tag-link, a[href*="/tag/"]')).map(a => a.innerText.trim());
 
@@ -107,8 +107,9 @@ for (let i = 0; i < targetVideos.length; i++) {
         const attributes = (node) => Object.fromEntries(Array.from(node?.attributes || []).map(attribute => [attribute.name, attribute.value]));
         const threadAttrs = attributes(t);
         const commentAttrs = attributes(comment);
-        const nativeCommentId = threadAttrs['data-rpid'] || threadAttrs['data-comment-id'] || commentAttrs['data-rpid'] || commentAttrs['data-comment-id'] || "";
-        const nativeParentId = threadAttrs['data-root'] || threadAttrs['data-parent-id'] || commentAttrs['data-root'] || commentAttrs['data-parent-id'] || "";
+        const native = comment.__data || t.__data || {};
+        const nativeCommentId = String(native.rpid_str || native.rpid || threadAttrs['data-rpid'] || threadAttrs['data-comment-id'] || commentAttrs['data-rpid'] || commentAttrs['data-comment-id'] || "");
+        const nativeParentId = String(native.parent_str || native.parent || threadAttrs['data-root'] || threadAttrs['data-parent-id'] || commentAttrs['data-root'] || commentAttrs['data-parent-id'] || "").replace(/^0$/, '');
         const commentLink = Array.from(comment.shadowRoot.querySelectorAll('a[href]')).find(a => /reply|comment/i.test(a.getAttribute('href') || ''));
         const publishedAtRaw = (comment.shadowRoot.innerText || "").split('\n').map(line => line.trim()).filter(Boolean).reverse().find(line => /刚刚|刚才|今天|昨天|\d+\s*(秒|分钟|小时|天|周|月|个月|年)前|20\d{2}[-/.]\d{1,2}[-/.]\d{1,2}/.test(line)) || "";
 
@@ -119,6 +120,7 @@ for (let i = 0; i < targetVideos.length; i++) {
           comment_url: commentLink?.href || "",
           source_type: nativeParentId ? "reply" : "comment",
           published_at_raw: publishedAtRaw,
+          native_publish_time: native.ctime,
           author: user.trim(),
           author_url: userInfo?.shadowRoot?.querySelector('a[href*="space.bilibili.com"]')?.href || "",
           text: text.trim(),
@@ -164,6 +166,8 @@ for (let i = 0; i < targetVideos.length; i++) {
       comment_url: c.comment_url || "",
       source_type: c.source_type || "comment",
       published_at_raw: c.published_at_raw || "",
+      published_at: nativePublishedAt(c.native_publish_time) || parseDisplayedTime(c.published_at_raw)?.toISOString() || "",
+      publication_time_source: nativePublishedAt(c.native_publish_time) ? 'native_comment_ctime' : c.published_at_raw ? 'displayed_comment_time' : 'unknown',
       likes: c.likes,
       source_keyword: keyword,
       create_time: parseDisplayedTime(c.published_at_raw)?.toISOString() || ""

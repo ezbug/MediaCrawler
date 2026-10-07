@@ -4,6 +4,24 @@ import assert from 'node:assert/strict';
 import { cardTitleFromText, extractPublishedTimeText, filterSearchResults, isExpectedXhsNoteUrl, isGenericPlatformRedirect, normalizeZhihuCommentLines, parseDisplayedTime, requiresSearchLogin, searchRelevance, xhsDetailReady } from '../local_tools/polyv_radar/ego_helpers.mjs';
 import { gotoWithCommittedPageCheck } from '../local_tools/polyv_radar/ego_helpers.mjs';
 import { nativePublishedAt } from '../local_tools/polyv_radar/ego_helpers.mjs';
+import { loadBiliComments } from '../local_tools/polyv_radar/ego_helpers.mjs';
+
+test('Bili loading uses shadow-root readiness before counting or stopping', async () => {
+  const events = [];
+  const page = {
+    waitForFunction: async fn => { events.push(fn.toString()); },
+    evaluate: async fn => { events.push(fn.toString()); return fn.toString().includes('length || 0') ? 20 : undefined; },
+    waitForTimeout: async () => {},
+  };
+  assert.deepEqual(await loadBiliComments(page, 15), { status: 'loaded', count: 20 });
+  assert.match(events[0], /shadowRoot/);
+  assert.match(events[1], /scrollIntoView/);
+});
+
+test('Bili unhydrated comments are a loading failure, not confirmed empty comments', async () => {
+  const page = { waitForFunction: async () => { throw Error('timed out'); } };
+  assert.deepEqual(await loadBiliComments(page, 15), { status: 'loading_timeout', count: 0 });
+});
 
 test('native publication time accepts epoch seconds or milliseconds, not arbitrary values', () => {
   assert.equal(nativePublishedAt(1791349703), '2026-10-07T05:08:23.000Z');
