@@ -55,6 +55,10 @@ def screen_record(record: dict, product: str, now: datetime | None = None) -> di
     signals = {name: [term for term in terms if normalized(term) in text]
                for name, terms in rules["signals"].items()}
     signals = {name: terms for name, terms in signals.items() if terms}
+    if product == 'sales_agent' and '客户' in text and re.search(r'我|我们', text):
+        acquisition = re.search(r'没开发出.{0,5}客户|自主开发.{0,25}难开发', text)
+        if acquisition:
+            signals.setdefault('execution_gap', []).append(acquisition.group())
     # An isolated plan expression is one signal, not two independent dimensions.
     if product == 'geo' and signals.get('purchase_intent') == ['想做'] and any(
         normalized(term) in text for term in ('想做GEO', '准备做GEO', '打算做GEO')

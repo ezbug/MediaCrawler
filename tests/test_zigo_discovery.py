@@ -92,6 +92,18 @@ def test_sales_no_one_replies_requires_own_business_scene():
     assert screen_record(row('我发朋友圈没人回'), 'sales_agent', NOW)['decision'] == 'excluded'
 
 
+def test_own_client_acquisition_difficulty_is_sales_execution_need():
+    for text in (
+        '自主开发确实好有难度，我们是贸易公司做零件定制的，目前我还没开发出一个客户…',
+        '刚来的时候老板说会有很多客户给我，来了一个都没有 逼我自主开发了，话说宠物补剂我真的难开发',
+    ):
+        result = screen_record(row(text), 'sales_agent', NOW)
+        assert result['decision'] == 'candidate_pending_verification'
+        assert result['rule_score'] >= 4
+        assert result['outreach_allowed'] is False
+    assert screen_record(row('我们公司软件难开发，客户提出的接口要求太多'), 'sales_agent', NOW)['decision'] == 'excluded'
+
+
 def test_geo_product_does_not_borrow_sales_signals():
     assert screen_record(row('我们企微客户销售跟不过来，求推荐工具'), 'geo', NOW)['decision'] == 'excluded'
     assert screen_record(row('我们品牌豆包搜不到，AI总推荐竞品，有没有工具'), 'geo', NOW)['decision'] == 'candidate_pending_verification'
