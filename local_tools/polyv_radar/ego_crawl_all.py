@@ -54,6 +54,7 @@ def build_ego_batch_launcher(
             f"process.env.POLYV_TASKSPACE_ID = {json.dumps(str(taskspace), ensure_ascii=False)};",
             f"process.env.RADAR_PRODUCT_PROFILE = {json.dumps(product_profile)};",
             f"process.env.RADAR_SEEN_XHS_CONTENT_IDS_FILE = {json.dumps(os.environ.get('RADAR_SEEN_XHS_CONTENT_IDS_FILE', ''))};",
+            f"process.env.RADAR_XHS_DEFERRED_CONTENT_IDS_FILE = {json.dumps(os.environ.get('RADAR_XHS_DEFERRED_CONTENT_IDS_FILE', ''))};",
             f"process.env.POLYV_BATCH_SCRIPT = {json.dumps(script_path.as_posix(), ensure_ascii=False)};",
             f"process.env.POLYV_BATCH_KEYWORDS = {json.dumps(json.dumps(keywords, ensure_ascii=False), ensure_ascii=False)};",
             f"process.env.POLYV_BATCH_OUTPUT_DIR = {json.dumps(out_dir.as_posix(), ensure_ascii=False)};",
