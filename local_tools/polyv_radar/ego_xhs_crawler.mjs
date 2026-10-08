@@ -116,7 +116,7 @@ for (let i = 0; i < targetNotes.length; i++) {
       console.error(`  -> Skipped redirected note ${n.id}; final URL: ${detailUrl}`);
       continue;
     }
-    await loadUntilStable(page, '.parent-comment, .comment-item', maxComments, 2, 14, 300);
+    await loadUntilStable(page, '.comments-container .comment-item', maxComments, 3, 14, 300, '.note-scroller');
 
     const pageData = await page.evaluate(() => {
       const titleEl = document.querySelector('#detail-title');

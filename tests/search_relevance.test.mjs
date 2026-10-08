@@ -5,6 +5,50 @@ import { cardTitleFromText, extractPublishedTimeText, filterSearchResults, isExp
 import { gotoWithCommittedPageCheck } from '../local_tools/polyv_radar/ego_helpers.mjs';
 import { nativePublishedAt } from '../local_tools/polyv_radar/ego_helpers.mjs';
 import { loadBiliComments } from '../local_tools/polyv_radar/ego_helpers.mjs';
+import { loadUntilStable } from '../local_tools/polyv_radar/ego_helpers.mjs';
+
+test('scoped comment loading scrolls the note container, not the window', async () => {
+  const originalDocument = globalThis.document;
+  const originalWindow = globalThis.window;
+  let comments = 15;
+  let windowScrolls = 0;
+  let noteScrolls = 0;
+  globalThis.document = {
+    querySelector: selector => selector === '.note-scroller' ? {
+      scrollHeight: 2000,
+      scrollTo: () => { noteScrolls++; comments += 15; },
+    } : null,
+    querySelectorAll: selector => {
+      assert.equal(selector, '.comments-container .comment-item');
+      return {length: comments};
+    },
+    body: {scrollHeight: 2000},
+  };
+  globalThis.window = {scrollTo: () => { windowScrolls++; }};
+  const page = {evaluate: async (fn, arg) => fn(arg)};
+  try {
+    await loadUntilStable(page, '.comments-container .comment-item', 30, 3, 14, 0, '.note-scroller');
+    assert.equal(comments, 30);
+    assert.equal(noteScrolls, 1);
+    assert.equal(windowScrolls, 0);
+  } finally {
+    globalThis.document = originalDocument;
+    globalThis.window = originalWindow;
+  }
+});
+
+test('missing explicit comment scroller fails instead of scrolling another surface', async () => {
+  const originalDocument = globalThis.document;
+  const originalWindow = globalThis.window;
+  globalThis.document = {querySelector: () => null, querySelectorAll: () => [], body: {scrollHeight: 0}};
+  globalThis.window = {scrollTo: () => {}};
+  try {
+    await assert.rejects(loadUntilStable({evaluate: async (fn, arg) => fn(arg)}, '.comment-item', 30, 3, 14, 0, '.note-scroller'), /COMMENT_SCROLLER_MISSING/);
+  } finally {
+    globalThis.document = originalDocument;
+    globalThis.window = originalWindow;
+  }
+});
 
 test('Bili loading uses shadow-root readiness before counting or stopping', async () => {
   const events = [];

@@ -18,11 +18,16 @@ export async function waitForResults(page, selector, timeoutMs = 20000, stableRo
   return await page.evaluate((value) => document.querySelectorAll(value).length, selector);
 }
 
-export async function loadUntilStable(page, selector, maxItems, stableRounds = 3, maxRounds = 24, delayMs = 400) {
+export async function loadUntilStable(page, selector, maxItems, stableRounds = 3, maxRounds = 24, delayMs = 400, scrollContainer = '') {
   let previous = 0;
   let stable = 0;
   for (let round = 0; round < maxRounds && stable < stableRounds; round += 1) {
-    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await page.evaluate(container => {
+      if (!container) return window.scrollTo(0, document.body.scrollHeight);
+      const scroller = document.querySelector(container);
+      if (!scroller) throw Error('COMMENT_SCROLLER_MISSING');
+      scroller.scrollTo(0, scroller.scrollHeight);
+    }, scrollContainer);
     await new Promise(resolve => setTimeout(resolve, delayMs));
     const count = await page.evaluate((value) => document.querySelectorAll(value).length, selector);
     if (count >= maxItems) break;
