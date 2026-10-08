@@ -232,6 +232,16 @@ export function searchRelevance(keyword, text, profile = process.env.RADAR_PRODU
   };
 }
 
+export function activeDeferredContentIds(record, now = Date.now()) {
+  const expires = Date.parse(record?.expires_at);
+  if (!Number.isFinite(expires) || !Number.isFinite(now)
+    || !Array.isArray(record?.content_ids)
+    || record.content_ids.some(id => typeof id !== 'string' || !id)) {
+    throw Error('invalid deferred content exclusions');
+  }
+  return expires > now ? [...new Set(record.content_ids)] : [];
+}
+
 export function selectUnseenResults(items, limit, seenIds = []) {
   if (!Array.isArray(seenIds) || seenIds.some(id => typeof id !== 'string' || !id)) throw Error('seen IDs must be a nonempty-string array');
   if (!Number.isInteger(limit) || limit < 0) throw Error('invalid content limit');

@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { filterSearchResults, gotoWithCommittedPageCheck, isExpectedXhsNoteUrl, loadUntilStable, nativePublishedAt, parseDisplayedTime, profileIdFromUrl, waitForResults, xhsDetailReady, selectUnseenResults } from './ego_helpers.mjs';
+import { activeDeferredContentIds, filterSearchResults, gotoWithCommittedPageCheck, isExpectedXhsNoteUrl, loadUntilStable, nativePublishedAt, parseDisplayedTime, profileIdFromUrl, waitForResults, xhsDetailReady, selectUnseenResults } from './ego_helpers.mjs';
 
 // Support env vars or CLI arguments
 const args = process.argv.slice(2);
@@ -65,7 +65,10 @@ const candidateNotes = await page.evaluate(() => {
 const relevantNotes = filterSearchResults(keyword, candidateNotes);
 const seenIdsFile = process.env.RADAR_SEEN_XHS_CONTENT_IDS_FILE || '';
 const seenIds = seenIdsFile ? JSON.parse(await fs.readFile(seenIdsFile, 'utf8')) : [];
-const targetNotes = selectUnseenResults(relevantNotes, maxContents, seenIds);
+const deferredFile = process.env.RADAR_XHS_DEFERRED_CONTENT_IDS_FILE || '';
+const deferredIds = deferredFile ? activeDeferredContentIds(JSON.parse(await fs.readFile(deferredFile, 'utf8'))) : [];
+const targetNotes = selectUnseenResults(relevantNotes, maxContents, [...seenIds, ...deferredIds]);
+if (deferredFile) await fs.writeFile(path.join(outputDir, 'xhs-deferred-selection.json'), JSON.stringify({file:deferredFile,active_ids:deferredIds,skipped_count:relevantNotes.filter(n=>deferredIds.includes(n.id)).length},null,2));
 await fs.writeFile(path.join(outputDir, 'xhs-source-selection.json'), JSON.stringify({keyword,novelty_enabled:Boolean(seenIdsFile),seen_ids_file:seenIdsFile,seen_count:seenIds.length,relevant_count:relevantNotes.length,selected_ids:targetNotes.map(n=>n.id),skipped_seen_count:relevantNotes.filter(n=>seenIds.includes(n.id)).length},null,2));
 console.log(`[XhsCrawler] Found ${candidateNotes.length} raw candidates with token, ${relevantNotes.length} relevant, selected ${targetNotes.length} notes.`);
 if (relevantNotes.length === 0) {

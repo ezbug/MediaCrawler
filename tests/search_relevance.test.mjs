@@ -6,6 +6,20 @@ import { gotoWithCommittedPageCheck } from '../local_tools/polyv_radar/ego_helpe
 import { nativePublishedAt } from '../local_tools/polyv_radar/ego_helpers.mjs';
 import { loadBiliComments } from '../local_tools/polyv_radar/ego_helpers.mjs';
 import { loadUntilStable } from '../local_tools/polyv_radar/ego_helpers.mjs';
+import { activeDeferredContentIds, selectUnseenResults } from '../local_tools/polyv_radar/ego_helpers.mjs';
+
+test('temporary failures are skipped without mutating successful seen IDs', () => {
+  const seen = ['saved'];
+  const deferred = activeDeferredContentIds({expires_at:'2026-10-08T03:00:00Z',content_ids:['failed']}, Date.parse('2026-10-08T02:00:00Z'));
+  assert.deepEqual(selectUnseenResults([{id:'saved'},{id:'failed'},{id:'new'}], 5, [...seen,...deferred]), [{id:'new'}]);
+  assert.deepEqual(seen, ['saved']);
+});
+
+test('temporary failure exclusions expire and malformed files fail closed', () => {
+  assert.deepEqual(activeDeferredContentIds({expires_at:'2026-10-08T02:00:00Z',content_ids:['failed']}, Date.parse('2026-10-08T02:00:00Z')), []);
+  assert.throws(() => activeDeferredContentIds({expires_at:'invalid',content_ids:[]}), /invalid deferred/);
+  assert.throws(() => activeDeferredContentIds({expires_at:'2026-10-08T03:00:00Z',content_ids:[null]}), /invalid deferred/);
+});
 
 test('scoped comment loading scrolls the note container, not the window', async () => {
   const originalDocument = globalThis.document;
