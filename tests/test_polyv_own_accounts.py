@@ -47,10 +47,15 @@ def test_zhihu_value_is_the_verified_one() -> None:
     assert own_account("zhihu") == "bugbg"
 
 
-def test_xhs_and_bili_use_different_characters() -> None:
-    """小馨 vs 小幕 — distinct accounts; a 'tidy-up' here would break verification."""
-    assert own_account("xhs") == "小馨的创意工坊OvO"
-    assert own_account("bili") == "小幕的创意工坊OvO"
+def test_xhs_and_bili_names_match_the_reverified_display_values() -> None:
+    """Re-read 2026-10-08 from our own published replies.
+
+    The accounts were rebranded to ZigoAI between 2026-09-29 (when the names were
+    first recorded) and 2026-10-08, so the old values would now make a genuine
+    send verify as ``own_account: false``.
+    """
+    assert own_account("xhs") == "小馨的ZigoAi"
+    assert own_account("bili") == "ZigoAi的小慕"
     assert own_account("xhs") != own_account("bili")
 
 

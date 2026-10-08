@@ -5,18 +5,23 @@ text *contains* the value passed as ``--own-account`` (``containerAuthor.include
 So the value must be the **display name as the platform renders it on our own
 comment**, not a handle and not a URL slug.
 
-How each value was obtained (2026-09-29, read-only, from the signed-in browser):
+How each value was obtained. Display names are **not stable** — the accounts were
+rebranded to ZigoAI, so re-read them from one of our own published comments
+whenever a send fails verification:
 
-| platform | value | source |
-|---|---|---|
-| zhihu | `bugbg` | header node labelled 点击打开bugbg的主页 — **and confirmed against a real published comment** |
-| xhs | `小馨的创意工坊OvO` | our own profile page title + `.user-name` |
-| dy | `Polyv的小幕` | `/user/self` title `Polyv的小幕的抖音` + avatar alt `Polyv的小幕头像` |
-| bili | `小幕的创意工坊OvO` | `space.bilibili.com/350237651` space name |
+| platform | value | source | last verified |
+|---|---|---|---|
+| zhihu | `bugbg` | header node labelled 点击打开bugbg的主页 — **and confirmed against a real published comment** | 2026-09-29 |
+| xhs | `小馨的ZigoAi` | our own published reply author (user id `64e0f879000000000100cf2c`) | 2026-10-08 |
+| dy | `Polyv的小幕` | `/user/self` title `Polyv的小幕的抖音` + avatar alt `Polyv的小幕头像` | 2026-09-29 |
+| bili | `ZigoAi的小慕` | our own published reply author via `api.bilibili.com/x/v2/reply/reply` (rpid `316396873009`, `316398134113`) | 2026-10-08 |
 
-Note xhs uses 小馨 while bili/dy use 小幕 — different characters, different
-accounts. Do not "normalise" them; a wrong value silently makes
-``own_account`` false.
+2026-10-08 update: xhs was `小馨的创意工坊OvO` and bili was `小幕的创意工坊OvO`
+when first recorded on 2026-09-29; both accounts have since been renamed. A stale
+value makes `own_account` false on a genuine send, so prefer the
+``id:<stable user id>`` form (e.g. ``id:64e0f879000000000100cf2c``) for post-send
+verification and treat this mapping as a convenience for callers that only have a
+display name.
 
 Because the match is a substring check, a very short value would false-positive.
 `is_distinctive` guards that.
@@ -24,24 +29,24 @@ Because the match is a substring check, a very short value would false-positive.
 
 from __future__ import annotations
 
-DISCOVERED_AT = "2026-09-29"
+DISCOVERED_AT = "2026-10-08"
 
 #: Minimum length for a substring match to be considered meaningful.
 MIN_DISTINCTIVE_LEN = 4
 
 OWN_ACCOUNTS: dict[str, str] = {
     "zhihu": "bugbg",
-    "xhs": "小馨的创意工坊OvO",
+    "xhs": "小馨的ZigoAi",
     "dy": "Polyv的小幕",
-    "bili": "小幕的创意工坊OvO",
+    "bili": "ZigoAi的小慕",
 }
 
 #: Evidence for each value, so a future reader can re-check instead of trusting.
 PROVENANCE: dict[str, str] = {
     "zhihu": "verified against a real published comment on zhuanlan.zhihu.com/p/2043648532419188153",
-    "xhs": "our own profile page (user id 64e0f879000000000100cf2c)",
+    "xhs": "author text on our own published reply, user id 64e0f879000000000100cf2c (2026-10-08)",
     "dy": "douyin.com/user/self title + avatar alt",
-    "bili": "space.bilibili.com/350237651 space name",
+    "bili": "author text on our own published reply, rpid 316396873009 & 316398134113 via api.bilibili.com (2026-10-08)",
 }
 
 
