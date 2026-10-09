@@ -99,7 +99,7 @@ export function xhsDetailReady(state, expected) {
 
 export async function gotoWithCommittedPageCheck(page, url, verifyPage, { readinessTimeout = 0 } = {}) {
   try {
-    await page.goto(url);
+    await page.goto(url, { waitUntil: 'domcontentloaded' });
     return 'loaded';
   } catch (error) {
     if (error.name !== 'PageNavigationTimeoutError') throw error;

@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { cardTitleFromText, filterSearchResults, loadUntilStable, parseDisplayedTime, profileIdFromUrl, requiresSearchLogin, waitForResults } from './ego_helpers.mjs';
+import { cardTitleFromText, filterSearchResults, gotoWithCommittedPageCheck, loadUntilStable, parseDisplayedTime, profileIdFromUrl, requiresSearchLogin, waitForResults } from './ego_helpers.mjs';
 
 const args = process.argv.slice(2);
 const keyword = process.env.KEYWORD || args[0] || "企业直播平台推荐";
@@ -15,12 +15,18 @@ if (!Number.isInteger(taskspaceId) || taskspaceId <= 0) throw new Error('需要�
 const task = await taskSpace(taskspaceId);
 
 const page = task.page("p1");
+if (task.ownership !== 'agent') throw new Error('USER_CONTROL_STOP');
 
 console.log(`[EgoCrawler] Searching Douyin for "${keyword}" (max ${maxContents} videos)...`);
 const searchUrl = `https://www.douyin.com/search/${encodeURIComponent(keyword)}?type=video`;
-await page.goto('https://www.douyin.com/');
-await page.waitForLoadState({ timeout: 15000 }).catch(() => {});
-await page.goto(searchUrl);
+await gotoWithCommittedPageCheck(page, 'https://www.douyin.com/', async () => page.evaluate(() => {
+  const url = new URL(location.href);
+  return url.hostname.endsWith('douyin.com') && Boolean(document.body);
+}), { readinessTimeout: 20000 });
+await gotoWithCommittedPageCheck(page, searchUrl, async () => page.evaluate(() => {
+  const url = new URL(location.href);
+  return url.hostname.endsWith('douyin.com') && url.pathname.startsWith('/search/') && Boolean(document.body);
+}), { readinessTimeout: 20000 });
 await page.waitForLoadState({ timeout: 15000 }).catch(() => {});
 await waitForResults(page, 'a[href*="/video/"]');
 const searchPageState = await page.evaluate(() => ({
@@ -89,7 +95,12 @@ for (let i = 0; i < targetVideos.length; i++) {
   const v = targetVideos[i];
   console.log(`[EgoCrawler] (${i + 1}/${targetVideos.length}) Fetching video: ${v.url}`);
   try {
-    await page.goto(v.url);
+    await gotoWithCommittedPageCheck(page, v.url, async () => page.evaluate(expectedId => {
+      const bodyText = document.body?.innerText || "";
+      return location.href.includes(expectedId)
+        && Boolean(document.body)
+        && !/你访问的页面不见了|内容不存在|页面不存在/.test(bodyText);
+    }, v.id), { readinessTimeout: 20000 });
     await page.waitForLoadState({ timeout: 15000 }).catch(() => {});
     await page.waitForSelector('h1, [data-e2e="video-desc"]', { timeout: 15000 }).catch(() => {});
     await loadUntilStable(page, '[data-e2e="comment-item"]', maxComments);
