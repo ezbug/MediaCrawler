@@ -236,6 +236,7 @@ def build_parser() -> argparse.ArgumentParser:
     peer_plan_parser.add_argument("--direction", action="append", choices=("peer_discovery", "peer_pricing", "peer_promotion"))
     peer_plan_parser.add_argument("--platform", action="append", choices=("dy", "xhs", "bili", "zhihu"))
     peer_plan_parser.add_argument("--all-brands", action="store_true", help="包含二、三级优先级的同行品牌")
+    peer_plan_parser.add_argument("--template-limit", type=int, help="每个方向只取前 N 个品牌模板，例如 1")
     peer_plan_parser.add_argument("--max-queries", type=int, default=0, help="限制计划条数；0 表示不限制")
     peer_plan_parser.add_argument("--output-dir", help="计划输出目录，默认 polyv-radar-data/peer-research")
     peer_collect_parser = subparsers.add_parser("peer-collect", help="同行调查采集（Ego Lite，写入 peer-research 独立目录）")
@@ -245,6 +246,7 @@ def build_parser() -> argparse.ArgumentParser:
     peer_collect_parser.add_argument("--direction", action="append", choices=("peer_discovery", "peer_pricing", "peer_promotion"))
     peer_collect_parser.add_argument("--platform", action="append", choices=("dy", "xhs", "bili", "zhihu"))
     peer_collect_parser.add_argument("--all-brands", action="store_true", help="包含二、三级优先级的同行品牌")
+    peer_collect_parser.add_argument("--template-limit", type=int, help="每个方向只取前 N 个品牌模板，例如 1")
     peer_collect_parser.add_argument("--max-queries", type=int, default=0, help="限制本批查询条数；0 表示不限制")
     peer_collect_parser.add_argument("--max-contents", type=int)
     peer_collect_parser.add_argument("--max-comments", type=int)
@@ -475,6 +477,7 @@ def main(argv: list[str] | None = None) -> int:
             directions=args.direction,
             platforms=args.platform,
             include_all_brands=args.all_brands,
+            template_limit=args.template_limit,
             max_queries=args.max_queries,
         )
         output_dir = Path(args.output_dir) if args.output_dir else config.data_root / "peer-research"
@@ -498,6 +501,7 @@ def main(argv: list[str] | None = None) -> int:
             directions=args.direction,
             platforms=args.platform,
             include_all_brands=args.all_brands,
+            template_limit=args.template_limit,
             max_queries=args.max_queries,
             max_contents=args.max_contents,
             max_comments=args.max_comments,

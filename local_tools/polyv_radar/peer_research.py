@@ -51,6 +51,7 @@ def build_peer_plan(
     directions: list[str] | None = None,
     platforms: list[str] | None = None,
     include_all_brands: bool = False,
+    template_limit: int | None = None,
     max_queries: int = 0,
     now: datetime | None = None,
 ) -> dict:
@@ -99,9 +100,12 @@ def build_peer_plan(
 
     for direction in direction_order:
         definition = definitions.get(direction) or {}
+        templates = list(definition.get("templates") or [])
+        if template_limit and template_limit > 0:
+            templates = templates[: int(template_limit)]
         for competitor in selected:
             brand = str(competitor["brand"])
-            for template in definition.get("templates") or []:
+            for template in templates:
                 text = str(template).replace("{brand}", brand)
                 for platform in platform_order:
                     add(
@@ -274,6 +278,7 @@ def run_peer_collect(
     directions: list[str] | None = None,
     platforms: list[str] | None = None,
     include_all_brands: bool = False,
+    template_limit: int | None = None,
     max_queries: int = 0,
     max_contents: int | None = None,
     max_comments: int | None = None,
@@ -288,6 +293,7 @@ def run_peer_collect(
         directions=directions,
         platforms=platforms,
         include_all_brands=include_all_brands,
+        template_limit=template_limit,
         max_queries=max_queries,
     )
     if not plan["queries"]:
