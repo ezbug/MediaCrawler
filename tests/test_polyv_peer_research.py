@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -9,6 +10,7 @@ import pytest
 from local_tools.polyv_radar.peer_research import (
     DIRECTIONS,
     PLATFORMS,
+    build_peer_collect_config,
     build_peer_plan,
     load_peer_taxonomy,
     render_peer_plan_markdown,
@@ -180,3 +182,48 @@ def test_load_rejects_wrong_schema(tmp_path):
     bad.write_text(json.dumps({"schema": "something-else"}), encoding="utf-8")
     with pytest.raises(ValueError):
         load_peer_taxonomy(bad)
+
+
+@dataclass
+class FakeConfig:
+    data_root: Path
+    platforms: list
+    keywords: dict
+    platform_keywords: dict
+    taxonomy_enabled: bool
+    taxonomy_keywords: dict
+    max_contents: int
+    max_comments: int
+    task_timeout_seconds: int
+
+
+def test_peer_collect_config_isolates_peer_queries():
+    config = FakeConfig(
+        data_root=Path("/tmp/radar"),
+        platforms=["dy", "xhs", "bili", "zhihu"],
+        keywords={"企业直播": "企业直播平台推荐"},
+        platform_keywords={"dy": {"年会": "公司年会直播 平台报价"}},
+        taxonomy_enabled=True,
+        taxonomy_keywords={"tier1": "员工大会 平台"},
+        max_contents=15,
+        max_comments=30,
+        task_timeout_seconds=180,
+    )
+    plan = build_peer_plan(
+        minimal_taxonomy(),
+        brands=["微吼", "小鹅通"],
+        directions=["peer_pricing"],
+        platforms=["zhihu"],
+    )
+    peer = build_peer_collect_config(config, plan, max_contents=5, max_comments=8)
+    assert peer.taxonomy_enabled is False
+    assert peer.taxonomy_keywords == {}
+    assert peer.keywords == {}
+    assert set(peer.platform_keywords) == {"zhihu"}
+    values = list(peer.platform_keywords["zhihu"].values())
+    assert "微吼 价格" in values
+    assert "小鹅通 价格" in values
+    assert peer.max_contents == 5
+    assert peer.max_comments == 8
+    assert peer.platforms == ["zhihu"]
+    assert peer.task_timeout_seconds == 180

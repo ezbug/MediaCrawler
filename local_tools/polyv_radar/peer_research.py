@@ -237,3 +237,85 @@ def write_peer_plan(plan: dict, output_dir: Path) -> dict[str, Path]:
     json_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     markdown_path.write_text(render_peer_plan_markdown(plan), encoding="utf-8")
     return {"json": json_path, "markdown": markdown_path}
+
+
+def build_peer_collect_config(config, plan: dict, *, max_contents=None, max_comments=None, task_timeout_seconds=None):
+    """克隆雷达配置为同行批次：只用计划内查询，关闭 POLYV 词库扩展。"""
+    from dataclasses import replace
+
+    platforms = list(plan["filters"]["platforms"])
+    platform_keywords: dict[str, dict[str, str]] = {platform: {} for platform in platforms}
+    for index, query in enumerate(plan["queries"], start=1):
+        mapping = platform_keywords.setdefault(query["platform"], {})
+        label = query["brand"] or "行业"
+        mapping[f"{label}#{index}"] = query["query"]
+    updates = {
+        "platforms": platforms,
+        "keywords": {},
+        "platform_keywords": platform_keywords,
+        "taxonomy_enabled": False,
+        "taxonomy_keywords": {},
+    }
+    if max_contents:
+        updates["max_contents"] = int(max_contents)
+    if max_comments:
+        updates["max_comments"] = int(max_comments)
+    if task_timeout_seconds:
+        updates["task_timeout_seconds"] = int(task_timeout_seconds)
+    return replace(config, **updates)
+
+
+def run_peer_collect(
+    config,
+    taxonomy: dict,
+    *,
+    taskspace: int,
+    brands: list[str] | None = None,
+    directions: list[str] | None = None,
+    platforms: list[str] | None = None,
+    include_all_brands: bool = False,
+    max_queries: int = 0,
+    max_contents: int | None = None,
+    max_comments: int | None = None,
+    run_id: str | None = None,
+    repo_root: Path | None = None,
+) -> dict:
+    """执行同行采集：复用 Ego Lite 批量入口，写入 peer-research 独立目录。"""
+    plan = build_peer_plan(
+        taxonomy,
+        brands=brands,
+        directions=directions,
+        platforms=platforms,
+        include_all_brands=include_all_brands,
+        max_queries=max_queries,
+    )
+    if not plan["queries"]:
+        raise ValueError("同行调查计划为空，未执行采集")
+    if not taskspace or int(taskspace) <= 0:
+        raise ValueError("peer-collect 必须显式传入 --taskspace")
+    peer_config = build_peer_collect_config(
+        config, plan, max_contents=max_contents, max_comments=max_comments
+    )
+    from .ego_crawl_all import run_ego_crawlers
+
+    run_id = run_id or datetime.now().strftime("peer-%Y%m%d-%H%M%S")
+    peer_root = Path(config.data_root) / "peer-research"
+    results = run_ego_crawlers(
+        run_id,
+        list(plan["filters"]["platforms"]),
+        peer_config,
+        Path(repo_root) if repo_root else Path(__file__).resolve().parents[2],
+        peer_root,
+        int(taskspace),
+    )
+    run_dir = peer_root / "runs" / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    plan_path = run_dir / "plan.json"
+    plan_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return {
+        "run_id": run_id,
+        "platforms": results,
+        "queries": plan["stats"]["queries"],
+        "plan_path": str(plan_path),
+        "raw_dir": str(peer_root / "raw" / run_id),
+    }

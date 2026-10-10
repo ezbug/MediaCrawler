@@ -26,7 +26,17 @@ Markdown 版本按方向分组，便于人工挑选批次。
 
 ## 执行采集
 
-计划中的查询直接复用现有 Ego Lite 采集入口，不需要新爬虫：
+同行采集使用独立入口，数据写入 `polyv-radar-data/peer-research/`，
+不进入 POLYV 潜客库：
+
+```bash
+uv run python -m local_tools.polyv_radar peer-collect \
+  --config local_tools/polyv_radar/pilot.toml \
+  --taskspace <taskspace> \
+  --brand 微吼 --direction peer_discovery --platform zhihu
+```
+
+也可以直接用现有采集入口复跑计划里的单条查询：
 
 ```bash
 uv run python -m local_tools.polyv_radar collect \
