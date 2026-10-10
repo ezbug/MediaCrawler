@@ -11,6 +11,8 @@ import json
 import re
 from pathlib import Path
 
+from .own_accounts import OWN_ACCOUNTS
+
 PRICE_SUFFIX_PATTERN = re.compile(r"([0-9][0-9,，]*(?:\.[0-9]+)?)\s*(万元|万|元|块)")
 COMMISSION_PATTERN = re.compile(r"抽成\s*([0-9]+(?:\.[0-9]+)?)\s*%")
 PRICE_CONTEXT_TERMS = ("价格", "报价", "费用", "收费", "多少钱", "预算", "年费", "月费", "性价比", "套餐")
@@ -18,16 +20,18 @@ ROUNDUP_TERMS = ("对比", "排行", "盘点", "十大", "TOP", "Top", "top", "�
 QUESTION_TERMS = ("求推荐", "请问", "有没有", "推荐一下", "哪家", "?", "？")
 VENDOR_AUTHOR_TERMS = ("直播", "软件", "评测", "办会", "科技", "网络", "云", "SaaS", "saas")
 OUTREACH_TERMS = ("私信", "加我", "加微", "微信", "联系我", "免费试用", "咨询我", "了解详情", "领取", "优惠", "折扣", "备注")
+OWN_AUTHOR_EXCLUSIONS = tuple(sorted(set(OWN_ACCOUNTS.values()))) + ("保利威", "POLYV")
 
 PRICE_FIELDS = ("品牌", "平台", "类型", "价格信号", "原文片段", "标题", "链接", "作者", "发布时间", "查询", "批次")
 PROMO_FIELDS = ("类型", "品牌", "提及品牌", "标题", "作者", "平台", "链接", "发布时间", "原文/摘要", "查询", "批次")
 
 
 def mask_contacts(text: str) -> str:
-    """遮蔽邮箱与长数字串，避免把联系方式写进报告。"""
+    """遮蔽邮箱、微信号与手机号；价格数字（如 12800 元）保持可见。"""
     text = re.sub(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", "[邮箱已遮蔽]", text)
     text = re.sub(r"(微信|VX|vx|V信|WX|wx)\s*[:：]?\s*[A-Za-z0-9_-]{4,}", r"\1[已遮蔽]", text)
-    return re.sub(r"\d{5,}", "[数字已遮蔽]", text)
+    text = re.sub(r"(?<!\d)1[3-9]\d{9}(?!\d)", "[手机号已遮蔽]", text)
+    return re.sub(r"\d{9,}", "[数字已遮蔽]", text)
 
 
 def _read_jsonl(path: Path) -> list[dict]:
@@ -65,6 +69,14 @@ def load_plan_brand_map(peer_root: Path) -> dict[tuple[str, str], str]:
     return mapping
 
 
+def content_jsonl_path(query_dir: Path, platform: str) -> Path:
+    """内容文件名在各平台不同：知乎/小红书用 contents，抖音用 videos。"""
+    contents = query_dir / f"{platform}_contents.jsonl"
+    if contents.exists():
+        return contents
+    return query_dir / f"{platform}_videos.jsonl"
+
+
 def _record_brand(row: dict, platform: str, query: str, brand_map: dict[tuple[str, str], str]) -> str:
     brand = brand_map.get((platform, query)) or ""
     if brand:
@@ -94,7 +106,7 @@ def load_peer_records(peer_root: Path, run_ids: list[str] | None = None) -> list
             for query_dir in sorted(path for path in platform_dir.iterdir() if path.is_dir()):
                 query = re.sub(r"^\d+-", "", query_dir.name)
                 content_index: dict[str, dict] = {}
-                for row in _read_jsonl(query_dir / f"{platform}_contents.jsonl"):
+                for row in _read_jsonl(content_jsonl_path(query_dir, platform)):
                     content_id = str(row.get("content_id") or "")
                     record = {
                         "run_id": run_dir.name,
@@ -144,7 +156,7 @@ def extract_price_signals(records: list[dict]) -> list[dict]:
     seen: set[tuple[str, str, str, str]] = set()
 
     def add(record: dict, price_text: str, signal_type: str, snippet: str) -> None:
-        key = (record["run_id"], record["platform"], record["record_id"], price_text)
+        key = (record["platform"], record["record_id"], price_text)
         if key in seen:
             return
         seen.add(key)
@@ -197,17 +209,29 @@ def classify_promo(record: dict, brand_names: set[str]) -> str:
     return "其他"
 
 
-def build_promo_rows(records: list[dict], brand_names: set[str]) -> list[dict]:
+def build_promo_rows(
+    records: list[dict],
+    brand_names: set[str],
+    excluded_authors: tuple[str, ...] = OWN_AUTHOR_EXCLUSIONS,
+) -> list[dict]:
     """宣传内容分类 + 评论区触达话术。"""
     rows: list[dict] = []
+    seen: set[tuple[str, str, str]] = set()
     for record in records:
+        if record["author"] and any(name in record["author"] for name in excluded_authors):
+            continue
         if record["record_type"] == "content":
             blob = " ".join(part for part in (record["title"], record["text"]) if part)
             mentions = sorted(brand for brand in brand_names if brand and brand in blob)
             summary = mask_contacts(record["text"].strip())[:160]
+            row_type = classify_promo(record, brand_names)
+            key = (record["platform"], record["url"] or record["record_id"], row_type)
+            if key in seen:
+                continue
+            seen.add(key)
             rows.append(
                 {
-                    "row_type": classify_promo(record, brand_names),
+                    "row_type": row_type,
                     "brand": record["brand"],
                     "mentions": ",".join(mentions),
                     "title": record["title"],
@@ -224,6 +248,10 @@ def build_promo_rows(records: list[dict], brand_names: set[str]) -> list[dict]:
         hits = [term for term in OUTREACH_TERMS if term in record["text"]]
         if not hits:
             continue
+        key = (record["platform"], record["record_id"], "评论区触达话术")
+        if key in seen:
+            continue
+        seen.add(key)
         rows.append(
             {
                 "row_type": "评论区触达话术",

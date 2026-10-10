@@ -123,7 +123,14 @@ def test_mask_contacts_hides_phone_wechat_and_email():
     assert "13800000000" not in masked
     assert "abc_123" not in masked
     assert "user@example.com" not in masked
-    assert "[数字已遮蔽]" in masked or "[已遮蔽]" in masked
+    assert "[手机号已遮蔽]" in masked
+
+
+def test_mask_contacts_keeps_price_numbers():
+    masked = mask_contacts("小鹅通基础版 6800 元/年，专业版 12800 元/年，旗舰版 25800 元/年")
+    assert "6800" in masked
+    assert "12800" in masked
+    assert "25800" in masked
 
 
 def test_build_reports_writes_csv_and_markdown(tmp_path):
@@ -138,3 +145,72 @@ def test_build_reports_writes_csv_and_markdown(tmp_path):
     assert "评论区触达话术" in promo_csv.read_text(encoding="utf-8-sig")
     assert "同行价格情报表" in Path(result["price_markdown"]).read_text(encoding="utf-8")
     assert result["promo_counts"].get("评论区触达话术") == 1
+
+
+def test_load_records_reads_douyin_videos_filename(tmp_path):
+    peer_root = tmp_path / "peer-research"
+    query_dir = peer_root / "raw" / "peer-test-0002" / "dy" / "01-微吼"
+    write_jsonl(
+        query_dir / "dy_videos.jsonl",
+        [
+            {
+                "platform": "dy",
+                "content_id": "v1",
+                "title": "微吼直播企业直播宣传片",
+                "text": "企业直播服务 2万元每场起",
+                "url": "https://www.douyin.com/video/v1",
+                "author": "微吼直播认证徽章北京微吼时代科技有限公司",
+                "create_time": "2026-09-20T00:00:00.000Z",
+            }
+        ],
+    )
+    write_jsonl(
+        query_dir / "dy_comments.jsonl",
+        [
+            {
+                "platform": "dy",
+                "comment_id": "v1_cm_1",
+                "content_id": "v1",
+                "text": "怎么联系你们",
+                "author": "某用户",
+                "published_at_raw": "2026-09-21",
+            }
+        ],
+    )
+    records = load_peer_records(peer_root)
+    assert len(records) == 2
+    content = next(record for record in records if record["record_type"] == "content")
+    assert content["title"] == "微吼直播企业直播宣传片"
+    assert content["url"] == "https://www.douyin.com/video/v1"
+    comment = next(record for record in records if record["record_type"] == "comment")
+    assert comment["url"] == "https://www.douyin.com/video/v1"
+
+
+def test_promo_rows_dedupe_and_skip_own_accounts(tmp_path):
+    records = [
+        {
+            "run_id": "r1", "platform": "zhihu", "query": "微吼", "record_type": "content",
+            "record_id": "c1", "title": "企业直播平台对比", "text": "正文", "url": "https://example.com/c1",
+            "author": "行业观察", "published": "2026-09-01", "brand": "微吼", "likes": 0,
+        },
+        {
+            "run_id": "r2", "platform": "zhihu", "query": "企业直播平台 对比", "record_type": "content",
+            "record_id": "c1", "title": "企业直播平台对比", "text": "正文", "url": "https://example.com/c1",
+            "author": "行业观察", "published": "2026-09-01", "brand": "", "likes": 0,
+        },
+        {
+            "run_id": "r1", "platform": "zhihu", "query": "微吼", "record_type": "comment",
+            "record_id": "m1", "title": "企业直播平台对比", "text": "想了解可以私信我", "url": "https://example.com/c1",
+            "author": "bugbg", "published": "2026-09-02", "brand": "微吼", "likes": 0,
+        },
+        {
+            "run_id": "r1", "platform": "zhihu", "query": "微吼", "record_type": "comment",
+            "record_id": "m2", "title": "企业直播平台对比", "text": "有需求私信我", "url": "https://example.com/c1",
+            "author": "某销售", "published": "2026-09-02", "brand": "微吼", "likes": 0,
+        },
+    ]
+    rows = build_promo_rows(records, {"微吼", "小鹅通"})
+    assert len([row for row in rows if row["row_type"] == "测评或排行内容"]) == 1
+    outreach = [row for row in rows if row["row_type"] == "评论区触达话术"]
+    assert len(outreach) == 1
+    assert outreach[0]["author"] == "某销售"
