@@ -250,6 +250,10 @@ def build_parser() -> argparse.ArgumentParser:
     peer_collect_parser.add_argument("--max-comments", type=int)
     peer_collect_parser.add_argument("--run-id")
     peer_collect_parser.add_argument("--repo-root", default=str(Path(__file__).resolve().parents[2]))
+    peer_report_parser = subparsers.add_parser("peer-report", help="提炼同行价格情报表与宣传话术库（离线）")
+    peer_report_parser.add_argument("--config", required=True)
+    peer_report_parser.add_argument("--run-id", action="append", help="只处理指定批次，可重复传入")
+    peer_report_parser.add_argument("--output-dir", help="报告输出目录，默认 polyv-radar-data/peer-research/reports")
     return parser
 
 
@@ -497,6 +501,14 @@ def main(argv: list[str] | None = None) -> int:
             max_comments=args.max_comments,
             run_id=args.run_id,
             repo_root=Path(args.repo_root),
+        )
+    elif args.command == "peer-report":
+        from .peer_report import build_peer_reports
+
+        payload = build_peer_reports(
+            Path(config.data_root) / "peer-research",
+            output_dir=Path(args.output_dir) if args.output_dir else None,
+            run_ids=args.run_id,
         )
     elif args.command == "zigo-ingest":
         if config.product_profile not in {"zigo_sales", "zigo_geo"}:
