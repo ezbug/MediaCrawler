@@ -9,6 +9,7 @@ from __future__ import annotations
 import csv
 import json
 import re
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 from .own_accounts import OWN_ACCOUNTS
@@ -23,8 +24,45 @@ OUTREACH_TERMS = ("私信", "加我", "加微", "加微信", "联系我", "咨�
 DEMAND_TERMS = ("我需要", "怎么联系", "求联系", "想联系", "求推荐", "想要", "求个")
 OWN_AUTHOR_EXCLUSIONS = tuple(sorted(set(OWN_ACCOUNTS.values()))) + ("保利威", "POLYV")
 
-PRICE_FIELDS = ("品牌", "平台", "类型", "价格信号", "原文片段", "标题", "链接", "作者", "发布时间", "查询", "批次")
-PROMO_FIELDS = ("类型", "品牌", "提及品牌", "标题", "作者", "平台", "链接", "发布时间", "原文/摘要", "查询", "批次")
+DATE_PATTERN = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
+
+
+def resolve_publish_date(record: dict) -> tuple[str, str]:
+    """返回 (发布日期, 来源)。抖音用 aweme_id 前 32 位时间戳兜底。"""
+    value = record.get("published_at")
+    if isinstance(value, str):
+        match = DATE_PATTERN.search(value)
+        if match:
+            return match.group(0), "published_at"
+    raw = str(record.get("published_at_raw") or "")
+    match = DATE_PATTERN.search(raw)
+    if match:
+        return match.group(0), "published_at_raw"
+    if record.get("platform") == "dy":
+        content_id = str(record.get("content_id") or "")
+        if content_id.isdigit():
+            timestamp = int(content_id) >> 32
+            if 1_300_000_000 < timestamp < 1_800_000_000:
+                return datetime.fromtimestamp(timestamp, tz=timezone.utc).strftime("%Y-%m-%d"), "aweme_id"
+    return "", "unknown"
+
+
+def age_bucket(publish_date: str, *, now: datetime | None = None) -> str:
+    if not publish_date:
+        return "未知"
+    try:
+        published = datetime.strptime(publish_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return "未知"
+    moment = now or datetime.now(timezone.utc)
+    if published >= moment - timedelta(days=90):
+        return "90天内"
+    if published >= moment - timedelta(days=730):
+        return "91-730天"
+    return "超730天"
+
+PRICE_FIELDS = ("品牌", "平台", "类型", "价格信号", "原文片段", "标题", "链接", "作者", "发布时间", "时效", "查询", "批次")
+PROMO_FIELDS = ("类型", "品牌", "提及品牌", "标题", "作者", "平台", "链接", "发布时间", "时效", "原文/摘要", "查询", "批次")
 
 
 def mask_contacts(text: str) -> str:
@@ -109,6 +147,7 @@ def load_peer_records(peer_root: Path, run_ids: list[str] | None = None) -> list
                 content_index: dict[str, dict] = {}
                 for row in _read_jsonl(content_jsonl_path(query_dir, platform)):
                     content_id = str(row.get("content_id") or "")
+                    publish_date, publish_source = resolve_publish_date(row)
                     record = {
                         "run_id": run_dir.name,
                         "platform": platform,
@@ -119,7 +158,9 @@ def load_peer_records(peer_root: Path, run_ids: list[str] | None = None) -> list
                         "text": str(row.get("text") or ""),
                         "url": str(row.get("url") or ""),
                         "author": str(row.get("author") or ""),
-                        "published": str(row.get("published_at_raw") or row.get("create_time") or ""),
+                        "published": publish_date,
+                        "publish_source": publish_source,
+                        "age": age_bucket(publish_date),
                         "brand": _record_brand(row, platform, query, brand_map),
                         "likes": row.get("likes") or 0,
                     }
@@ -128,6 +169,10 @@ def load_peer_records(peer_root: Path, run_ids: list[str] | None = None) -> list
                     records.append(record)
                 for row in _read_jsonl(query_dir / f"{platform}_comments.jsonl"):
                     parent = content_index.get(str(row.get("content_id") or "")) or {}
+                    publish_date, publish_source = resolve_publish_date(row)
+                    if not publish_date and parent.get("published"):
+                        # 评论自己没有时间时，退回所属内容的时间，避免时效判断失真。
+                        publish_date, publish_source = parent["published"], "parent_content"
                     records.append(
                         {
                             "run_id": run_dir.name,
@@ -139,7 +184,9 @@ def load_peer_records(peer_root: Path, run_ids: list[str] | None = None) -> list
                             "text": str(row.get("text") or ""),
                             "url": str(row.get("comment_url") or parent.get("url") or ""),
                             "author": str(row.get("author") or ""),
-                            "published": str(row.get("published_at_raw") or row.get("create_time") or ""),
+                            "published": publish_date,
+                            "publish_source": publish_source,
+                            "age": age_bucket(publish_date),
                             "brand": _record_brand(row, platform, query, brand_map),
                             "likes": row.get("likes") or 0,
                         }
@@ -172,6 +219,7 @@ def extract_price_signals(records: list[dict]) -> list[dict]:
                 "url": record["url"],
                 "author": record["author"],
                 "published": record["published"],
+                "age": record.get("age", ""),
                 "query": record["query"],
                 "run_id": record["run_id"],
             }
@@ -240,6 +288,7 @@ def build_promo_rows(
                     "platform": record["platform"],
                     "url": record["url"],
                     "published": record["published"],
+                    "age": record.get("age", ""),
                     "excerpt": summary,
                     "query": record["query"],
                     "run_id": record["run_id"],
@@ -264,6 +313,7 @@ def build_promo_rows(
                 "platform": record["platform"],
                 "url": record["url"],
                 "published": record["published"],
+                "age": record.get("age", ""),
                 "excerpt": mask_contacts(record["text"].strip())[:200],
                 "query": record["query"],
                 "run_id": record["run_id"],
@@ -292,6 +342,7 @@ def _price_row(signal: dict) -> dict:
         "链接": signal["url"],
         "作者": signal["author"],
         "发布时间": signal["published"],
+        "时效": signal["age"],
         "查询": signal["query"],
         "批次": signal["run_id"],
     }
@@ -307,22 +358,35 @@ def _promo_row(row: dict) -> dict:
         "平台": row["platform"],
         "链接": row["url"],
         "发布时间": row["published"],
+        "时效": row["age"],
         "原文/摘要": row["excerpt"],
         "查询": row["query"],
         "批次": row["run_id"],
     }
 
 
-def build_peer_reports(peer_root: Path, *, output_dir: Path | None = None, run_ids: list[str] | None = None) -> dict:
-    """生成价格情报表与宣传话术库（CSV + Markdown）。"""
+def build_peer_reports(
+    peer_root: Path,
+    *,
+    output_dir: Path | None = None,
+    run_ids: list[str] | None = None,
+    recent_days: int | None = None,
+) -> dict:
+    """生成价格情报表与宣传话术库（CSV + Markdown）。recent_days 只保留最近 N 天。"""
     from .peer_research import load_peer_taxonomy
 
     peer_root = Path(peer_root)
     records = load_peer_records(peer_root, run_ids)
+    if recent_days and recent_days > 0:
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=int(recent_days))).strftime("%Y-%m-%d")
+        records = [record for record in records if record["published"] and record["published"] >= cutoff]
     taxonomy = load_peer_taxonomy(Path(__file__).with_name("peer_research_taxonomy.json"))
     brand_names = {str(item["brand"]) for item in taxonomy["competitors"]}
     signals = extract_price_signals(records)
     promo_rows = build_promo_rows(records, brand_names)
+    age_counts: dict[str, int] = {}
+    for record in records:
+        age_counts[record["age"]] = age_counts.get(record["age"], 0) + 1
     target_dir = Path(output_dir) if output_dir else peer_root / "reports"
     target_dir.mkdir(parents=True, exist_ok=True)
 
@@ -369,6 +433,8 @@ def build_peer_reports(peer_root: Path, *, output_dir: Path | None = None, run_i
 
     return {
         "records": len(records),
+        "recent_days": recent_days,
+        "age_counts": age_counts,
         "price_signals": len(price_rows),
         "promo_rows": len(promo_table),
         "promo_counts": counts,

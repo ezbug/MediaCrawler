@@ -254,6 +254,7 @@ def build_parser() -> argparse.ArgumentParser:
     peer_report_parser = subparsers.add_parser("peer-report", help="提炼同行价格情报表与宣传话术库（离线）")
     peer_report_parser.add_argument("--config", required=True)
     peer_report_parser.add_argument("--run-id", action="append", help="只处理指定批次，可重复传入")
+    peer_report_parser.add_argument("--recent-days", type=int, help="只保留最近 N 天发布的内容，例如 90")
     peer_report_parser.add_argument("--output-dir", help="报告输出目录，默认 polyv-radar-data/peer-research/reports")
     return parser
 
@@ -511,6 +512,7 @@ def main(argv: list[str] | None = None) -> int:
             Path(config.data_root) / "peer-research",
             output_dir=Path(args.output_dir) if args.output_dir else None,
             run_ids=args.run_id,
+            recent_days=args.recent_days,
         )
     elif args.command == "zigo-ingest":
         if config.product_profile not in {"zigo_sales", "zigo_geo"}:

@@ -4,11 +4,13 @@ import json
 from pathlib import Path
 
 from local_tools.polyv_radar.peer_report import (
+    age_bucket,
     build_peer_reports,
     build_promo_rows,
     extract_price_signals,
     load_peer_records,
     mask_contacts,
+    resolve_publish_date,
 )
 
 
@@ -232,3 +234,41 @@ def test_demand_comment_is_classified_separately_from_outreach(tmp_path):
     rows = build_promo_rows(records, {"小鹅通"})
     kinds = {row["row_type"] for row in rows}
     assert kinds == {"评论区需求响应", "评论区触达话术"}
+
+
+def test_resolve_publish_date_prefers_real_fields_and_decodes_douyin_id():
+    xhs = {"platform": "xhs", "published_at": "2026-09-18T03:46:28.000Z"}
+    assert resolve_publish_date(xhs) == ("2026-09-18", "published_at")
+    dy = {"platform": "dy", "content_id": "7425470685524413748"}
+    assert resolve_publish_date(dy) == ("2024-10-14", "aweme_id")
+    zhihu = {"platform": "zhihu", "published_at_raw": "发布于2023-03-23 16:32"}
+    assert resolve_publish_date(zhihu) == ("2023-03-23", "published_at_raw")
+    assert resolve_publish_date({"platform": "xhs"}) == ("", "unknown")
+
+
+def test_age_bucket_boundaries():
+    from datetime import datetime, timezone
+
+    now = datetime(2026, 10, 10, tzinfo=timezone.utc)
+    assert age_bucket("2026-09-18", now=now) == "90天内"
+    assert age_bucket("2026-06-18", now=now) == "91-730天"
+    assert age_bucket("2021-09-18", now=now) == "超730天"
+    assert age_bucket("", now=now) == "未知"
+
+
+def test_recent_days_filter_excludes_old_and_unknown(tmp_path):
+    peer_root = tmp_path / "peer-research"
+    query_dir = peer_root / "raw" / "peer-test-0003" / "xhs" / "01-小鹅通"
+    write_jsonl(
+        query_dir / "xhs_contents.jsonl",
+        [
+            {"platform": "xhs", "content_id": "n1", "title": "近期笔记", "text": "正文", "url": "https://x/n1", "author": "小鹅通官方", "published_at": "2026-09-18T00:00:00.000Z"},
+            {"platform": "xhs", "content_id": "n2", "title": "旧笔记", "text": "正文", "url": "https://x/n2", "author": "小鹅通官方", "published_at": "2024-01-01T00:00:00.000Z"},
+            {"platform": "xhs", "content_id": "n3", "title": "无日期", "text": "正文", "url": "https://x/n3", "author": "微吼"},
+        ],
+    )
+    result = build_peer_reports(peer_root, output_dir=tmp_path / "reports", recent_days=90)
+    assert result["records"] == 1
+    assert result["age_counts"] == {"90天内": 1}
+    unfiltered = build_peer_reports(peer_root, output_dir=tmp_path / "reports-all")
+    assert unfiltered["records"] == 3
