@@ -160,13 +160,13 @@ def run_ego_crawlers(run_id: str, platforms: list[str], config, repo_root: Path,
             plat_success = False
             error = "批次任务记录缺失或关键词不匹配，不能确认采集完成"
         elif plat_success:
-            failures = [task for task in tasks if task.get("status") != "success"]
+            failures = [task for task in tasks if task.get("status") not in ("success", "empty")]
             if failures:
                 plat_success = False
                 error = "; ".join(f"{task['keyword']}: {task.get('error') or task.get('status') or '状态缺失'}" for task in failures)[-500:]
         completed_keywords = {
             task.get("keyword") for task in tasks
-            if isinstance(task, dict) and task.get("keyword") in expected_keywords and task.get("status") == "success"
+            if isinstance(task, dict) and task.get("keyword") in expected_keywords and task.get("status") in ("success", "empty")
         }
         platform_status = "success" if plat_success else "partial" if completed_keywords else "failed"
         results[plat] = plat_success

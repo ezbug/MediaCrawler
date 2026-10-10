@@ -100,8 +100,11 @@ for (let index = 0; index < keywords.length; index += 1) {
     const moduleUrl = `${pathToFileURL(scriptPath).href}?polyv_keyword=${encodeURIComponent(keyword)}&batch=${Date.now()}`;
     await import(moduleUrl);
     const exitCode = Number(process.exitCode || 0);
-    if (exitCode !== 0) record.error = `采集脚本退出码 ${exitCode}`;
-    else record.status = 'success';
+    if (exitCode === 0) record.status = 'success';
+    else if (exitCode === 2) {
+      record.status = 'empty';
+      record.error = '零结果：无相关内容';
+    } else record.error = `采集脚本退出码 ${exitCode}`;
   } catch (error) {
     record.error = String(error?.message || error).slice(0, 500);
   } finally {

@@ -403,7 +403,7 @@ def collect(
                     task_started,
                     task_finished,
                     task,
-                    "success" if task.get("status") == "success" else "partial",
+                    "success" if task.get("status") in ("success", "empty") else "partial",
                     str(task.get("error", "")),
                 )
             )
@@ -472,10 +472,14 @@ def ingest_existing_run(
                     workflow_status.get("error") or "任务部分完成，已恢复已落盘数据"
                 )
         if status["tasks"] and not status["contents"]:
-            status["status"] = "partial"
-            failures[platform] = str(
-                workflow_status.get("error") or "任务被中断或未完成，已恢复已落盘数据"
-            )
+            if workflow_status.get("status") == "success":
+                # 全部查询零结果是正常完成，不是中断，也不是失败。
+                status["status"] = "success"
+            else:
+                status["status"] = "partial"
+                failures[platform] = str(
+                    workflow_status.get("error") or "任务被中断或未完成，已恢复已落盘数据"
+                )
         platform_status[platform] = status
     existing_run = store.connection.execute(
         "SELECT started_at, finished_at FROM runs WHERE run_id = ?", (run_id,)

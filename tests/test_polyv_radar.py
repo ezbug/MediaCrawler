@@ -311,6 +311,27 @@ def test_ingest_preserves_workflow_partial_status_with_recovered_contents(tmp_pa
     assert result.failures["dy"] == "任务超时"
 
 
+def test_ingest_marks_all_empty_workflow_success(tmp_path: Path) -> None:
+    data_root = tmp_path / "radar-data"
+    raw_dir = data_root / "raw" / "workflow-empty" / "xhs" / "企业培训" / "xhs" / "jsonl"
+    raw_dir.mkdir(parents=True)
+    (raw_dir / "search_contents.jsonl").write_text("", encoding="utf-8")
+    workflow_dir = data_root / "workflow-runs" / "workflow-empty"
+    workflow_dir.mkdir(parents=True)
+    (workflow_dir / "workflow-run.json").write_text(
+        json.dumps({"platforms": [{"platform": "xhs", "status": "success", "error": ""}]}),
+        encoding="utf-8",
+    )
+
+    result = ingest_existing_run(
+        RadarConfig(data_root=data_root, platforms=["xhs"], keywords={"企业培训": "员工培训"}),
+        "workflow-empty",
+    )
+
+    assert result.platform_status["xhs"]["contents"] == 0
+    assert result.platform_status["xhs"]["status"] == "success"
+
+
 def test_collect_rejects_native_before_running_a_browser(tmp_path: Path) -> None:
     from local_tools.polyv_radar.runner import collect
 

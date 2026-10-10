@@ -1004,6 +1004,27 @@ def test_ego_zero_exit_does_not_hide_failed_query(tmp_path: Path, monkeypatch) -
     assert platform["tasks"][0]["raw_contents"] == 4
 
 
+def test_ego_empty_result_is_success_not_failure(tmp_path: Path, monkeypatch) -> None:
+    config = load_config(Path("local_tools/polyv_radar/pilot.toml"))
+    config = config.__class__(data_root=tmp_path / "data", platforms=["xhs"],
+                              keywords={"官网": "企业官网"})
+
+    def fake_run(command, **kwargs):
+        result_path = config.data_root / "workflow-runs/empty/xhs-batch.json"
+        result_path.parent.mkdir(parents=True, exist_ok=True)
+        result_path.write_text(json.dumps({"tasks": [
+            {"keyword": "企业官网", "status": "empty", "error": "零结果：无相关内容", "raw_contents": 0},
+        ]}))
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr("local_tools.polyv_radar.ego_crawl_all.subprocess.run", fake_run)
+    result = run_ego_crawlers("empty", ["xhs"], config, Path.cwd(), config.data_root, 1)
+    assert result == {"xhs": True}
+    platform = load_workflow_run(config.data_root, "empty")["platforms"][0]
+    assert platform["status"] == "success"
+    assert platform["tasks"][0]["status"] == "empty"
+
+
 def test_ego_zero_exit_without_structured_tasks_is_not_success(tmp_path: Path, monkeypatch) -> None:
     config = load_config(Path("local_tools/polyv_radar/pilot.toml"))
     config = config.__class__(data_root=tmp_path / "data", platforms=["xhs"], keywords={"官网": "企业官网"})
