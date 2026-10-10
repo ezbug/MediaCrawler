@@ -42,7 +42,7 @@
       "name": "同行查找",
       "goal": "建立同行账号矩阵：每个品牌在四个平台的官方账号、认证状态、内容形态与活跃度。",
       "templates": ["{brand}", "{brand} 官方账号", "{brand} 企业直播"],
-      "category_templates": ["企业直播平台 排行榜", "企业直播服务商 对比", "私域直播平台 测评"],
+      "category_templates": ["企业直播平台 排行榜", "企业直播服务商 对比", "私域直播平台 测评", "私域运营工具 对比", "企微SCRM 哪个好", "私域直播平台 推荐"],
       "collect": ["账号名与认证信息", "主页链接", "近期内容与发布频率", "评论区询价线索"]
     },
     "peer_pricing": {
@@ -75,6 +75,14 @@
     {"brand": "酷学院", "aliases": ["kuxueyuan"], "category": "企业培训与在线学习", "priority": 1},
     {"brand": "微赞", "aliases": ["微赞直播"], "category": "私域直播与SCRM", "priority": 1},
     {"brand": "有因直播", "aliases": ["有因"], "category": "企业直播", "priority": 1},
+    {"brand": "有赞", "aliases": ["youzan", "有赞直播"], "category": "私域电商与直播", "priority": 1},
+    {"brand": "微盟", "aliases": ["weimob", "微盟直播"], "category": "私域电商与直播", "priority": 1},
+    {"brand": "鲸打卡", "aliases": ["jingdaka", "鲸打卡训练营"], "category": "私域训练营与打卡", "priority": 1},
+    {"brand": "小裂变", "aliases": ["xiaoliebian", "小裂变SCRM"], "category": "私域增长与SCRM", "priority": 1},
+    {"brand": "微伴助手", "aliases": ["微伴"], "category": "企微SCRM", "priority": 2},
+    {"brand": "探马SCRM", "aliases": ["探马"], "category": "企微SCRM", "priority": 2},
+    {"brand": "尘锋SCRM", "aliases": ["尘锋"], "category": "企微SCRM", "priority": 2},
+    {"brand": "艾客SCRM", "aliases": ["艾客"], "category": "企微SCRM", "priority": 2},
     {"brand": "云犀", "aliases": ["云犀直播"], "category": "企业直播", "priority": 2},
     {"brand": "小鱼易连", "aliases": ["xiaoyuyilian"], "category": "视频会议与直播", "priority": 2},
     {"brand": "短书", "aliases": ["duanshu"], "category": "知识付费与私域", "priority": 2},
