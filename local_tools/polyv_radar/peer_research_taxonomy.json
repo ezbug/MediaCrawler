@@ -1,0 +1,112 @@
+{
+  "schema": "polyv-peer-research",
+  "version": "0.1.0",
+  "updated_at": "2026-10-10",
+  "purpose": "POLYV 同行调查：在已部署的四个平台查找同行账号、公开价格、宣传内容与私信触达话术。只使用公开内容或用户自有材料。",
+  "platforms": {
+    "dy": {
+      "name": "抖音",
+      "use_for": [
+        "同行官方账号与宣传视频",
+        "评论区询价与用户晒价",
+        "用户分享收到的销售私信截图"
+      ]
+    },
+    "xhs": {
+      "name": "小红书",
+      "use_for": [
+        "同行营销笔记与投放素材",
+        "价格测评与避坑笔记",
+        "销售话术的公开分享与吐槽"
+      ]
+    },
+    "bili": {
+      "name": "B站",
+      "use_for": [
+        "深度测评与横向对比视频",
+        "评论区询价讨论",
+        "同行官方账号内容矩阵"
+      ]
+    },
+    "zhihu": {
+      "name": "知乎",
+      "use_for": [
+        "选型问答与价格讨论",
+        "同行软文与回答式营销",
+        "从业者匿名报价情报"
+      ]
+    }
+  },
+  "directions": {
+    "peer_discovery": {
+      "name": "同行查找",
+      "goal": "建立同行账号矩阵：每个品牌在四个平台的官方账号、认证状态、内容形态与活跃度。",
+      "templates": ["{brand}", "{brand} 官方账号", "{brand} 企业直播"],
+      "category_templates": ["企业直播平台 排行榜", "企业直播服务商 对比", "私域直播平台 测评"],
+      "collect": ["账号名与认证信息", "主页链接", "近期内容与发布频率", "评论区询价线索"]
+    },
+    "peer_pricing": {
+      "name": "同行价格",
+      "goal": "收集公开可见的同行价格：官网定价、销售报价、用户晒价与询价讨论。",
+      "templates": ["{brand} 价格", "{brand} 多少钱", "{brand} 收费标准"],
+      "category_templates": ["企业直播平台 价格 对比", "直播平台 报价 年费", "知识付费平台 抽成 对比", "内训平台 收费标准"],
+      "collect": ["价格数字与计价单位", "来源链接与发布日期", "发布者身份", "价格类型（官网价/销售报价/成交价/传闻）"]
+    },
+    "peer_promotion": {
+      "name": "宣传与私信话术",
+      "goal": "研究同行的公开宣传内容与触达话术：投放素材、活动包装、销售私信模板与用户反馈。",
+      "templates": ["{brand} 私信", "{brand} 推销", "{brand} 免费试用"],
+      "category_templates": ["企业直播 销售 联系", "直播平台 电话推销", "知识付费平台 私信 报价"],
+      "collect": ["宣传原文与素材形式", "触达路径", "话术结构与承诺点", "用户真实反馈与反例"]
+    }
+  },
+  "competitors": [
+    {"brand": "微吼", "aliases": ["vhall", "微吼直播"], "category": "企业直播", "priority": 1},
+    {"brand": "百家云", "aliases": ["baijiayun"], "category": "企业直播", "priority": 1},
+    {"brand": "目睹", "aliases": ["mudu", "目睹直播"], "category": "企业直播", "priority": 1},
+    {"brand": "欢拓", "aliases": ["欢拓云直播", "fangkr"], "category": "企业直播", "priority": 1},
+    {"brand": "263展视互动", "aliases": ["263", "展视互动"], "category": "企业直播", "priority": 1},
+    {"brand": "好视通", "aliases": ["fsmeeting"], "category": "视频会议与直播", "priority": 1},
+    {"brand": "瞩目", "aliases": ["随锐瞩目", "zhumu"], "category": "视频会议与直播", "priority": 1},
+    {"brand": "会畅通讯", "aliases": ["会畅", "bizconf"], "category": "视频会议与直播", "priority": 1},
+    {"brand": "小鹅通", "aliases": ["xiaoe-tech", "小鹅通平台"], "category": "知识付费与私域", "priority": 1},
+    {"brand": "创客匠人", "aliases": ["bckjr"], "category": "知识付费与私域", "priority": 1},
+    {"brand": "云学堂", "aliases": ["yunxuetang"], "category": "企业培训与在线学习", "priority": 1},
+    {"brand": "酷学院", "aliases": ["kuxueyuan"], "category": "企业培训与在线学习", "priority": 1},
+    {"brand": "云犀", "aliases": ["云犀直播"], "category": "企业直播", "priority": 2},
+    {"brand": "小鱼易连", "aliases": ["xiaoyuyilian"], "category": "视频会议与直播", "priority": 2},
+    {"brand": "短书", "aliases": ["duanshu"], "category": "知识付费与私域", "priority": 2},
+    {"brand": "千聊", "aliases": ["qianliao"], "category": "知识付费与私域", "priority": 2},
+    {"brand": "UMU", "aliases": ["umu"], "category": "企业培训与在线学习", "priority": 2},
+    {"brand": "平安知鸟", "aliases": ["知鸟"], "category": "企业培训与在线学习", "priority": 2},
+    {"brand": "ClassIn", "aliases": ["翼鸥", "classin"], "category": "教育直播", "priority": 2},
+    {"brand": "腾讯云直播", "aliases": ["腾讯云音视频"], "category": "云厂商与基础技术", "priority": 3},
+    {"brand": "阿里云视频直播", "aliases": ["阿里云"], "category": "云厂商与基础技术", "priority": 3},
+    {"brand": "华为云", "aliases": ["华为云直播"], "category": "云厂商与基础技术", "priority": 3},
+    {"brand": "声网", "aliases": ["Agora"], "category": "云厂商与基础技术", "priority": 3},
+    {"brand": "网易云信", "aliases": ["云信"], "category": "云厂商与基础技术", "priority": 3},
+    {"brand": "七牛云", "aliases": ["qiniu"], "category": "云厂商与基础技术", "priority": 3}
+  ],
+  "evidence_rules": {
+    "price": [
+      "价格必须带来源链接、发布日期和发布者身份；没有来源的数字标注为传闻价，不作为结论。",
+      "官网价格页、销售口头报价、用户成交价分开标注。",
+      "记录计价单位和周期，避免把年费当成月费。"
+    ],
+    "account": [
+      "官方账号通过认证信息或主页官方链接确认，不凭昵称判断。",
+      "同名账号先记录再核验，不跨平台合并身份。"
+    ],
+    "outreach": [
+      "私信话术只采用用户公开分享的内容（截图或转述）或用户自有收信材料。",
+      "不通过爬虫读取任何人的私信，不采集手机号、微信、邮箱等联系方式。",
+      "引用用户分享内容时保留原文链接与日期。"
+    ]
+  },
+  "compliance": {
+    "allowed": ["公开内容采集", "用户自有材料的本地分析", "本机低频测试"],
+    "forbidden": ["冒充客户或同行身份接触", "主动私信被调查账号", "通过爬虫读取他人私信", "采集联系方式", "绕过登录与平台限制"],
+    "data_root": "polyv-radar-data/peer-research",
+    "isolation": "同行调查使用独立目录与独立批次，不进入 POLYV 潜客回复队列，也不进入 ZigoAI 漏斗。"
+  }
+}

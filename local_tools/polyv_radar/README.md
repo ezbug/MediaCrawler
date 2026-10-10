@@ -32,6 +32,21 @@ uv run python -m local_tools.polyv_radar takeover-sync \
 
 输出位于 `polyv-radar-data/grok-work/polyv-100/codex-takeover-latest.{json,md}`。
 
+## 同行调查（Peer Research）
+
+同行调查是第三个独立方向：同行查找、同行价格、宣传与私信话术。查询计划由
+`peer-plan` 离线生成，采集复用现有 Ego Lite 入口：
+
+```bash
+uv run python -m local_tools.polyv_radar peer-plan \
+  --config local_tools/polyv_radar/pilot.toml \
+  --brand 微吼 --brand 百家云 --direction peer_pricing
+```
+
+计划与数据写入 `polyv-radar-data/peer-research/`，不进入 POLYV 潜客回复队列，也不
+进入 ZigoAI 漏斗。词库与证据规则见 `peer_research_taxonomy.json` 与
+`references/peer_research.md`。
+
 ```bash
 POLYV_TASKSPACE_ID=<current-taskspace> uv run python -m local_tools.polyv_radar collect \
   --config local_tools/polyv_radar/pilot.toml \

@@ -33,6 +33,7 @@ from .takeover import write_takeover
 from .zigo_discovery import read_raw, run_discovery, screen_record
 from .zigo_keywords import build_keyword_registry
 from .zigo_store import ZigoStore
+from .peer_research import build_peer_plan, load_peer_taxonomy, write_peer_plan
 
 
 def apply_collect_overrides(config, args):
@@ -229,6 +230,14 @@ def build_parser() -> argparse.ArgumentParser:
     campaign_parser.add_argument("--action", choices=("init", "import", "report", "exchange"), default="report")
     campaign_parser.add_argument("--sector", default="企业管理培训与内训服务机构")
     campaign_parser.add_argument("--input", type=Path)
+    peer_plan_parser = subparsers.add_parser("peer-plan", help="生成同行调查查询计划（离线，不采集）")
+    peer_plan_parser.add_argument("--config", required=True)
+    peer_plan_parser.add_argument("--brand", action="append", help="只规划指定同行品牌，可重复传入")
+    peer_plan_parser.add_argument("--direction", action="append", choices=("peer_discovery", "peer_pricing", "peer_promotion"))
+    peer_plan_parser.add_argument("--platform", action="append", choices=("dy", "xhs", "bili", "zhihu"))
+    peer_plan_parser.add_argument("--all-brands", action="store_true", help="包含二、三级优先级的同行品牌")
+    peer_plan_parser.add_argument("--max-queries", type=int, default=0, help="限制计划条数；0 表示不限制")
+    peer_plan_parser.add_argument("--output-dir", help="计划输出目录，默认 polyv-radar-data/peer-research")
     return parser
 
 
@@ -440,6 +449,25 @@ def main(argv: list[str] | None = None) -> int:
             result["persisted"] = store.save_keyword_sources(registry.get("keywords", []))
             store.close()
         payload = result
+    elif args.command == "peer-plan":
+        taxonomy = load_peer_taxonomy(Path(__file__).with_name("peer_research_taxonomy.json"))
+        plan = build_peer_plan(
+            taxonomy,
+            brands=args.brand,
+            directions=args.direction,
+            platforms=args.platform,
+            include_all_brands=args.all_brands,
+            max_queries=args.max_queries,
+        )
+        output_dir = Path(args.output_dir) if args.output_dir else config.data_root / "peer-research"
+        paths = write_peer_plan(plan, output_dir)
+        payload = {
+            "plan_id": plan["plan_id"],
+            "json_path": str(paths["json"]),
+            "markdown_path": str(paths["markdown"]),
+            "queries": plan["stats"]["queries"],
+            "stats": plan["stats"],
+        }
     elif args.command == "zigo-ingest":
         if config.product_profile not in {"zigo_sales", "zigo_geo"}:
             parser.error("zigo-ingest 需要 zigo_sales 或 zigo_geo 配置")
