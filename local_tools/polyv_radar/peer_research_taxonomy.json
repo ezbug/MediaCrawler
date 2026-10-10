@@ -73,6 +73,8 @@
     {"brand": "创客匠人", "aliases": ["bckjr"], "category": "知识付费与私域", "priority": 1},
     {"brand": "云学堂", "aliases": ["yunxuetang"], "category": "企业培训与在线学习", "priority": 1},
     {"brand": "酷学院", "aliases": ["kuxueyuan"], "category": "企业培训与在线学习", "priority": 1},
+    {"brand": "微赞", "aliases": ["微赞直播"], "category": "私域直播与SCRM", "priority": 1},
+    {"brand": "有因直播", "aliases": ["有因"], "category": "企业直播", "priority": 1},
     {"brand": "云犀", "aliases": ["云犀直播"], "category": "企业直播", "priority": 2},
     {"brand": "小鱼易连", "aliases": ["xiaoyuyilian"], "category": "视频会议与直播", "priority": 2},
     {"brand": "短书", "aliases": ["duanshu"], "category": "知识付费与私域", "priority": 2},

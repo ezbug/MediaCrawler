@@ -132,6 +132,18 @@ def test_recommended_first_batch_prefers_discovery_on_dy_and_xhs():
     assert {item["platform"] for item in plan["recommended_first_batch"]} <= {"dy", "xhs"}
 
 
+def test_template_limit_keeps_only_first_template_per_brand():
+    plan = build_peer_plan(
+        minimal_taxonomy(),
+        brands=["微吼", "小鹅通"],
+        directions=["peer_discovery"],
+        platforms=["xhs"],
+        template_limit=1,
+    )
+    queries = [query["query"] for query in plan["queries"] if query["brand"]]
+    assert sorted(queries) == ["小鹅通", "微吼"]
+
+
 def test_write_plan_writes_json_and_markdown(tmp_path):
     plan = build_peer_plan(
         minimal_taxonomy(),
