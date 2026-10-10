@@ -214,3 +214,21 @@ def test_promo_rows_dedupe_and_skip_own_accounts(tmp_path):
     outreach = [row for row in rows if row["row_type"] == "评论区触达话术"]
     assert len(outreach) == 1
     assert outreach[0]["author"] == "某销售"
+
+
+def test_demand_comment_is_classified_separately_from_outreach(tmp_path):
+    records = [
+        {
+            "run_id": "r1", "platform": "xhs", "query": "小鹅通 推销", "record_type": "comment",
+            "record_id": "m1", "title": "卖课平台对比", "text": "我需要，联系我", "url": "https://example.com/c1",
+            "author": "某老师", "published": "2026-09-02", "brand": "小鹅通", "likes": 0,
+        },
+        {
+            "run_id": "r1", "platform": "xhs", "query": "小鹅通 推销", "record_type": "comment",
+            "record_id": "m2", "title": "卖课平台对比", "text": "有需要的老师可以私信我", "url": "https://example.com/c1",
+            "author": "某顾问", "published": "2026-09-02", "brand": "小鹅通", "likes": 0,
+        },
+    ]
+    rows = build_promo_rows(records, {"小鹅通"})
+    kinds = {row["row_type"] for row in rows}
+    assert kinds == {"评论区需求响应", "评论区触达话术"}

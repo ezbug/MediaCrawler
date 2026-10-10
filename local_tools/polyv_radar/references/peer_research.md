@@ -48,6 +48,8 @@ uv run python -m local_tools.polyv_radar collect \
 
 每批建议 2～6 条查询，同平台并发保持 1，评论窗口沿用 90 天配置。
 采集与结果复核统一走 Ego Lite；登录失效或出现验证码时停止对应平台。
+查询较多时用 `--task-timeout-seconds` 放宽单平台批量超时（默认沿用配置的 180 秒，
+12 条小红书查询会超时）。
 
 ## 三个方向的产出定义
 

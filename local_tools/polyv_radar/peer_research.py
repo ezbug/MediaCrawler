@@ -277,6 +277,7 @@ def run_peer_collect(
     max_queries: int = 0,
     max_contents: int | None = None,
     max_comments: int | None = None,
+    task_timeout_seconds: int | None = None,
     run_id: str | None = None,
     repo_root: Path | None = None,
 ) -> dict:
@@ -294,7 +295,11 @@ def run_peer_collect(
     if not taskspace or int(taskspace) <= 0:
         raise ValueError("peer-collect 必须显式传入 --taskspace")
     peer_config = build_peer_collect_config(
-        config, plan, max_contents=max_contents, max_comments=max_comments
+        config,
+        plan,
+        max_contents=max_contents,
+        max_comments=max_comments,
+        task_timeout_seconds=task_timeout_seconds,
     )
     from .ego_crawl_all import run_ego_crawlers
 

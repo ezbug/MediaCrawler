@@ -19,7 +19,8 @@ PRICE_CONTEXT_TERMS = ("价格", "报价", "费用", "收费", "多少钱", "预
 ROUNDUP_TERMS = ("对比", "排行", "盘点", "十大", "TOP", "Top", "top", "测评", "评测", "选型", "避坑", "哪个好", "怎么选")
 QUESTION_TERMS = ("求推荐", "请问", "有没有", "推荐一下", "哪家", "?", "？")
 VENDOR_AUTHOR_TERMS = ("直播", "软件", "评测", "办会", "科技", "网络", "云", "SaaS", "saas")
-OUTREACH_TERMS = ("私信", "加我", "加微", "微信", "联系我", "免费试用", "咨询我", "了解详情", "领取", "优惠", "折扣", "备注")
+OUTREACH_TERMS = ("私信", "加我", "加微", "加微信", "联系我", "咨询我", "免费试用", "领取", "优惠", "折扣", "备注")
+DEMAND_TERMS = ("我需要", "怎么联系", "求联系", "想联系", "求推荐", "想要", "求个")
 OWN_AUTHOR_EXCLUSIONS = tuple(sorted(set(OWN_ACCOUNTS.values()))) + ("保利威", "POLYV")
 
 PRICE_FIELDS = ("品牌", "平台", "类型", "价格信号", "原文片段", "标题", "链接", "作者", "发布时间", "查询", "批次")
@@ -248,13 +249,14 @@ def build_promo_rows(
         hits = [term for term in OUTREACH_TERMS if term in record["text"]]
         if not hits:
             continue
-        key = (record["platform"], record["record_id"], "评论区触达话术")
+        row_type = "评论区需求响应" if any(term in record["text"] for term in DEMAND_TERMS) else "评论区触达话术"
+        key = (record["platform"], record["record_id"], row_type)
         if key in seen:
             continue
         seen.add(key)
         rows.append(
             {
-                "row_type": "评论区触达话术",
+                "row_type": row_type,
                 "brand": record["brand"],
                 "mentions": "",
                 "title": record["title"],

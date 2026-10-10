@@ -248,6 +248,7 @@ def build_parser() -> argparse.ArgumentParser:
     peer_collect_parser.add_argument("--max-queries", type=int, default=0, help="限制本批查询条数；0 表示不限制")
     peer_collect_parser.add_argument("--max-contents", type=int)
     peer_collect_parser.add_argument("--max-comments", type=int)
+    peer_collect_parser.add_argument("--task-timeout-seconds", type=int, help="单平台批量子进程超时秒数，默认沿用配置")
     peer_collect_parser.add_argument("--run-id")
     peer_collect_parser.add_argument("--repo-root", default=str(Path(__file__).resolve().parents[2]))
     peer_report_parser = subparsers.add_parser("peer-report", help="提炼同行价格情报表与宣传话术库（离线）")
@@ -499,6 +500,7 @@ def main(argv: list[str] | None = None) -> int:
             max_queries=args.max_queries,
             max_contents=args.max_contents,
             max_comments=args.max_comments,
+            task_timeout_seconds=args.task_timeout_seconds,
             run_id=args.run_id,
             repo_root=Path(args.repo_root),
         )
