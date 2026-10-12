@@ -35,3 +35,10 @@ def test_historical_reply_is_one_short_question_without_brand() -> None:
     assert text == "现在还要做吗？"
     assert "POLYV" not in text
     assert first_line_chars(text) <= 10
+
+
+def test_industry_name_can_be_used_in_peer_probe() -> None:
+    text = comment_reply("客户不回有一万个理由", "企业培训", industry="教育")
+    assert text == "教育同行，解决没？"
+    assert first_line_chars(text) <= 10
+    assert "POLYV" not in text

@@ -49,6 +49,7 @@ def comment_reply(
     quote: str,
     category: str,
     *,
+    industry: str = "",
     mode: str | None = None,
 ) -> str:
     """Build one short public comment with no company or product name."""
@@ -56,10 +57,14 @@ def comment_reply(
     if mode == "solve":
         phrase = _SOLVE_PHRASES.get(category, _DEFAULT_SOLVE)
     else:
-        phrase = _PEER_FALLBACK
+        industry_name = str(industry or "").strip()
+        phrase = f"{industry_name}同行，解决没？" if industry_name else _PEER_FALLBACK
+        if first_line_chars(phrase) > TOTAL_COMMENT_LIMIT:
+            phrase = _PEER_FALLBACK
         for pattern, opener in _PEER_BY_QUOTE:
             if pattern.search(str(quote or "")):
-                phrase = opener
+                if not industry_name or first_line_chars(f"{industry_name}同行，解决没？") > TOTAL_COMMENT_LIMIT:
+                    phrase = opener
                 break
     if first_line_chars(phrase) > TOTAL_COMMENT_LIMIT:
         raise ValueError("comment reply exceeds 10 Chinese characters")

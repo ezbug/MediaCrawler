@@ -11,6 +11,7 @@ from typing import Iterable
 
 from .config import RadarConfig
 from .models import ExternalEvidence, LeadEvidence, ProfilePost, ProfileSnapshot
+from .profile_analysis import analyze_profile
 from .storage import RadarStore
 
 
@@ -167,12 +168,22 @@ def run_profile_enrichment(
     web_candidates = []
     profile_count = 0
     post_count = 0
+    analysis_rows = []
     for raw in profiles:
         if raw.get("available") is False or raw.get("error"):
             continue
         bio = str(raw.get("bio", ""))
         company, role = extract_company_role(f"{raw.get('display_name', '')}\n{bio}")
         identity_confidence = classify_identity_confidence(company, role, [], bool(raw.get("verified")))
+        posts = raw.get("posts", [])[:5]
+        analysis = analyze_profile(
+            display_name=str(raw.get("display_name", "")),
+            bio=bio,
+            posts=posts,
+            verified=bool(raw.get("verified")),
+            company=company,
+            role=role,
+        )
         profile = ProfileSnapshot(
             run_id=run_id,
             platform=str(raw.get("platform", "")),
@@ -185,12 +196,22 @@ def run_profile_enrichment(
             role=role,
             identity_confidence=identity_confidence,
             captured_at=datetime.now(timezone.utc).isoformat(),
+            **analysis,
+        )
+        analysis_rows.append(
+            {
+                "run_id": run_id,
+                "platform": str(raw.get("platform", "")),
+                "author_id": str(raw.get("author_id", "")),
+                "display_name": str(raw.get("display_name", "")),
+                **analysis,
+            }
         )
         if not profile.author_id:
             continue
         store.upsert_profile(profile)
         profile_count += 1
-        for post in raw.get("posts", [])[:5]:
+        for post in posts:
             store.upsert_profile_post(
                 ProfilePost(
                     run_id=run_id,
@@ -270,4 +291,14 @@ def run_profile_enrichment(
             urls,
         )
     store.close()
-    return {"profiles": profile_count, "posts": post_count, "external_evidence": web_count, "status": "success"}
+    (enrichment_root / "profiles-analysis.json").write_text(
+        json.dumps({"profiles": analysis_rows}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return {
+        "profiles": profile_count,
+        "analyzed_profiles": len(analysis_rows),
+        "posts": post_count,
+        "external_evidence": web_count,
+        "status": "success",
+    }

@@ -76,6 +76,12 @@ class LeadEvidence:
     event_type: str = ""
     company: str = ""
     role: str = ""
+    industry: str = ""
+    gender_guess: str = "unknown"
+    age_band_guess: str = "unknown"
+    trend_alignment: str = "unknown"
+    company_exposed: bool = False
+    company_name: str = ""
     profile_bio: str = ""
     profile_url: str = ""
     author_url: str = ""
@@ -120,6 +126,18 @@ class ProfileSnapshot:
     identity_confidence: str = "low"
     source_urls: list[str] = field(default_factory=list)
     captured_at: str = ""
+    industry: str = ""
+    industry_confidence: str = "unknown"
+    gender_guess: str = "unknown"
+    gender_confidence: str = "unknown"
+    company_exposed: bool = False
+    company_name: str = ""
+    age_band_guess: str = "unknown"
+    age_confidence: str = "unknown"
+    trend_alignment: str = "unknown"
+    trend_confidence: str = "unknown"
+    analysis_evidence: list[str] = field(default_factory=list)
+    analysis_notes: str = ""
 
 
 @dataclass

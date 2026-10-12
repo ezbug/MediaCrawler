@@ -148,6 +148,18 @@ class RadarStore:
                 identity_confidence TEXT NOT NULL DEFAULT 'low',
                 source_urls TEXT NOT NULL DEFAULT '[]',
                 captured_at TEXT NOT NULL DEFAULT '',
+                industry TEXT NOT NULL DEFAULT '',
+                industry_confidence TEXT NOT NULL DEFAULT 'unknown',
+                gender_guess TEXT NOT NULL DEFAULT 'unknown',
+                gender_confidence TEXT NOT NULL DEFAULT 'unknown',
+                company_exposed INTEGER NOT NULL DEFAULT 0,
+                company_name TEXT NOT NULL DEFAULT '',
+                age_band_guess TEXT NOT NULL DEFAULT 'unknown',
+                age_confidence TEXT NOT NULL DEFAULT 'unknown',
+                trend_alignment TEXT NOT NULL DEFAULT 'unknown',
+                trend_confidence TEXT NOT NULL DEFAULT 'unknown',
+                analysis_evidence TEXT NOT NULL DEFAULT '[]',
+                analysis_notes TEXT NOT NULL DEFAULT '',
                 PRIMARY KEY (run_id, platform, author_id)
             );
             CREATE TABLE IF NOT EXISTS profile_posts (
@@ -319,6 +331,20 @@ class RadarStore:
                 "content_url": "TEXT NOT NULL DEFAULT ''",
                 "comment_url": "TEXT NOT NULL DEFAULT ''",
                 "source_type": "TEXT NOT NULL DEFAULT 'comment'",
+            },
+            "profiles": {
+                "industry": "TEXT NOT NULL DEFAULT ''",
+                "industry_confidence": "TEXT NOT NULL DEFAULT 'unknown'",
+                "gender_guess": "TEXT NOT NULL DEFAULT 'unknown'",
+                "gender_confidence": "TEXT NOT NULL DEFAULT 'unknown'",
+                "company_exposed": "INTEGER NOT NULL DEFAULT 0",
+                "company_name": "TEXT NOT NULL DEFAULT ''",
+                "age_band_guess": "TEXT NOT NULL DEFAULT 'unknown'",
+                "age_confidence": "TEXT NOT NULL DEFAULT 'unknown'",
+                "trend_alignment": "TEXT NOT NULL DEFAULT 'unknown'",
+                "trend_confidence": "TEXT NOT NULL DEFAULT 'unknown'",
+                "analysis_evidence": "TEXT NOT NULL DEFAULT '[]'",
+                "analysis_notes": "TEXT NOT NULL DEFAULT ''",
             },
         }
         for table, columns in migrations.items():
@@ -669,12 +695,18 @@ class RadarStore:
         self.connection.execute(
             """INSERT OR REPLACE INTO profiles
                (run_id, platform, author_id, author_url, display_name, bio, verified, company, role,
-                identity_confidence, source_urls, captured_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                identity_confidence, source_urls, captured_at, industry, industry_confidence,
+                gender_guess, gender_confidence, company_exposed, company_name, age_band_guess,
+                age_confidence, trend_alignment, trend_confidence, analysis_evidence, analysis_notes)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 profile.run_id, profile.platform, profile.author_id, profile.author_url, profile.display_name,
                 profile.bio, int(profile.verified), profile.company, profile.role,
                 profile.identity_confidence, json.dumps(profile.source_urls, ensure_ascii=False), profile.captured_at,
+                profile.industry, profile.industry_confidence, profile.gender_guess, profile.gender_confidence,
+                int(profile.company_exposed), profile.company_name, profile.age_band_guess, profile.age_confidence,
+                profile.trend_alignment, profile.trend_confidence,
+                json.dumps(profile.analysis_evidence, ensure_ascii=False), profile.analysis_notes,
             ),
         )
         self.connection.commit()
@@ -935,7 +967,14 @@ class RadarStore:
 
     def load_profiles(self, run_id: str) -> list[dict]:
         rows = self.connection.execute("SELECT * FROM profiles WHERE run_id = ?", (run_id,)).fetchall()
-        return [dict(row) | {"source_urls": json.loads(row["source_urls"] or "[]")} for row in rows]
+        return [
+            dict(row)
+            | {
+                "source_urls": json.loads(row["source_urls"] or "[]"),
+                "analysis_evidence": json.loads(row["analysis_evidence"] or "[]"),
+            }
+            for row in rows
+        ]
 
     def load_external_evidence(self, run_id: str) -> list[dict]:
         rows = self.connection.execute("SELECT * FROM external_evidence WHERE run_id = ?", (run_id,)).fetchall()
