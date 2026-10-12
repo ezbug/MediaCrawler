@@ -5,6 +5,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Iterable
 
+from .comment_style import reactivation_comment
 from .models import CommentRecord, ContentRecord
 from .scoring import (
     MANUAL_REVIEW_SIGNAL_TERMS,
@@ -59,12 +60,7 @@ def _candidate_action(freshness: str, source_role: str, small_need: bool, histor
 
 
 def _reactivation_draft(quote: str, category: str) -> str:
-    clean = re.sub(r"\s+", " ", quote).strip()[:80]
-    return (
-        f"之前看到你提到“{clean}”，想确认一下现在这方面还有需求吗？"
-        f"如果还在推进，POLYV也可以结合{category}的具体场景帮你定制方案。"
-        "方便的话可以私信我，我先按你的实际情况帮你梳理。"
-    )
+    return reactivation_comment(quote, category, brand="POLYV")
 
 
 def _triage_candidate(

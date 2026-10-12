@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from .comment_style import comment_reply
 from .models import LeadEvidence
 
 
@@ -162,6 +163,8 @@ def _safe_public_reply(lead: LeadEvidence) -> str:
     replies must not turn unverified capabilities, cases, or metrics into
     claims about POLYV.
     """
+    if lead.source_type in {"comment", "reply"}:
+        return comment_reply(lead.quote, lead.category, brand="POLYV")
     quote = lead.quote.strip().replace("\n", " ")[:80]
     category_guidance = {
         "企业培训": "先把培训对象、人数、内容权限、学习记录和交付时间列清，再比较平台的内容分发和管理方式",
