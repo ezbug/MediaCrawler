@@ -86,4 +86,4 @@ def comment_reply(
 def reactivation_comment(quote: str, category: str) -> str:
     """One short historical-reactivation question; no brand name."""
     del quote, category
-    return humanize_opening("现在还需要吗？")
+    return "现在还有遇到什么问题吗？"

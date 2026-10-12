@@ -33,9 +33,9 @@ def test_price_question_uses_solve_mode_without_brand() -> None:
 
 def test_historical_reply_is_one_short_question_without_brand() -> None:
     text = reactivation_comment("北京海淀60人报价", "企业活动")
-    assert text == "现在还需要吗？"
+    assert text == "现在还有遇到什么问题吗？"
     assert "POLYV" not in text
-    assert first_line_chars(text) <= 10
+    assert first_line_chars(text) <= 12
 
 
 def test_industry_name_can_be_used_in_peer_probe() -> None:
