@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .comment_style import comment_reply
+from .follow_up_style import build_follow_up_reply
 from .models import LeadEvidence
 
 
@@ -13,6 +14,7 @@ class ConversionPack:
     video_topic: str
     video_hook: str
     dm_opener: str
+    dm_follow_up: str
     recommended_materials: dict[str, str]
 
     def to_dict(self) -> dict[str, Any]:
@@ -21,6 +23,7 @@ class ConversionPack:
             "video_topic": self.video_topic,
             "video_hook": self.video_hook,
             "dm_opener": self.dm_opener,
+            "dm_follow_up": self.dm_follow_up,
             "recommended_materials": self.recommended_materials,
         }
 
@@ -195,6 +198,7 @@ def build_conversion_pack(lead: LeadEvidence) -> ConversionPack:
         video_topic=kb["video_topic"],
         video_hook=kb["video_hook"],
         dm_opener=kb["dm_opener"],
+        dm_follow_up=build_follow_up_reply(lead.quote, category, domain="polyv", brand="POLYV"),
         recommended_materials={
             "case": kb["case"],
             "template": kb["template"],
