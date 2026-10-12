@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 from local_tools.enterprise_data.obsidian_export import (
+    export_base,
     export_company_cards,
     export_email_cards,
     export_index,
@@ -37,6 +38,8 @@ def test_export_email_cards_writes_cards_for_all_domains(tmp_path):
     assert "contact@xiaoe-tech.com" in xiaoe
     assert "安全响应" in xiaoe
     assert "collected_at: 2026-10-12" in xiaoe
+    assert "email_count: 2" in xiaoe
+    assert 'emails: ["contact@xiaoe-tech.com", "security@xiaoe-tech.com"]' in xiaoe
     haier = (tmp_path / "Poly" / "email" / "海尔.md").read_text(encoding="utf-8")
     assert "未在公开页面发现邮箱" in haier
 
@@ -63,9 +66,24 @@ def test_export_company_cards_includes_financial_hiring_and_jobs(tmp_path):
     assert "type: company-profile" in card
     assert "CSRC C39 计算机" in card
     assert "| 2025 | 1000 |" in card
+    assert "industry: 计算机" in card
+    assert "fiscal_year: 2025" in card
+    assert "employee_count: 1000" in card
+    assert "active_job_count: 1" in card
     assert "招聘强度（2026-10-12）" in card
     assert "客户经理" in card
     assert "员工共1,000人" in card
+
+
+def test_export_base_writes_table_views(tmp_path):
+    path = export_base(tmp_path / "Poly")
+    assert path.name == "Poly.base"
+    content = path.read_text(encoding="utf-8")
+    assert "name: 邮箱卡片" in content
+    assert "name: 企业档案" in content
+    assert "formula.employee_growth_text" in content
+    assert 'file.hasTag("Poly/email")' in content
+    assert 'file.hasTag("Poly/company")' in content
 
 
 def test_export_index_reports_counts(tmp_path):
@@ -74,6 +92,8 @@ def test_export_index_reports_counts(tmp_path):
     assert "邮箱卡片：3 张" in content
     assert "企业卡片：2 张" in content
     assert "最近更新：2026-10-12" in content
+    assert "![[Poly.base#邮箱卡片]]" in content
+    assert "![[Poly.base#企业档案]]" in content
 
 
 def test_main_end_to_end_with_probe_file(tmp_path, capsys):
@@ -83,4 +103,5 @@ def test_main_end_to_end_with_probe_file(tmp_path, capsys):
     assert rc == 0
     result = json.loads(capsys.readouterr().out)
     assert result["email_cards"] == 1
+    assert (tmp_path / "Poly" / "Poly.base").exists()
     assert (tmp_path / "Poly" / "Poly 索引.md").exists()

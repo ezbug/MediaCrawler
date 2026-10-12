@@ -52,6 +52,10 @@ def _frontmatter(fields: dict, tags: list[str]) -> str:
     for key, value in fields.items():
         if value is None or value == "":
             continue
+        if isinstance(value, (list, tuple)):
+            if not value:
+                continue
+            value = json.dumps([str(item) for item in value], ensure_ascii=False)
         lines.append(f"{key}: {value}")
     lines.append("tags:")
     lines.extend(f"  - {tag}" for tag in tags)
@@ -80,6 +84,8 @@ def export_email_cards(probe: list[dict], poly_root: Path, *, collected_at: str 
                 "company": brand,
                 "domain": domain,
                 "industry": industry,
+                "email_count": len(emails),
+                "emails": emails,
                 "collected_at": collected_at or datetime.now().strftime("%Y-%m-%d"),
                 "source": "企业邮箱探针 email-url-probe",
             }, ["Poly", "Poly/email"]),
@@ -148,17 +154,37 @@ def export_company_cards(db_path: Path, poly_root: Path, *, stat_date: str = "")
                 f"{item['standard']} {item.get('code') or ''} {item.get('name') or ''}".strip()
                 for item in industries
             ) or "—"
+            latest_financial = financials[0] if financials else {}
+            latest_metrics = metrics[0] if metrics else {}
+            profile_fields = {
+                "type": "company-profile",
+                "company": company["company_name"],
+                "company_id": company_id,
+                "ticker": company.get("ticker"),
+                "exchange": company.get("exchange"),
+                "listing_status": company.get("listing_status"),
+                "identity": company.get("identity_match_status"),
+                "industry": industries[0].get("name") if industries else "",
+            }
+            if latest_financial.get("fiscal_year") is not None:
+                profile_fields["fiscal_year"] = latest_financial["fiscal_year"]
+            if latest_financial.get("employee_count") is not None:
+                profile_fields["employee_count"] = latest_financial["employee_count"]
+            if latest_financial.get("employee_growth_yoy") is not None:
+                profile_fields["employee_growth_yoy"] = round(latest_financial["employee_growth_yoy"], 6)
+            if latest_financial.get("total_assets") is not None:
+                profile_fields["total_assets"] = float(latest_financial["total_assets"])
+            if latest_financial.get("asset_growth_yoy") is not None:
+                profile_fields["asset_growth_yoy"] = round(latest_financial["asset_growth_yoy"], 6)
+            if latest_metrics.get("active_job_count") is not None:
+                profile_fields["active_job_count"] = latest_metrics["active_job_count"]
+            if latest_metrics.get("hiring_activity_score") is not None:
+                profile_fields["hiring_activity_score"] = latest_metrics["hiring_activity_score"]
+            if latest_metrics.get("stat_date"):
+                profile_fields["hiring_stat_date"] = latest_metrics["stat_date"]
+            profile_fields["updated_at"] = stat_date or datetime.now().strftime("%Y-%m-%d")
             body = [
-                _frontmatter({
-                    "type": "company-profile",
-                    "company": company["company_name"],
-                    "company_id": company_id,
-                    "ticker": company.get("ticker"),
-                    "exchange": company.get("exchange"),
-                    "listing_status": company.get("listing_status"),
-                    "identity": company.get("identity_match_status"),
-                    "updated_at": stat_date or datetime.now().strftime("%Y-%m-%d"),
-                }, ["Poly", "Poly/company"]),
+                _frontmatter(profile_fields, ["Poly", "Poly/company"]),
                 "",
                 f"# {company['company_name']} · 企业数据卡",
                 "",
@@ -207,6 +233,94 @@ def export_company_cards(db_path: Path, poly_root: Path, *, stat_date: str = "")
     return written
 
 
+POLY_BASE_YAML = """filters: 'file.hasTag("Poly")'
+
+formulas:
+  employee_growth_text: 'if(employee_growth_yoy, (employee_growth_yoy * 100).toFixed(1) + "%", "—")'
+  asset_growth_text: 'if(asset_growth_yoy, (asset_growth_yoy * 100).toFixed(1) + "%", "—")'
+  assets_yi_text: 'if(total_assets, (total_assets / 100000000).toFixed(2) + " 亿", "—")'
+
+properties:
+  file.name:
+    displayName: 公司
+  domain:
+    displayName: 域名
+  industry:
+    displayName: 行业
+  email_count:
+    displayName: 邮箱数
+  emails:
+    displayName: 邮箱
+  collected_at:
+    displayName: 采集日期
+  employee_count:
+    displayName: 员工人数
+  formula.employee_growth_text:
+    displayName: 人数同比
+  formula.assets_yi_text:
+    displayName: 总资产
+  formula.asset_growth_text:
+    displayName: 资产同比
+  active_job_count:
+    displayName: 活跃职位
+  hiring_activity_score:
+    displayName: 招聘指数
+  ticker:
+    displayName: 证券代码
+  listing_status:
+    displayName: 上市状态
+  updated_at:
+    displayName: 更新日期
+
+views:
+  - type: table
+    name: 邮箱卡片
+    filters:
+      and:
+        - 'file.hasTag("Poly/email")'
+    order:
+      - file.name
+      - domain
+      - industry
+      - email_count
+      - emails
+      - collected_at
+    sort:
+      - property: email_count
+        direction: DESC
+    summaries:
+      email_count: Sum
+  - type: table
+    name: 企业档案
+    filters:
+      and:
+        - 'file.hasTag("Poly/company")'
+    order:
+      - file.name
+      - industry
+      - employee_count
+      - formula.employee_growth_text
+      - formula.assets_yi_text
+      - formula.asset_growth_text
+      - active_job_count
+      - hiring_activity_score
+      - ticker
+      - listing_status
+      - updated_at
+    sort:
+      - property: employee_count
+        direction: DESC
+"""
+
+
+def export_base(poly_root: Path) -> Path:
+    poly_root = Path(poly_root)
+    poly_root.mkdir(parents=True, exist_ok=True)
+    path = poly_root / "Poly.base"
+    path.write_text(POLY_BASE_YAML, encoding="utf-8")
+    return path
+
+
 def export_index(poly_root: Path, *, email_count: int, company_count: int, stat_date: str = "") -> Path:
     poly_root = Path(poly_root)
     poly_root.mkdir(parents=True, exist_ok=True)
@@ -223,6 +337,14 @@ def export_index(poly_root: Path, *, email_count: int, company_count: int, stat_
         f"- 邮箱卡片：{email_count} 张",
         f"- 企业卡片：{company_count} 张",
         f"- 最近更新：{today}",
+        "",
+        "## 邮箱卡片",
+        "",
+        "![[Poly.base#邮箱卡片]]",
+        "",
+        "## 企业档案",
+        "",
+        "![[Poly.base#企业档案]]",
         "",
         "## 数据来源",
         "",
@@ -259,12 +381,15 @@ def main(argv: list[str] | None = None) -> int:
         cards = export_company_cards(Path(args.db), poly_root, stat_date=args.stat_date)
         company_count = len(cards)
         written.extend(cards)
+    base = export_base(poly_root)
+    written.append(base)
     index = export_index(poly_root, email_count=email_count, company_count=company_count, stat_date=args.stat_date)
     written.append(index)
     print(json.dumps({
         "poly_root": str(poly_root),
         "email_cards": email_count,
         "company_cards": company_count,
+        "base": str(base),
         "index": str(index),
         "files": [str(path) for path in written],
     }, ensure_ascii=False, indent=2))
