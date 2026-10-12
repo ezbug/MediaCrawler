@@ -187,6 +187,18 @@ def test_structured_notes_are_serialized_as_json(tmp_path: Path) -> None:
     assert '"posted_text": false' in note
 
 
+def test_unscored_note_omits_score_property(tmp_path: Path) -> None:
+    data_root = tmp_path / "data"
+    data_root.mkdir()
+    ledger = data_root / "reply_history.jsonl"
+    _write_ledger(ledger, [_row()])
+
+    stats = export_to_vault(ledger, data_root, vault_root=tmp_path / "vault")
+    note = _note_for(Path(stats["notes_dir"]), "阿尔法")
+    frontmatter = note.split("---", 2)[1]
+    assert "score:" not in frontmatter
+
+
 def test_layout_files_are_create_once_unless_forced(tmp_path: Path) -> None:
     data_root = tmp_path / "data"
     data_root.mkdir()

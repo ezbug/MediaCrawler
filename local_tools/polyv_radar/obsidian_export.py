@@ -307,6 +307,11 @@ def build_notes(view, data_root: Path | str) -> list[dict]:
             },
             "tags": tags,
         }
+        if note["frontmatter"].get("score") is None:
+            # An empty string would poison numeric Base filters like
+            # 'score >= 4'; an absent property is simply not matched.
+            note["frontmatter"].pop("score", None)
+            note["frontmatter"].pop("score_source", None)
         notes.append(note)
     return notes
 
@@ -352,8 +357,8 @@ def render_note(note: dict) -> str:
     lines.append(f"- 回复波次：{fm['reply_wave']}")
     if fm["received_reply"]:
         lines.append(f"- 对方回复：{json.dumps(fm['received_reply'], ensure_ascii=False)}")
-    if fm["score"] is not None:
-        lines.append(f"- 评分：{fm['score']}（{fm['score_source'] or '未标注来源'}）")
+    if fm.get("score") is not None:
+        lines.append(f"- 评分：{fm['score']}（{fm.get('score_source') or '未标注来源'}）")
     lines.append(f"- 批次：{fm['batch']}")
     if fm["duplicate_events"]:
         lines.append(f"- 重复触达：{fm['duplicate_events']} 次（同一目标再次发送）")
