@@ -28,10 +28,10 @@ DOMAIN_BRAND = {
 }
 
 MAILBOX_FUNCTIONS = (
-    ("investor", "投资者关系"), ("ir-", "投资者关系"), ("psirt", "安全响应"), ("security", "安全响应"),
+    ("investor", "投资者关系"), ("ir", "投资者关系"), ("finance", "财务"), ("psirt", "安全响应"), ("security", "安全响应"),
     ("service", "客服"), ("contact", "商务 / 通用联系"), ("bd", "商务拓展"), ("market", "市场"),
-    ("feedback", "产品反馈"), ("hr", "招聘"), ("complain", "投诉"), ("jubao", "举报"),
-    ("anti-fraud", "反欺诈"), ("xiaoeks", "客服"),
+    ("events", "市场活动"), ("feedback", "产品反馈"), ("hr", "招聘"), ("complain", "投诉"), ("jubao", "举报"),
+    ("anti-fraud", "反欺诈"), ("privacy", "隐私合规"), ("xiaoeks", "客服"),
 )
 
 

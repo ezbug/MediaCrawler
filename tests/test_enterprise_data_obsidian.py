@@ -16,6 +16,9 @@ from local_tools.enterprise_data.storage import EnterpriseStore
 def test_mailbox_function_labels():
     assert mailbox_function("security@xiaoe-tech.com") == "安全响应"
     assert mailbox_function("contact@vhall.com") == "商务 / 通用联系"
+    assert mailbox_function("ir@yonyou.com") == "投资者关系"
+    assert mailbox_function("finance@haier.com") == "财务"
+    assert mailbox_function("privacy@mudu.tv") == "隐私合规"
     assert mailbox_function("unknown@example.com") == "其他"
 
 
