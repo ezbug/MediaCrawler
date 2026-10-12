@@ -34,7 +34,7 @@ def first_line_chars(value: str) -> int:
 def choose_mode(quote: str) -> str:
     """Keep the old mode split for compatibility; both use shared experience."""
     text = str(quote or "")
-    if re.search(r"怎么办|怎么选|怎么跟|怎么收费|什么价格|多少钱|什么软件|怎么部署|求推荐|预算|采购|报价|想了解|能不能|如何|有没有", text):
+    if re.search(r"怎么|如何|什么价格|多少钱|什么软件|求推荐|预算|采购|报价|想了解|能不能|有没有", text):
         return "solve"
     return "reaction"
 

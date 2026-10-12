@@ -32,6 +32,12 @@ def test_price_question_uses_solve_mode_without_brand() -> None:
     assert first_line_chars(text) <= 20
 
 
+def test_general_how_question_uses_solve_probe() -> None:
+    assert choose_mode("怎么联系客服？") == "solve"
+    text = comment_reply("怎么联系客服？", "企业培训")
+    assert text == "想问问具体咋样的？我之前也有类似问题"
+
+
 def test_historical_reply_is_one_short_question_without_brand() -> None:
     text = reactivation_comment("北京海淀60人报价", "企业活动")
     assert text == "现在还有遇到什么问题吗？"
