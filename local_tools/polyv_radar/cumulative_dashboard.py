@@ -31,6 +31,8 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .reply_signals import merge_reply_signals
+
 #: `2026-09-23T14:32:48.123Z` -> captures (YYYY, MM, DD, hh, mm, ss)
 _ISO = re.compile(r"^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})")
 
@@ -137,7 +139,8 @@ def load_combined_history(ledger_path: Path | str, data_root: Path | str) -> lis
                 row['screenshot'] = metadata[key]['screenshot'] or row.get('screenshot', '')
                 row['failure_code'] = None
             matched.add(key)
-    return history + [row for row in projections if event_key(row) not in matched]
+    rows = history + [row for row in projections if event_key(row) not in matched]
+    return merge_reply_signals(rows, data_root)
 
 
 def is_send_event(row: dict) -> bool:
@@ -271,6 +274,8 @@ PAGE_CSS = (
     '.proof{display:flex;flex-wrap:wrap;gap:4px;min-width:220px}.proof span{display:inline-block;border-radius:999px;padding:3px 7px;font-size:11px;background:#eef1f5;color:#657080}.proof .ok{background:#e7f6ec;color:#21733c}.proof .warn{background:#fff4db;color:#8a5b00}.proof .bad{background:#fdebec;color:#a12a36}'
     '.badge,.status{display:inline-block;border-radius:999px;padding:3px 8px;background:#e8f1ff;'
     'color:#245a9c;font-size:12px}.status{background:#e7f6ec;color:#21733c}'
+    '.signal{display:inline-block;border-radius:999px;padding:3px 8px;background:#fdebec;'
+    'color:#a12a36;font-size:12px}'
     '.brand-badge{display:inline-block;border-radius:999px;padding:3px 8px;background:#f2eaff;'
     'color:#7046a5;font-size:12px}'
     'small{color:#6b7280}a{color:#2364aa;text-decoration:none}a:hover{text-decoration:underline}'
@@ -403,6 +408,10 @@ def _proof_cell(row: dict) -> str:
 
 
 def _response_cell(row: dict) -> str:
+    if row.get("second_wave_reply"):
+        value = _first_value(row, "received_reply", "inbound_reply", "response_text")
+        suffix = f"<br><small>{_esc(_short(value, 120))}</small>" if value else ""
+        return f'<span class="signal">二次回复待设计</span>{suffix}'
     value = _first_value(row, "received_reply", "inbound_reply", "response_text", "engagement")
     if value:
         return _esc(value)

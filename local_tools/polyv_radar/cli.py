@@ -33,6 +33,7 @@ from .takeover import write_takeover
 from .zigo_discovery import read_raw, run_discovery, screen_record
 from .zigo_keywords import build_keyword_registry
 from .zigo_store import ZigoStore
+from .reply_signals import append_reply_signal
 
 
 def apply_collect_overrides(config, args):
@@ -195,6 +196,15 @@ def build_parser() -> argparse.ArgumentParser:
     takeover_parser = subparsers.add_parser("takeover-sync")
     takeover_parser.add_argument("--config", required=True)
     takeover_parser.add_argument("--campaign", default="polyv-100")
+    signal_parser = subparsers.add_parser("record-reply-signal")
+    signal_parser.add_argument("--config", required=True)
+    signal_parser.add_argument("--data-root")
+    signal_parser.add_argument("--platform", required=True)
+    signal_parser.add_argument("--url", required=True)
+    signal_parser.add_argument("--author", required=True)
+    signal_parser.add_argument("--quote", required=True)
+    signal_parser.add_argument("--wave", type=int, default=1)
+    signal_parser.add_argument("--observed-at", default="")
     zigo_keywords_parser = subparsers.add_parser("zigo-keywords")
     zigo_keywords_parser.add_argument("--config", required=True)
     zigo_keywords_parser.add_argument("--knowledge-root", required=True)
@@ -413,6 +423,31 @@ def main(argv: list[str] | None = None) -> int:
             "counts": result["counts"],
             "priority_counts": result["priority_counts"],
         }
+    elif args.command == "record-reply-signal":
+        if args.wave < 1:
+            parser.error("--wave 必须大于等于 1")
+        data_root = Path(args.data_root) if args.data_root else config.data_root
+        payload = append_reply_signal(
+            data_root,
+            {
+                "platform": args.platform,
+                "target_url": args.url,
+                "target_author": args.author,
+                "quote": args.quote,
+                "wave": args.wave,
+                "observed_at": args.observed_at,
+            },
+        )
+        from .cumulative_dashboard import render_from_sources
+
+        ledger = data_root / "reply_history.jsonl"
+        board = data_root / "reports" / "all-sent-leads-dashboard.html"
+        if ledger.is_file():
+            html, view = render_from_sources(ledger, data_root)
+            board.parent.mkdir(parents=True, exist_ok=True)
+            board.write_text(html, encoding="utf-8")
+            payload["dashboard"] = str(board)
+            payload["unique_targets"] = view.target_count
     elif args.command == "zigo-discover":
         if args.collect and (not args.taskspace or args.taskspace <= 0):
             parser.error("zigo-discover --collect 需要显式提供已登录的 Ego Lite TaskSpace")
