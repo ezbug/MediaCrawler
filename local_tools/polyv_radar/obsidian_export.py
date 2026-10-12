@@ -291,6 +291,7 @@ def build_notes(view, data_root: Path | str) -> list[dict]:
                 "reply_wave": reply_wave,
                 "reply_signal": str(row.get("reply_signal") or ""),
                 "received_reply": received_reply,
+                "reply_author": str(row.get("reply_author") or ""),
                 "second_wave_reply": second_wave,
                 "score": score,
                 "score_source": score_source,
@@ -356,7 +357,8 @@ def render_note(note: dict) -> str:
     lines.append(f"- 回查时间：{fm['verified_at'] or '未记录'}")
     lines.append(f"- 回复波次：{fm['reply_wave']}")
     if fm["received_reply"]:
-        lines.append(f"- 对方回复：{json.dumps(fm['received_reply'], ensure_ascii=False)}")
+        who = f"{fm['reply_author']}：" if fm.get("reply_author") else ""
+        lines.append(f"- 对方回复：{who}{json.dumps(fm['received_reply'], ensure_ascii=False)}")
     if fm.get("score") is not None:
         lines.append(f"- 评分：{fm['score']}（{fm.get('score_source') or '未标注来源'}）")
     lines.append(f"- 批次：{fm['batch']}")

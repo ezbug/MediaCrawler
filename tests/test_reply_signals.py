@@ -40,6 +40,7 @@ def test_second_wave_signal_marks_dashboard_row(tmp_path: Path) -> None:
             "platform": "dy",
             "target_url": "https://www.douyin.com/video/1",
             "target_author": "用户",
+            "reply_author": "品牌方",
             "quote": "第二次回复",
             "wave": 2,
         },
@@ -57,6 +58,7 @@ def test_second_wave_signal_marks_dashboard_row(tmp_path: Path) -> None:
     assert rows[0]["second_wave_reply"] is True
     assert rows[0]["reply_wave"] == 2
     assert rows[0]["reply_signal"] == "second_wave_reply"
+    assert rows[0]["reply_author"] == "品牌方"
 
 
 def test_dashboard_shows_second_wave_signal(tmp_path: Path) -> None:
@@ -85,10 +87,12 @@ def test_dashboard_shows_second_wave_signal(tmp_path: Path) -> None:
             "platform": "dy",
             "target_url": "https://www.douyin.com/video/1",
             "target_author": "用户",
+            "reply_author": "品牌方",
             "quote": "第二次回复",
             "wave": 2,
         },
     )
     html, view = render_from_sources(ledger, tmp_path)
     assert "二次回复待设计" in html
+    assert "品牌方：第二次回复" in html
     assert view.target_count == 1

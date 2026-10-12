@@ -202,6 +202,7 @@ def build_parser() -> argparse.ArgumentParser:
     signal_parser.add_argument("--platform", required=True)
     signal_parser.add_argument("--url", required=True)
     signal_parser.add_argument("--author", required=True)
+    signal_parser.add_argument("--reply-author", default="", help="实际回复我们的账号名；匹配仍按目标作者")
     signal_parser.add_argument("--quote", required=True)
     signal_parser.add_argument("--wave", type=int, default=1)
     signal_parser.add_argument("--observed-at", default="")
@@ -439,6 +440,7 @@ def main(argv: list[str] | None = None) -> int:
                 "platform": args.platform,
                 "target_url": args.url,
                 "target_author": args.author,
+                "reply_author": args.reply_author,
                 "quote": args.quote,
                 "wave": args.wave,
                 "observed_at": args.observed_at,

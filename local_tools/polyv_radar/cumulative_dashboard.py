@@ -410,7 +410,9 @@ def _proof_cell(row: dict) -> str:
 def _response_cell(row: dict) -> str:
     if row.get("second_wave_reply"):
         value = _first_value(row, "received_reply", "inbound_reply", "response_text")
-        suffix = f"<br><small>{_esc(_short(value, 120))}</small>" if value else ""
+        author = _first_value(row, "reply_author")
+        who = f"{_esc(author)}：" if author else ""
+        suffix = f"<br><small>{who}{_esc(_short(value, 120))}</small>" if value else ""
         return f'<span class="signal">二次回复待设计</span>{suffix}'
     value = _first_value(row, "received_reply", "inbound_reply", "response_text", "engagement")
     if value:

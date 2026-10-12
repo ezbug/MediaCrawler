@@ -87,6 +87,11 @@ def merge_reply_signals(rows: list[dict], data_root: Path | str) -> list[dict]:
         row["reply_wave"] = max(int(item.get("wave", 1) or 1) for item in items)
         row["second_wave_reply"] = row["reply_wave"] >= 2
         row["reply_signal"] = "second_wave_reply" if row["second_wave_reply"] else "first_wave_reply"
-        row["reply_author"] = latest.get("target_author") or latest.get("author") or ""
+        # reply_author records WHO answered (may differ from the target author
+        # when a brand account replies on a post-level target); fall back to the
+        # legacy target fields when the signal predates this field.
+        row["reply_author"] = (
+            latest.get("reply_author") or latest.get("target_author") or latest.get("author") or ""
+        )
         row["reply_observed_at"] = latest.get("observed_at") or ""
     return rows

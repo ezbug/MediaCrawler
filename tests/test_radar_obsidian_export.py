@@ -125,6 +125,7 @@ def test_reply_signal_marks_second_wave(tmp_path: Path) -> None:
                 "platform": "zhihu",
                 "target_url": "https://zhuanlan.zhihu.com/p/1",
                 "target_author": "阿尔法",
+                "reply_author": "小鹅通官方",
                 "quote": "对方第二次回复",
                 "wave": 2,
                 "observed_at": "2026-10-12T03:00:00+00:00",
@@ -139,6 +140,7 @@ def test_reply_signal_marks_second_wave(tmp_path: Path) -> None:
     assert stats["second_wave_count"] == 1
     note = _note_for(Path(stats["notes_dir"]), "阿尔法")
     assert "reply_wave: 2" in note
+    assert "小鹅通官方" in note
     assert "对方第二次回复" in note
     assert (Path(stats["vault_dir"]) / "雷达总览.base").read_text(encoding="utf-8").count("二次回复待设计") >= 1
 
