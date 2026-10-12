@@ -1,0 +1,11 @@
+#!/bin/zsh
+set -euo pipefail
+
+script_dir="${0:A:h}"
+if (( $# == 0 )); then
+  print -u2 '需要参数；示例：ego_jobs --taskspace 3 --url URL --platform boss'
+  exit 2
+fi
+
+args_b64="$(node -e 'process.stdout.write(Buffer.from(JSON.stringify(process.argv.slice(1))).toString("base64"))' -- "$@")"
+exec ego-browser nodejs -e "const module = await import('file://${script_dir}/ego_jobs.mjs'); const args = JSON.parse(Buffer.from('${args_b64}', 'base64').toString()); await module.main(args);"

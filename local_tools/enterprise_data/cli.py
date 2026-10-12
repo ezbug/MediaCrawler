@@ -60,6 +60,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_label.add_argument("--company-id", required=True)
     p_label.add_argument("--stat-date", required=True)
 
+    p_collect = sub.add_parser("collect-jobs", help="招聘平台职位采集（Ego Lite，只读）")
+    p_collect.add_argument("--company-id", required=True)
+    p_collect.add_argument("--url", help="职位列表 URL")
+    p_collect.add_argument("--search", choices=("boss-search", "zhaopin-search", "liepin-search"), help="内置平台搜索模板")
+    p_collect.add_argument("--query", help="搜索关键词（公司名）")
+    p_collect.add_argument("--platform", default="generic")
+    p_collect.add_argument("--taskspace", type=int, required=True)
+    p_collect.add_argument("--page", default="p1")
+    p_collect.add_argument("--scrolls", type=int, default=3)
+    p_collect.add_argument("--max-jobs", type=int, default=60)
+    p_collect.add_argument("--output")
+
     sub.add_parser("list", help="列出企业")
     return parser
 
@@ -84,6 +96,21 @@ def main(argv: list[str] | None = None) -> int:
             "--company-id", args.company_id,
             *(["--url", args.url] if args.url else []),
             *(["--site", args.site] if args.site else []),
+            *(["--output", args.output] if args.output else []),
+        ])
+    if args.command == "collect-jobs":
+        from .job_collect import main as collect_main
+
+        return collect_main([
+            "--company-id", args.company_id,
+            "--taskspace", str(args.taskspace),
+            "--platform", args.platform,
+            "--page", args.page,
+            "--scrolls", str(args.scrolls),
+            "--max-jobs", str(args.max_jobs),
+            *(["--url", args.url] if args.url else []),
+            *(["--search", args.search] if args.search else []),
+            *(["--query", args.query] if args.query else []),
             *(["--output", args.output] if args.output else []),
         ])
     store = EnterpriseStore(args.db)
