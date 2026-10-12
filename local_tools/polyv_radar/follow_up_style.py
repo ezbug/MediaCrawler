@@ -34,12 +34,11 @@ def build_follow_up_reply(
     category: str = "",
     *,
     domain: str = "polyv",
-    brand: str = "",
 ) -> str:
     """Build a short second reply after the other side answers."""
-    del incoming_text, brand
+    del incoming_text
     action = _DEFAULT_ZIGO if domain == "zigo_sales" else _SHORT_ACTIONS.get(category, _DEFAULT_POLYV)
-    text = f"先看{action}，我帮你对方案"
+    text = f"先看{action}，私信我细聊"
     if char_count(text) > FOLLOW_UP_LIMIT:
         raise ValueError("follow-up reply exceeds 20 Chinese characters")
     return text

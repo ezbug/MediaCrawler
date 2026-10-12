@@ -198,7 +198,7 @@ def build_conversion_pack(lead: LeadEvidence) -> ConversionPack:
         video_topic=kb["video_topic"],
         video_hook=kb["video_hook"],
         dm_opener=kb["dm_opener"],
-        dm_follow_up=build_follow_up_reply(lead.quote, category, domain="polyv", brand="POLYV"),
+        dm_follow_up=build_follow_up_reply(lead.quote, category, domain="polyv"),
         recommended_materials={
             "case": kb["case"],
             "template": kb["template"],
