@@ -27,6 +27,32 @@ uv run python -m local_tools.enterprise_data --db $DB metrics --company-id <id> 
 uv run python -m local_tools.enterprise_data --db $DB report --company-id <id>
 ```
 
+## 年报 PDF 抽取
+
+```bash
+uv run python -m local_tools.enterprise_data --db $DB extract-annual-report \
+  --pdf /path/to/annual-report.pdf \
+  --company-id <id> --fiscal-year 2025 --period-end 2025-12-31 \
+  --output /tmp/financial-candidate.json
+
+# 复核候选 JSON 后入库
+uv run python -m local_tools.enterprise_data --db $DB import-financial --json /tmp/financial-candidate.json
+```
+
+抽取规则（第一版，只支持带文本层的 PDF）：
+
+- 员工人数：识别“在职员工的数量合计 / 员工共 N 人 / 员工总数 / 员工数量”等合计类表述；
+  自动排除“母公司 / 主要子公司 / 劳务外包”口径。
+- 资产总计：从“合并资产负债表 / 资产负债表”中取“资产总计”，优先合并口径；
+  同时存在母公司报表时提示人工复核。
+- 金额单位：识别“单位：千元 / 人民币千元”等标注，`total_assets` 统一换算为元入库，
+  `unit_original` 保留报表原始单位；单位缺失时不换算并告警。
+- 每个字段带 evidence（页码 + 原文摘录 + 置信度），输出含 `_extraction.warnings` 与
+  `needs_review: true`，提示人工复核后再入库。
+
+已验证样本：`polyv-radar-data/enterprise/samples/zte-2025-annual.pdf`（中兴通讯 2025 年报，249 页），
+抽取结果：员工 65,095 人、总资产 217,739,375 千元 → 217,739,375,000.00 元（合并口径）。
+
 ## 最小字段
 
 - `import-company`：`company_name`（必填）、`company_id`、`unified_social_credit_code`、`ticker`、`exchange`、
@@ -52,6 +78,6 @@ uv run python -m local_tools.enterprise_data --db $DB report --company-id <id>
 
 ## 下一步（未实现）
 
-- 年报 PDF 抽取（PyMuPDF/pdfplumber/PaddleOCR）→ 生成 `import-financial` 的候选 JSON。
+- 扫描件 OCR（PaddleOCR）与表格结构解析（pdfplumber/Camelot）增强。
 - 企查查招聘 API（ApiCode 718）PoC → 生成 `import-jobs` 的候选 JSON。
 - 跨平台职位去重（job_dedup_group 的自动合并与置信度）与僵尸职位标签联动。

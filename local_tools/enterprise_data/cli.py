@@ -38,12 +38,31 @@ def build_parser() -> argparse.ArgumentParser:
     p_report = sub.add_parser("report", help="输出企业画像")
     p_report.add_argument("--company-id", required=True)
 
+    p_extract = sub.add_parser("extract-annual-report", help="从年报 PDF 抽取财务候选（需人工复核）")
+    p_extract.add_argument("--pdf", required=True)
+    p_extract.add_argument("--company-id", required=True)
+    p_extract.add_argument("--fiscal-year", type=int, required=True)
+    p_extract.add_argument("--report-version", default="")
+    p_extract.add_argument("--period-end", default="")
+    p_extract.add_argument("--output")
+
     sub.add_parser("list", help="列出企业")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.command == "extract-annual-report":
+        from .pdf_extract import main as extract_main
+
+        return extract_main([
+            "--pdf", args.pdf,
+            "--company-id", args.company_id,
+            "--fiscal-year", str(args.fiscal_year),
+            *(["--report-version", args.report_version] if args.report_version else []),
+            *(["--period-end", args.period_end] if args.period_end else []),
+            *(["--output", args.output] if args.output else []),
+        ])
     store = EnterpriseStore(args.db)
     if args.command == "init":
         payload = {"db": str(store.path), "status": "initialized"}
