@@ -17,9 +17,10 @@ def test_reaction_mode_is_used_for_non_question_pain_points() -> None:
     quote = "客户不回有一万个理由"
     assert choose_mode(quote) == "reaction"
     text = comment_reply(quote, "企业培训")
-    assert text == "我也遇到过，解决没？"
+    assert text == "我也遇到过，后来还好吗？"
     assert first_line_chars(text) <= 10
     assert "POLYV" not in text
+    assert "解决没" not in text
 
 
 def test_price_question_uses_solve_mode_without_brand() -> None:
@@ -32,13 +33,13 @@ def test_price_question_uses_solve_mode_without_brand() -> None:
 
 def test_historical_reply_is_one_short_question_without_brand() -> None:
     text = reactivation_comment("北京海淀60人报价", "企业活动")
-    assert text == "现在还要做吗？"
+    assert text == "现在还需要吗？"
     assert "POLYV" not in text
     assert first_line_chars(text) <= 10
 
 
 def test_industry_name_can_be_used_in_peer_probe() -> None:
     text = comment_reply("客户不回有一万个理由", "企业培训", industry="教育")
-    assert text == "教育同行，解决没？"
+    assert text == "教育同行，后来顺利吗？"
     assert first_line_chars(text) <= 10
     assert "POLYV" not in text

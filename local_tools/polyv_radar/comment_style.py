@@ -1,7 +1,9 @@
 """Comment-first short reply wording for public comments.
 
 Public comment replies stay within ten Chinese characters, avoid brand names,
-and do one of two jobs: give a short solution or provoke a reply.
+and do one of two jobs: give a short solution or gently invite a reply.
+Opening lines pass through a small humanizer-zh style pass: no interrogation
+ending, no corporate filler, and no template-sounding question.
 """
 
 from __future__ import annotations
@@ -24,12 +26,22 @@ _SOLVE_PHRASES = {
 _DEFAULT_SOLVE = "先看具体流程"
 
 _PEER_BY_QUOTE = (
-    (re.compile(r"报价|价格|预算"), "我也卡过，解决没？"),
-    (re.compile(r"客户|线索|跟进|转化|开单|成交"), "我也遇到过，解决没？"),
-    (re.compile(r"工具|软件|系统|AI|ai"), "同行，解决了吗？"),
+    (re.compile(r"报价|价格|预算"), "我也卡过，后来还好吗？"),
+    (re.compile(r"客户|线索|跟进|转化|开单|成交"), "我也遇到过，后来还好吗？"),
+    (re.compile(r"工具|软件|系统|AI|ai"), "同行，后来顺利吗？"),
 )
 
-_PEER_FALLBACK = "后来解决了吗？"
+_PEER_FALLBACK = "后来还顺利吗？"
+
+_BLUNT_TERMS = ("解决没", "解决了吗", "懂了吗", "明白没")
+
+
+def humanize_opening(text: str) -> str:
+    """Apply a small humanizer-zh pass to short opening replies."""
+    value = str(text or "").strip()
+    for term in _BLUNT_TERMS:
+        value = value.replace(term, "后来还好吗")
+    return value
 
 
 def first_line_chars(value: str) -> int:
@@ -58,20 +70,20 @@ def comment_reply(
         phrase = _SOLVE_PHRASES.get(category, _DEFAULT_SOLVE)
     else:
         industry_name = str(industry or "").strip()
-        phrase = f"{industry_name}同行，解决没？" if industry_name else _PEER_FALLBACK
+        phrase = f"{industry_name}同行，后来顺利吗？" if industry_name else _PEER_FALLBACK
         if first_line_chars(phrase) > TOTAL_COMMENT_LIMIT:
             phrase = _PEER_FALLBACK
         for pattern, opener in _PEER_BY_QUOTE:
             if pattern.search(str(quote or "")):
-                if not industry_name or first_line_chars(f"{industry_name}同行，解决没？") > TOTAL_COMMENT_LIMIT:
+                if not industry_name or first_line_chars(f"{industry_name}同行，后来顺利吗？") > TOTAL_COMMENT_LIMIT:
                     phrase = opener
                 break
     if first_line_chars(phrase) > TOTAL_COMMENT_LIMIT:
         raise ValueError("comment reply exceeds 10 Chinese characters")
-    return phrase
+    return humanize_opening(phrase)
 
 
 def reactivation_comment(quote: str, category: str) -> str:
     """One short historical-reactivation question; no brand name."""
     del quote, category
-    return "现在还要做吗？"
+    return humanize_opening("现在还需要吗？")
