@@ -43,3 +43,10 @@ def test_industry_name_can_be_used_in_peer_probe() -> None:
     assert text == "教育同行，后来顺利吗？"
     assert first_line_chars(text) <= 10
     assert "POLYV" not in text
+
+
+def test_sister_peer_probe_is_an_approved_variant() -> None:
+    text = comment_reply("客户不回有一万个理由", "企业培训", variant="sister")
+    assert text == "后来是怎么解决的啊，姐妹"
+    assert "POLYV" not in text
+    assert first_line_chars(text) <= 12

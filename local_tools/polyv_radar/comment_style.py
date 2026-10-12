@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 
 TOTAL_COMMENT_LIMIT = 10
+PEER_VARIANT_LIMIT = 12
 
 _SOLVE_PHRASES = {
     "企业培训": "先看培训流程",
@@ -34,6 +35,8 @@ _PEER_BY_QUOTE = (
 _PEER_FALLBACK = "后来还顺利吗？"
 
 _BLUNT_TERMS = ("解决没", "解决了吗", "懂了吗", "明白没")
+_SISTER_TERMS = re.compile(r"姐妹|宝妈|女生|女性|小姐姐")
+_SISTER_PROBE = "后来是怎么解决的啊，姐妹"
 
 
 def humanize_opening(text: str) -> str:
@@ -63,9 +66,14 @@ def comment_reply(
     *,
     industry: str = "",
     mode: str | None = None,
+    variant: str = "",
 ) -> str:
     """Build one short public comment with no company or product name."""
     mode = mode or choose_mode(quote)
+    if variant == "sister" or (mode != "solve" and _SISTER_TERMS.search(str(quote or ""))):
+        if first_line_chars(_SISTER_PROBE) > PEER_VARIANT_LIMIT:
+            raise ValueError("sister peer probe exceeds approved limit")
+        return _SISTER_PROBE
     if mode == "solve":
         phrase = _SOLVE_PHRASES.get(category, _DEFAULT_SOLVE)
     else:
