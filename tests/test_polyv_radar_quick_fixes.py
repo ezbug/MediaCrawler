@@ -238,7 +238,7 @@ def test_conversion_pack_marks_case_as_unverified_and_avoids_numeric_claims() ->
     assert "WebRTC" not in pack.reply_text
     assert "POLYV" not in pack.reply_text
     assert "我们公司需要培训直播平台，多少钱？" not in pack.reply_text
-    assert len(pack.reply_text) <= 10
+    assert len(pack.reply_text) <= 20
 
 
 def _lead(score: int):

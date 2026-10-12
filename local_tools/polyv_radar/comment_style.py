@@ -1,36 +1,21 @@
-"""Comment-first short reply wording for public comments.
+"""Comment-first reply wording for public comments.
 
-Public comment replies stay within ten Chinese characters, avoid brand names,
-and do one of two jobs: give a short solution or gently invite a reply.
-Opening lines pass through a small humanizer-zh style pass: no interrogation
-ending, no corporate filler, and no template-sounding question.
+Replies stay within twenty Chinese characters, avoid brand and industry
+wording, and use a shared-experience opener instead of a solution checklist.
 """
 
 from __future__ import annotations
 
 import re
 
-TOTAL_COMMENT_LIMIT = 10
-PEER_VARIANT_LIMIT = 20
+COMMENT_LIMIT = 20
 
-_SOLVE_PHRASES = {
-    "企业培训": "先看培训流程",
-    "企业直播": "先看直播方案",
-    "私域直播": "先看私域承接",
-    "视频点播": "先看点播方案",
-    "视频安全": "先看防盗录流程",
-    "AI视频": "先做内容审核",
-    "技术集成": "先看接入方案",
-    "出海": "先看海外链路",
-}
-
-_DEFAULT_SOLVE = "先看具体流程"
-
+_SOLVE_PROBE = "想问问具体咋样的？我之前也有类似问题"
 _PEER_PROBE = "我也遇到了一样的问题，后来顺利吗？"
+_SISTER_PROBE = "后来是怎么解决的啊，姐妹"
 
 _BLUNT_TERMS = ("解决没", "解决了吗", "懂了吗", "明白没")
 _SISTER_TERMS = re.compile(r"姐妹|宝妈|女生|女性|小姐姐")
-_SISTER_PROBE = "后来是怎么解决的啊，姐妹"
 
 
 def humanize_opening(text: str) -> str:
@@ -47,7 +32,7 @@ def first_line_chars(value: str) -> int:
 
 
 def choose_mode(quote: str) -> str:
-    """Use solve mode for explicit questions; otherwise use a peer probe."""
+    """Keep the old mode split for compatibility; both use shared experience."""
     text = str(quote or "")
     if re.search(r"怎么办|怎么选|怎么跟|怎么收费|什么价格|多少钱|什么软件|怎么部署|求推荐|预算|采购|报价|想了解|能不能|如何|有没有", text):
         return "solve"
@@ -62,20 +47,17 @@ def comment_reply(
     mode: str | None = None,
     variant: str = "",
 ) -> str:
-    """Build one short public comment with no company or product name."""
-    del industry
+    """Build one short public comment with no brand or industry wording."""
+    del category, industry
     mode = mode or choose_mode(quote)
     if variant == "sister" or (mode != "solve" and _SISTER_TERMS.search(str(quote or ""))):
-        if first_line_chars(_SISTER_PROBE) > PEER_VARIANT_LIMIT:
-            raise ValueError("sister peer probe exceeds approved limit")
-        return _SISTER_PROBE
-    if mode == "solve":
-        phrase = _SOLVE_PHRASES.get(category, _DEFAULT_SOLVE)
+        phrase = _SISTER_PROBE
+    elif mode == "solve":
+        phrase = _SOLVE_PROBE
     else:
         phrase = _PEER_PROBE
-    limit = TOTAL_COMMENT_LIMIT if mode == "solve" else PEER_VARIANT_LIMIT
-    if first_line_chars(phrase) > limit:
-        raise ValueError("comment reply exceeds approved character limit")
+    if first_line_chars(phrase) > COMMENT_LIMIT:
+        raise ValueError("comment reply exceeds 20 Chinese characters")
     return humanize_opening(phrase)
 
 
