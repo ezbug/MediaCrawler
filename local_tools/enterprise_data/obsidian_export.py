@@ -156,11 +156,12 @@ def export_company_cards(db_path: Path, poly_root: Path, *, stat_date: str = "")
             ) or "—"
             latest_financial = financials[0] if financials else {}
             latest_metrics = metrics[0] if metrics else {}
+            ticker = company.get("ticker")
             profile_fields = {
                 "type": "company-profile",
                 "company": company["company_name"],
                 "company_id": company_id,
-                "ticker": company.get("ticker"),
+                "ticker": f'"{ticker}"' if ticker else "",
                 "exchange": company.get("exchange"),
                 "listing_status": company.get("listing_status"),
                 "identity": company.get("identity_match_status"),
