@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 
 TOTAL_COMMENT_LIMIT = 10
-PEER_VARIANT_LIMIT = 12
+PEER_VARIANT_LIMIT = 20
 
 _SOLVE_PHRASES = {
     "企业培训": "先看培训流程",
@@ -26,13 +26,7 @@ _SOLVE_PHRASES = {
 
 _DEFAULT_SOLVE = "先看具体流程"
 
-_PEER_BY_QUOTE = (
-    (re.compile(r"报价|价格|预算"), "我也卡过，后来还好吗？"),
-    (re.compile(r"客户|线索|跟进|转化|开单|成交"), "我也遇到过，后来还好吗？"),
-    (re.compile(r"工具|软件|系统|AI|ai"), "同行，后来顺利吗？"),
-)
-
-_PEER_FALLBACK = "后来还顺利吗？"
+_PEER_PROBE = "我也遇到了一样的问题，后来顺利吗？"
 
 _BLUNT_TERMS = ("解决没", "解决了吗", "懂了吗", "明白没")
 _SISTER_TERMS = re.compile(r"姐妹|宝妈|女生|女性|小姐姐")
@@ -69,6 +63,7 @@ def comment_reply(
     variant: str = "",
 ) -> str:
     """Build one short public comment with no company or product name."""
+    del industry
     mode = mode or choose_mode(quote)
     if variant == "sister" or (mode != "solve" and _SISTER_TERMS.search(str(quote or ""))):
         if first_line_chars(_SISTER_PROBE) > PEER_VARIANT_LIMIT:
@@ -77,17 +72,10 @@ def comment_reply(
     if mode == "solve":
         phrase = _SOLVE_PHRASES.get(category, _DEFAULT_SOLVE)
     else:
-        industry_name = str(industry or "").strip()
-        phrase = f"{industry_name}同行，后来顺利吗？" if industry_name else _PEER_FALLBACK
-        if first_line_chars(phrase) > TOTAL_COMMENT_LIMIT:
-            phrase = _PEER_FALLBACK
-        for pattern, opener in _PEER_BY_QUOTE:
-            if pattern.search(str(quote or "")):
-                if not industry_name or first_line_chars(f"{industry_name}同行，后来顺利吗？") > TOTAL_COMMENT_LIMIT:
-                    phrase = opener
-                break
-    if first_line_chars(phrase) > TOTAL_COMMENT_LIMIT:
-        raise ValueError("comment reply exceeds 10 Chinese characters")
+        phrase = _PEER_PROBE
+    limit = TOTAL_COMMENT_LIMIT if mode == "solve" else PEER_VARIANT_LIMIT
+    if first_line_chars(phrase) > limit:
+        raise ValueError("comment reply exceeds approved character limit")
     return humanize_opening(phrase)
 
 
