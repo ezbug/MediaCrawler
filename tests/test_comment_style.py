@@ -17,7 +17,7 @@ def test_reaction_mode_is_used_for_non_question_pain_points() -> None:
     quote = "客户不回有一万个理由"
     assert choose_mode(quote) == "reaction"
     text = comment_reply(quote, "企业培训")
-    assert text == "真是客户问题？"
+    assert text == "我也遇到过，解决没？"
     assert first_line_chars(text) <= 10
     assert "POLYV" not in text
 

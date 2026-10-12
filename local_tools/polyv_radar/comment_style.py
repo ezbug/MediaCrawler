@@ -23,14 +23,13 @@ _SOLVE_PHRASES = {
 
 _DEFAULT_SOLVE = "先看具体流程"
 
-_REACTION_BY_QUOTE = (
-    (re.compile(r"不回|沉默|已读"), "真是客户问题？"),
-    (re.compile(r"报价|价格|预算"), "真是价格问题？"),
-    (re.compile(r"工具|软件|系统|AI|ai"), "问题真在工具？"),
-    (re.compile(r"老板|管理|团队"), "老板会认吗？"),
+_PEER_BY_QUOTE = (
+    (re.compile(r"报价|价格|预算"), "我也卡过，解决没？"),
+    (re.compile(r"客户|线索|跟进|转化|开单|成交"), "我也遇到过，解决没？"),
+    (re.compile(r"工具|软件|系统|AI|ai"), "同行，解决了吗？"),
 )
 
-_REACTION_FALLBACK = "这锅谁背？"
+_PEER_FALLBACK = "后来解决了吗？"
 
 
 def first_line_chars(value: str) -> int:
@@ -39,7 +38,7 @@ def first_line_chars(value: str) -> int:
 
 
 def choose_mode(quote: str) -> str:
-    """Use solve mode for explicit questions; otherwise provoke a reply."""
+    """Use solve mode for explicit questions; otherwise use a peer probe."""
     text = str(quote or "")
     if re.search(r"怎么办|怎么选|怎么跟|怎么收费|什么价格|多少钱|什么软件|怎么部署|求推荐|预算|采购|报价|想了解|能不能|如何|有没有", text):
         return "solve"
@@ -57,8 +56,8 @@ def comment_reply(
     if mode == "solve":
         phrase = _SOLVE_PHRASES.get(category, _DEFAULT_SOLVE)
     else:
-        phrase = _REACTION_FALLBACK
-        for pattern, opener in _REACTION_BY_QUOTE:
+        phrase = _PEER_FALLBACK
+        for pattern, opener in _PEER_BY_QUOTE:
             if pattern.search(str(quote or "")):
                 phrase = opener
                 break
