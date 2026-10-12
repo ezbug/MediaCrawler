@@ -46,6 +46,20 @@ def build_parser() -> argparse.ArgumentParser:
     p_extract.add_argument("--period-end", default="")
     p_extract.add_argument("--output")
 
+    p_careers = sub.add_parser("extract-careers", help="从企业官网招聘页抽取职位（官方来源，只读）")
+    p_careers.add_argument("--company-id", required=True)
+    p_careers.add_argument("--url", help="直接指定招聘页 URL")
+    p_careers.add_argument("--site", help="公司域名；自动发现招聘页链接")
+    p_careers.add_argument("--output")
+
+    p_dedupe = sub.add_parser("dedupe-jobs", help="职位去重分组（job_dedup_group）")
+    p_dedupe.add_argument("--company-id", required=True)
+    p_dedupe.add_argument("--threshold", type=float, default=0.85)
+
+    p_label = sub.add_parser("label-jobs", help="职位风险标签（僵尸/外包）")
+    p_label.add_argument("--company-id", required=True)
+    p_label.add_argument("--stat-date", required=True)
+
     sub.add_parser("list", help="列出企业")
     return parser
 
@@ -61,6 +75,15 @@ def main(argv: list[str] | None = None) -> int:
             "--fiscal-year", str(args.fiscal_year),
             *(["--report-version", args.report_version] if args.report_version else []),
             *(["--period-end", args.period_end] if args.period_end else []),
+            *(["--output", args.output] if args.output else []),
+        ])
+    if args.command == "extract-careers":
+        from .careers_extract import main as careers_main
+
+        return careers_main([
+            "--company-id", args.company_id,
+            *(["--url", args.url] if args.url else []),
+            *(["--site", args.site] if args.site else []),
             *(["--output", args.output] if args.output else []),
         ])
     store = EnterpriseStore(args.db)
@@ -82,6 +105,14 @@ def main(argv: list[str] | None = None) -> int:
         payload = store.compute_hiring_metrics(args.company_id, args.stat_date, args.window_days)
     elif args.command == "report":
         payload = store.company_profile(args.company_id)
+    elif args.command == "dedupe-jobs":
+        from .job_dedup import dedupe_jobs
+
+        payload = dedupe_jobs(store, args.company_id, threshold=args.threshold)
+    elif args.command == "label-jobs":
+        from .job_dedup import label_jobs
+
+        payload = label_jobs(store, args.company_id, args.stat_date)
     else:
         payload = {"companies": store.list_companies()}
     store.close()

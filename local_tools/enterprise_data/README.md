@@ -25,7 +25,26 @@ uv run python -m local_tools.enterprise_data --db $DB metrics --company-id <id> 
 
 # 6. 查看企业画像
 uv run python -m local_tools.enterprise_data --db $DB report --company-id <id>
+
+# 7. 官网招聘页抽取（JSON-LD 优先，锚点兜底；ATS 页面标记需 Ego Lite）
+uv run python -m local_tools.enterprise_data --db $DB extract-careers \
+  --company-id <id> --site <公司域名> --output /tmp/jobs-candidate.json
+uv run python -m local_tools.enterprise_data --db $DB import-jobs --json /tmp/jobs-candidate.json
+
+# 8. 职位去重分组与风险标签
+uv run python -m local_tools.enterprise_data --db $DB dedupe-jobs --company-id <id>
+uv run python -m local_tools.enterprise_data --db $DB label-jobs --company-id <id> --stat-date 2026-10-12
 ```
+
+## 招聘数据（官网来源）
+
+- 入口发现：从公司首页找招聘/ATS 链接，优先级为「第三方招聘系统 > 加入我们/招贤纳士等文案 > careers/jobs 路径 > 其他关键词」。
+- 职位抽取：优先 schema.org `JobPosting` 的 JSON-LD；无 JSON-LD 时用职位关键词白名单 + 导航词黑名单过滤锚点，并识别“招 N 人”。
+- ATS 识别：Moka / 北森 / 大易 / BOSS / 51job / 智联 / 猎聘 / 拉勾。ATS 厂商首页不是职位列表，会标记 `ats_render_required`，提示改用 Ego Lite 渲染后抽取（避免把营销页导航当职位）。
+- 实测发现：国内企业（含保利威）普遍把职位放在第三方 ATS（如 Moka），HTML 直采受限，需要 Ego Lite 渲染；这条在 `_extraction.warnings` 中明确提示。
+- 去重规则：同公司 + 同城市 + 标题相似度 ≥ 0.85 合并为一个招聘需求组；招聘人数按组内各来源**最大值**聚合（不叠加），置信度标注 single_source/consistent/mixed；标题不完全一致时 `review_status=pending` 待人工确认。
+- 风险标签：`LONG_RUNNING`（在招 ≥60 天）、`POSSIBLE_STALE`、`POSSIBLE_OUTSOURCING`（标题/描述含外包、驻场、派遣、劳务）、`CLOSED_OR_UNAVAILABLE`；只打标不删除。
+- 指标联动：`unique_job_count` 按去重组计数；`explicit_hiring_slots` 用去重后人数；`outsourcing_job_ratio` 基于标签计算。
 
 ## 年报 PDF 抽取
 
@@ -79,5 +98,5 @@ uv run python -m local_tools.enterprise_data --db $DB import-financial --json /t
 ## 下一步（未实现）
 
 - 扫描件 OCR（PaddleOCR）与表格结构解析（pdfplumber/Camelot）增强。
+- Ego Lite 版 ATS 职位抽取（Moka/北森/大易等 JS 渲染页面）。
 - 企查查招聘 API（ApiCode 718）PoC → 生成 `import-jobs` 的候选 JSON。
-- 跨平台职位去重（job_dedup_group 的自动合并与置信度）与僵尸职位标签联动。

@@ -361,7 +361,31 @@ class EnterpriseStore:
         active = [row for row in rows if (row.get("job_status") or "active") == "active"]
         new_jobs = [row for row in active if (row.get("first_seen_at") or "") >= cutoff]
         closed = [row for row in rows if (row.get("job_status") or "") == "CLOSED_OR_UNAVAILABLE"]
-        with_count = [row for row in active if row.get("recruitment_count") is not None]
+        groups = {
+            row["dedup_group_id"]: dict(row)
+            for row in self.connection.execute("SELECT * FROM job_dedup_group WHERE company_id = ?", (company_id,))
+        }
+        grouped_ids = {row.get("dedup_group_id") for row in active if row.get("dedup_group_id")}
+        ungrouped = [row for row in active if not row.get("dedup_group_id")]
+        unique_job_count = (len(grouped_ids) + len(ungrouped)) if groups else len(active)
+
+        slots = 0
+        has_slots = False
+        covered = 0
+        for group_id in grouped_ids:
+            group = groups.get(group_id) or {}
+            if group.get("recruitment_count_deduped") is not None:
+                slots += int(group["recruitment_count_deduped"])
+                has_slots = True
+                covered += sum(1 for row in active if row.get("dedup_group_id") == group_id)
+        for row in ungrouped:
+            if row.get("recruitment_count") is not None:
+                slots += int(row["recruitment_count"])
+                has_slots = True
+                covered += 1
+        explicit_slots = slots if has_slots else None
+        outsourcing = sum(1 for row in active if row.get("staleness_label") == "POSSIBLE_OUTSOURCING")
+        labeled = any(row.get("staleness_label") for row in active)
         platforms = {row.get("platform") for row in active if row.get("platform")}
         titles = {row.get("job_title_normalized") for row in active if row.get("job_title_normalized")}
         ages = []
@@ -374,7 +398,7 @@ class EnterpriseStore:
                     pass
         subscores = {
             "new_jobs": min(100.0, len(new_jobs) * 10.0),
-            "explicit_slots": min(100.0, float(sum(row["recruitment_count"] for row in with_count))),
+            "explicit_slots": min(100.0, float(explicit_slots)) if explicit_slots is not None else None,
             "activity": min(100.0, (len(new_jobs) / len(active) * 100.0) if active else 0.0),
             "platform_breadth": min(100.0, len(platforms) * 33.3),
             "diversity": min(100.0, len(titles) * 10.0) if titles else None,
@@ -385,19 +409,19 @@ class EnterpriseStore:
             "stat_date": stat_date,
             "window_days": window_days,
             "active_job_count": len(active),
-            "unique_job_count": len({row.get("dedup_group_id") for row in active if row.get("dedup_group_id")}) or len(active),
+            "unique_job_count": unique_job_count,
             "raw_listing_count": len(rows),
             "new_job_count_30d": len(new_jobs),
             "closed_job_count_30d": len(closed),
             # 净变化 = 窗口内新增 - 窗口内下线（需要连续快照才能精确，这里作为代理指标）
             "job_count_change_30d": len(new_jobs) - len(closed),
-            "explicit_hiring_slots": sum(row["recruitment_count"] for row in with_count) if with_count else None,
-            "hiring_count_coverage": (len(with_count) / len(active)) if active else None,
+            "explicit_hiring_slots": explicit_slots,
+            "hiring_count_coverage": (covered / len(active)) if active else None,
             "median_job_age_days": median(ages) if ages else None,
             "multi_platform_presence": len(platforms),
-            "outsourcing_job_ratio": None,
+            "outsourcing_job_ratio": (outsourcing / len(active)) if (active and labeled) else None,
             "hiring_activity_score": score,
-            "data_coverage": (len(with_count) / len(active)) if active else None,
+            "data_coverage": (covered / len(active)) if active else None,
         }
         self.connection.execute(
             """

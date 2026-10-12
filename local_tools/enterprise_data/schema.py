@@ -164,5 +164,18 @@ CREATE INDEX IF NOT EXISTS idx_evidence_entity ON data_evidence(entity_type, ent
 
 def initialize(connection: sqlite3.Connection) -> None:
     connection.executescript(DDL)
+    _ensure_columns(connection)
     connection.execute(f"PRAGMA user_version = {int(SCHEMA_VERSION.split('.')[0])}")
     connection.commit()
+
+
+def _ensure_columns(connection: sqlite3.Connection) -> None:
+    """增量迁移：为既有数据库补齐后加的列。"""
+    additions = {
+        "job_listing_snapshot": {"staleness_label": "TEXT"},
+    }
+    for table, columns in additions.items():
+        existing = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
+        for name, ddl in columns.items():
+            if name not in existing:
+                connection.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
