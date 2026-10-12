@@ -60,7 +60,7 @@ def _candidate_action(freshness: str, source_role: str, small_need: bool, histor
 
 
 def _reactivation_draft(quote: str, category: str) -> str:
-    return reactivation_comment(quote, category, brand="POLYV")
+    return reactivation_comment(quote, category)
 
 
 def _triage_candidate(

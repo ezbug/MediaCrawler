@@ -1,5 +1,3 @@
-import re
-
 from local_tools.polyv_radar.comment_style import (
     choose_mode,
     comment_reply,
@@ -10,30 +8,30 @@ from local_tools.polyv_radar.comment_style import (
 
 def test_comment_reply_starts_with_short_native_opener() -> None:
     text = comment_reply("我们公司客户一直不回消息怎么办？", "企业培训")
-    opener = text.split("。", 1)[0]
-    assert first_line_chars(opener) <= 10
-    assert "我们公司客户一直不回消息怎么办？" in text
-    assert "POLYV" in text
+    assert text == "先看培训流程"
+    assert first_line_chars(text) <= 10
+    assert "POLYV" not in text
 
 
 def test_reaction_mode_is_used_for_non_question_pain_points() -> None:
     quote = "客户不回有一万个理由"
     assert choose_mode(quote) == "reaction"
     text = comment_reply(quote, "企业培训")
-    opener = re.split(r"[。！？!?]", text, 1)[0]
-    assert first_line_chars(opener) <= 10
-    assert "客户不回有一万个理由" in text
+    assert text == "真是客户问题？"
+    assert first_line_chars(text) <= 10
+    assert "POLYV" not in text
 
 
-def test_price_question_uses_solve_mode_without_double_punctuation() -> None:
+def test_price_question_uses_solve_mode_without_brand() -> None:
     assert choose_mode("这个系统怎么收费，什么价格") == "solve"
     text = comment_reply("这个系统怎么收费，什么价格", "技术集成")
-    assert "？。" not in text
-    assert first_line_chars(text.split("。", 1)[0]) <= 10
+    assert text == "先看接入方案"
+    assert "POLYV" not in text
+    assert first_line_chars(text) <= 10
 
 
-def test_historical_reply_starts_with_short_reactivation_question() -> None:
+def test_historical_reply_is_one_short_question_without_brand() -> None:
     text = reactivation_comment("北京海淀60人报价", "企业活动")
-    assert text.startswith("现在这方面还有需求吗？")
-    assert "POLYV" in text
-    assert first_line_chars(text.split("？", 1)[0]) <= 10
+    assert text == "现在还要做吗？"
+    assert "POLYV" not in text
+    assert first_line_chars(text) <= 10

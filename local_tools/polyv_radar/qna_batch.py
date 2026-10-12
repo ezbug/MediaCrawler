@@ -284,10 +284,10 @@ def _draft(row: dict) -> str:
     quote = re.sub(r"\s+", " ", str(row.get("quote") or "")).strip().strip("。")[:90]
     category = str(row.get("category") or "企业培训/活动内容")
     if row.get("freshness") == "historical":
-        return reactivation_comment(quote, category, brand="POLYV")
+        return reactivation_comment(quote, category)
     if row.get("source_type") in {"comment", "reply"}:
         mode = "solve" if row.get("triage_label") != "conditional" else "reaction"
-        return comment_reply(quote, category, brand="POLYV", mode=mode)
+        return comment_reply(quote, category, mode=mode)
     if row.get("triage_label") == "conditional":
         return (
             f"看到你提到“{quote}”。这类{category}通常要先看参与人数、内容形式和后续管理方式；"

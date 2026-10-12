@@ -16,8 +16,8 @@ def test_qna_batch_keeps_actionable_historical_request_and_uses_reactivation_cop
     }
     assert not _is_noise(row)
     draft = _draft(row)
-    assert "现在这方面还有需求吗" in draft
-    assert "POLYV" in draft
+    assert draft == "现在还要做吗？"
+    assert "POLYV" not in draft
 
 
 def test_locator_rows_keep_origin_and_reply_text() -> None:
