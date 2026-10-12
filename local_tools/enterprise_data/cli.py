@@ -70,6 +70,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_collect.add_argument("--page", default="p1")
     p_collect.add_argument("--scrolls", type=int, default=3)
     p_collect.add_argument("--max-jobs", type=int, default=60)
+    p_collect.add_argument("--employer-filter", default="", help="只保留雇主名或标题包含该关键词的职位")
     p_collect.add_argument("--output")
 
     sub.add_parser("list", help="列出企业")
@@ -108,6 +109,7 @@ def main(argv: list[str] | None = None) -> int:
             "--page", args.page,
             "--scrolls", str(args.scrolls),
             "--max-jobs", str(args.max_jobs),
+            *(["--employer-filter", args.employer_filter] if args.employer_filter else []),
             *(["--url", args.url] if args.url else []),
             *(["--search", args.search] if args.search else []),
             *(["--query", args.query] if args.query else []),

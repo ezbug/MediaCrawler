@@ -68,14 +68,31 @@ function extractJobsInPage(payload) {
     let block = anchor;
     let chosen = "";
     let fallback = "";
+    let chosenElement = anchor;
     for (let level = 0; level < 5 && block.parentElement; level += 1) {
       block = block.parentElement;
       const candidate = (block.innerText || "").replace(/\s+/g, " ").trim();
       if (!candidate.includes(title) || candidate.length > 800) continue;
       if (!fallback) fallback = candidate;
-      if (hasSignal(candidate)) { chosen = candidate; break; }
+      if (hasSignal(candidate)) { chosen = candidate; chosenElement = block; break; }
     }
     const text = (chosen || fallback || title).slice(0, 400);
+    let employer = "";
+    const employerNode = chosenElement.querySelector(
+      [
+        ".company-name",
+        "[class*=company-name]",
+        "[class*=companyName]",
+        ".company-text .name",
+        "[class*=employer]",
+        ".boss-info .boss-name",  // BOSS 卡片：.boss-name 展示的是公司名
+        ".boss-name",
+      ].join(", "),
+    );
+    if (employerNode) employer = (employerNode.innerText || "").replace(/\s+/g, " ").trim().slice(0, 40);
+    if (!employer) {
+      employer = (text.split(/\s+/).find((line) => /(有限公司|集团|科技|股份|银行|研究院|中心|事务所|大学)$/.test(line)) || "").slice(0, 40);
+    }
     const salary = (text.match(SALARY) || [""])[0];
     const city = CITIES.find((item) => text.includes(item)) || "";
     const countMatch = text.match(HEADCOUNT);
@@ -85,6 +102,7 @@ function extractJobsInPage(payload) {
       job_title: title,
       job_url: href,
       city,
+      employer_name: employer,
       raw_hiring_text: [salary, countMatch ? countMatch[0] : ""].filter(Boolean).join(" / ").slice(0, 60),
       recruitment_count: countMatch ? Number(countMatch[1]) : null,
       source_provider: platform,

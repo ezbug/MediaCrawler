@@ -47,7 +47,9 @@ uv run python -m local_tools.enterprise_data --db $DB import-jobs --json /tmp/jo
 - 执行器：`ego_jobs`（zsh 包装器）+ `ego_jobs.mjs`（页面上下文提取）+ `collect-jobs`（Python 入口）。
 - 提取逻辑：在页面里定位职位链接（`/job/`、`job_detail`、`/apply/` 等），向上找“同时包含标题与薪资/城市/招 N 人信号”的容器，输出标题、城市、薪资文本、招聘人数与链接。
 - 已内置搜索模板：`boss-search`、`zhaopin-search`、`liepin-search`（`--search <模板> --query <公司名>`）。
+- 雇主识别：从职位卡片提取招聘公司名（BOSS 的 `.boss-name`、通用 `company-name` 类）写入 `employer_name`；`--employer-filter <关键词>` 用来剔除劳务中介等非目标雇主职位（雇主为空时保守保留）。
 - 实测：BOSS 直聘未登录时能渲染通用职位列表并成功提取（12 条）；但**按公司名搜索需要登录态**（BOSS/智联直链搜索会跳回通用列表），需先在 Ego Lite 里登录一次对应平台。
+- 实测（登录后）：中兴通讯在 BOSS 抓到 30 条（工厂普工为主，薪资被自定义字体遮挡）、猎聘抓到 30 条（研发/职能岗，含 20-50k 薪资）；两平台合计 60 条，去重后 59 组（1 组标题相近合并，待人工复核）。
 - 已知限制：BOSS 的薪资用自定义字体渲染，文本提取常为空；招聘人数仅在页面明确写“招 N 人”时可取。
 
 ## 招聘数据（官网来源）

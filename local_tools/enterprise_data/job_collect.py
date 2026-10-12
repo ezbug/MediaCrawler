@@ -65,6 +65,7 @@ def collect_jobs(
     page: str = "p1",
     scrolls: int = 3,
     max_jobs: int = 60,
+    employer_filter: str = "",
     output: Path | None = None,
     runner=subprocess.run,
 ) -> dict:
@@ -76,6 +77,21 @@ def collect_jobs(
     if completed.returncode != 0 and '{"jobs"' not in combined:
         raise RuntimeError(f"采集器退出码 {completed.returncode}：{(stderr or stdout)[-300:]}")
     payload = parse_collector_output(combined, company_id)
+    if employer_filter:
+        kept = []
+        dropped = []
+        for job in payload["jobs"]:
+            employer = str(job.get("employer_name") or "")
+            if employer and employer_filter not in employer:
+                dropped.append(employer)
+            else:
+                kept.append(job)
+        payload["_extraction"].setdefault("warnings", [])
+        if dropped:
+            payload["_extraction"]["warnings"].append(f"按雇主过滤剔除 {len(dropped)} 条非目标雇主职位")
+        payload["_extraction"]["employer_filter"] = employer_filter
+        payload["_extraction"]["dropped_employers"] = sorted(set(dropped))[:10]
+        payload["jobs"] = kept
     if output:
         Path(output).write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return payload
@@ -94,6 +110,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--page", default="p1")
     parser.add_argument("--scrolls", type=int, default=3)
     parser.add_argument("--max-jobs", type=int, default=60)
+    parser.add_argument("--employer-filter", default="", help="只保留雇主名或标题包含该关键词的职位（如公司简称）")
     parser.add_argument("--output")
     args = parser.parse_args(argv)
 
@@ -110,6 +127,7 @@ def main(argv: list[str] | None = None) -> int:
     payload = collect_jobs(
         company_id=args.company_id, url=url, taskspace=args.taskspace, platform=args.platform,
         page=args.page, scrolls=args.scrolls, max_jobs=args.max_jobs,
+        employer_filter=args.employer_filter,
         output=Path(args.output) if args.output else None,
     )
     print(json.dumps({

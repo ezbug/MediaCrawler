@@ -88,6 +88,7 @@ CREATE TABLE IF NOT EXISTS job_listing_snapshot (
   district TEXT,
   job_level TEXT,
   department TEXT,
+  employer_name TEXT,
   publish_date TEXT,
   first_seen_at TEXT,
   last_seen_at TEXT,
@@ -172,7 +173,7 @@ def initialize(connection: sqlite3.Connection) -> None:
 def _ensure_columns(connection: sqlite3.Connection) -> None:
     """增量迁移：为既有数据库补齐后加的列。"""
     additions = {
-        "job_listing_snapshot": {"staleness_label": "TEXT"},
+        "job_listing_snapshot": {"staleness_label": "TEXT", "employer_name": "TEXT"},
     }
     for table, columns in additions.items():
         existing = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}

@@ -314,10 +314,10 @@ class EnterpriseStore:
                 """
                 INSERT INTO job_listing_snapshot (
                   snapshot_id, company_id, platform, platform_job_id, job_url, job_title, job_title_normalized,
-                  city, district, job_level, department, publish_date, first_seen_at, last_seen_at,
+                  city, district, job_level, department, employer_name, publish_date, first_seen_at, last_seen_at,
                   raw_hiring_text, recruitment_count, dedup_group_id, job_status, source_provider,
                   data_license_scope, extraction_method, verification_status, created_at
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(snapshot_id) DO UPDATE SET
                   job_url=excluded.job_url,
                   job_title=excluded.job_title,
@@ -326,6 +326,7 @@ class EnterpriseStore:
                   district=excluded.district,
                   job_level=excluded.job_level,
                   department=excluded.department,
+                  employer_name=excluded.employer_name,
                   publish_date=excluded.publish_date,
                   last_seen_at=excluded.last_seen_at,
                   raw_hiring_text=excluded.raw_hiring_text,
@@ -340,7 +341,7 @@ class EnterpriseStore:
                 (
                     snapshot_id, company_id, platform, platform_job_id or None, job.get("job_url"),
                     job.get("job_title"), _normalize_title(job.get("job_title")), job.get("city"), job.get("district"),
-                    job.get("job_level"), job.get("department"), job.get("publish_date"), first_seen, stamp,
+                    job.get("job_level"), job.get("department"), job.get("employer_name"), job.get("publish_date"), first_seen, stamp,
                     job.get("raw_hiring_text"), _to_int(job.get("recruitment_count")), job.get("dedup_group_id"),
                     str(job.get("job_status") or "active"), job.get("source_provider"), job.get("data_license_scope"),
                     job.get("extraction_method"), str(job.get("verification_status") or "unverified"), stamp,
