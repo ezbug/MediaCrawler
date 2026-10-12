@@ -205,6 +205,12 @@ def build_parser() -> argparse.ArgumentParser:
     signal_parser.add_argument("--quote", required=True)
     signal_parser.add_argument("--wave", type=int, default=1)
     signal_parser.add_argument("--observed-at", default="")
+    obsidian_parser = subparsers.add_parser("export-obsidian", help="导出累计发送大板为 Obsidian Base + 线索笔记")
+    obsidian_parser.add_argument("--config", required=True)
+    obsidian_parser.add_argument("--vault", default="/Users/sexpistole111/Documents/claude學習/bugbg", help="Obsidian Vault 根目录")
+    obsidian_parser.add_argument("--folder", default="Poly/雷达", help="Vault 内输出目录")
+    obsidian_parser.add_argument("--data-root", help="覆盖配置里的数据目录")
+    obsidian_parser.add_argument("--force-layout", action="store_true", help="覆盖已存在的 base 与索引布局文件")
     zigo_keywords_parser = subparsers.add_parser("zigo-keywords")
     zigo_keywords_parser.add_argument("--config", required=True)
     zigo_keywords_parser.add_argument("--knowledge-root", required=True)
@@ -448,6 +454,20 @@ def main(argv: list[str] | None = None) -> int:
             board.write_text(html, encoding="utf-8")
             payload["dashboard"] = str(board)
             payload["unique_targets"] = view.target_count
+    elif args.command == "export-obsidian":
+        from .obsidian_export import export_to_vault
+
+        data_root = Path(args.data_root) if args.data_root else config.data_root
+        ledger = data_root / "reply_history.jsonl"
+        if not ledger.is_file():
+            parser.error(f"找不到发送账本: {ledger}")
+        payload = export_to_vault(
+            ledger,
+            data_root,
+            vault_root=Path(args.vault),
+            folder=args.folder,
+            force_layout=args.force_layout,
+        )
     elif args.command == "zigo-discover":
         if args.collect and (not args.taskspace or args.taskspace <= 0):
             parser.error("zigo-discover --collect 需要显式提供已登录的 Ego Lite TaskSpace")
