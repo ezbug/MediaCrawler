@@ -73,6 +73,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_collect.add_argument("--employer-filter", default="", help="只保留雇主名或标题包含该关键词的职位")
     p_collect.add_argument("--output")
 
+    p_batch = sub.add_parser("hiring-batch", help="批量招聘强度采集与对比报告")
+    p_batch.add_argument("--taskspace", type=int, required=True)
+    p_batch.add_argument("--target", action="append", required=True, help="目标公司名，可重复")
+    p_batch.add_argument("--platform", action="append", help="平台：liepin/boss/zhaopin，可重复；默认 liepin")
+    p_batch.add_argument("--max-jobs", type=int, default=20)
+    p_batch.add_argument("--stat-date", default="")
+    p_batch.add_argument("--output", required=True, help="对比报告 Markdown 输出路径")
+
     sub.add_parser("list", help="列出企业")
     return parser
 
@@ -115,6 +123,36 @@ def main(argv: list[str] | None = None) -> int:
             *(["--query", args.query] if args.query else []),
             *(["--output", args.output] if args.output else []),
         ])
+    if args.command == "hiring-batch":
+        from .hiring_batch import parse_target, run_hiring_batch
+
+        store = EnterpriseStore(args.db)
+        try:
+            batch = run_hiring_batch(
+                store,
+                [parse_target(name) for name in args.target],
+                taskspace=args.taskspace,
+                platforms=[value.lower() for value in (args.platform or ["liepin"])],
+                max_jobs=args.max_jobs,
+                stat_date=args.stat_date or None,
+                output=Path(args.output),
+            )
+        finally:
+            store.close()
+        print(json.dumps({
+            "stat_date": batch["stat_date"],
+            "report": batch["report"],
+            "companies": [
+                {
+                    "name": item["target"]["company_name"],
+                    "active_jobs": item["metrics"].get("active_job_count"),
+                    "unique_jobs": item["metrics"].get("unique_job_count"),
+                    "score": item["metrics"].get("hiring_activity_score"),
+                }
+                for item in batch["results"]
+            ],
+        }, ensure_ascii=False, indent=2))
+        return 0
     store = EnterpriseStore(args.db)
     if args.command == "init":
         payload = {"db": str(store.path), "status": "initialized"}

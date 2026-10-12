@@ -40,6 +40,13 @@ uv run python -m local_tools.enterprise_data --db $DB collect-jobs \
   --company-id <id> --taskspace <Ego任务空间> \
   --search boss-search --query "公司名" --platform boss --output /tmp/jobs-candidate.json
 uv run python -m local_tools.enterprise_data --db $DB import-jobs --json /tmp/jobs-candidate.json
+
+# 10. 批量招聘强度对比（多公司 → 采集/入库/去重/标签/指标 → Markdown 报告）
+uv run python -m local_tools.enterprise_data --db $DB hiring-batch \
+  --taskspace <Ego任务空间> \
+  --target 微吼 --target 小鹅通 --target 创客匠人 \
+  --platform liepin --platform boss --max-jobs 20 \
+  --output /path/to/hiring-comparison.md
 ```
 
 ## 招聘平台采集（Ego Lite）
@@ -50,6 +57,7 @@ uv run python -m local_tools.enterprise_data --db $DB import-jobs --json /tmp/jo
 - 雇主识别：从职位卡片提取招聘公司名（BOSS 的 `.boss-name`、通用 `company-name` 类）写入 `employer_name`；`--employer-filter <关键词>` 用来剔除劳务中介等非目标雇主职位（雇主为空时保守保留）。
 - 实测：BOSS 直聘未登录时能渲染通用职位列表并成功提取（12 条）；但**按公司名搜索需要登录态**（BOSS/智联直链搜索会跳回通用列表），需先在 Ego Lite 里登录一次对应平台。
 - 实测（登录后）：中兴通讯在 BOSS 抓到 30 条（工厂普工为主，薪资被自定义字体遮挡）、猎聘抓到 30 条（研发/职能岗，含 20-50k 薪资）；两平台合计 60 条，去重后 59 组（1 组标题相近合并，待人工复核）。
+- 批量报告口径：`hiring-batch` 按品牌名做雇主过滤（company_id 前缀 `brand-`、身份标注 `brand_unverified`）；品牌名可能与其他公司重名（例如“云学堂”），正式使用前应把品牌映射到工商主体全名再复核。
 - 已知限制：BOSS 的薪资用自定义字体渲染，文本提取常为空；招聘人数仅在页面明确写“招 N 人”时可取。
 
 ## 招聘数据（官网来源）
