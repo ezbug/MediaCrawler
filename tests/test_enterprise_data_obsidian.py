@@ -74,6 +74,7 @@ def test_export_company_cards_includes_financial_hiring_and_jobs(tmp_path):
     assert "employee_count: 1000" in card
     assert "active_job_count: 1" in card
     assert 'ticker: "000001"' in card
+    assert "员工人数 | 人数同比 | 总资产 |" in card
     assert "招聘强度（2026-10-12）" in card
     assert "客户经理" in card
     assert "员工共1,000人" in card
@@ -86,6 +87,7 @@ def test_export_base_writes_table_views(tmp_path):
     assert "name: 邮箱卡片" in content
     assert "name: 企业档案" in content
     assert "formula.employee_growth_text" in content
+    assert 'employee_growth_yoy == 0, "0.0%"' in content
     assert 'file.hasTag("Poly/email")' in content
     assert 'file.hasTag("Poly/company")' in content
 

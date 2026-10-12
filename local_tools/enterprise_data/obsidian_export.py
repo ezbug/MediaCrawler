@@ -147,7 +147,8 @@ def export_company_cards(db_path: Path, poly_root: Path, *, stat_date: str = "")
             industries = _fetch(connection, "SELECT * FROM company_industry WHERE company_id = ? ORDER BY is_primary DESC", (company_id,))
             metrics = _fetch(connection, "SELECT * FROM company_hiring_metrics WHERE company_id = ? ORDER BY stat_date DESC LIMIT 1", (company_id,))
             jobs = _fetch(connection, "SELECT platform, job_title, city, employer_name FROM job_listing_snapshot WHERE company_id = ? AND (job_status IS NULL OR job_status = 'active') ORDER BY first_seen_at DESC LIMIT 10", (company_id,))
-            evidence = _fetch(connection, "SELECT field_name, source_page, source_excerpt FROM data_evidence WHERE entity_id IN (SELECT financial_id FROM company_financial_year WHERE company_id = ?) LIMIT 5", (company_id,))
+            evidence = _fetch(connection, "SELECT field_name, source_page, source_url, source_excerpt FROM data_evidence WHERE entity_id IN (SELECT financial_id FROM company_financial_year WHERE company_id = ?) ORDER BY created_at DESC LIMIT 5", (company_id,))
+            claims = _fetch(connection, "SELECT field_name, source_url, source_excerpt, observed_at FROM data_evidence WHERE entity_type = 'company' AND entity_id = ? ORDER BY created_at DESC LIMIT 6", (company_id,))
             if not (financials or metrics or jobs):
                 continue
             industry_text = "；".join(
@@ -175,6 +176,8 @@ def export_company_cards(db_path: Path, poly_root: Path, *, stat_date: str = "")
                 profile_fields["employee_growth_yoy"] = round(latest_financial["employee_growth_yoy"], 6)
             if latest_financial.get("total_assets") is not None:
                 profile_fields["total_assets"] = float(latest_financial["total_assets"])
+            if latest_financial.get("currency"):
+                profile_fields["currency"] = latest_financial["currency"]
             if latest_financial.get("asset_growth_yoy") is not None:
                 profile_fields["asset_growth_yoy"] = round(latest_financial["asset_growth_yoy"], 6)
             if latest_metrics.get("active_job_count") is not None:
@@ -183,6 +186,8 @@ def export_company_cards(db_path: Path, poly_root: Path, *, stat_date: str = "")
                 profile_fields["hiring_activity_score"] = latest_metrics["hiring_activity_score"]
             if latest_metrics.get("stat_date"):
                 profile_fields["hiring_stat_date"] = latest_metrics["stat_date"]
+            if claims:
+                profile_fields["employee_scale"] = claims[0]["source_excerpt"]
             profile_fields["updated_at"] = stat_date or datetime.now().strftime("%Y-%m-%d")
             body = [
                 _frontmatter(profile_fields, ["Poly", "Poly/company"]),
@@ -195,13 +200,18 @@ def export_company_cards(db_path: Path, poly_root: Path, *, stat_date: str = "")
                 "",
             ]
             if financials:
-                body.extend(["## 财务与规模", "", "| 财年 | 员工人数 | 人数同比 | 总资产(元) | 资产同比 | 员工规模 | 资产规模 | 口径 |", "| --- | --- | --- | --- | --- | --- | --- | --- |"])
+                body.extend(["## 财务与规模", "", "| 财年 | 员工人数 | 人数同比 | 总资产 | 资产同比 | 员工规模 | 资产规模 | 口径 |", "| --- | --- | --- | --- | --- | --- | --- | --- |"])
                 for item in financials:
                     employee_growth = f"{item['employee_growth_yoy']:.1%}" if item.get("employee_growth_yoy") is not None else (item.get("employee_growth_status") or "—")
                     asset_growth = f"{item['asset_growth_yoy']:.1%}" if item.get("asset_growth_yoy") is not None else (item.get("asset_growth_status") or "—")
+                    if item.get("total_assets") is None:
+                        assets_text = "—"
+                    else:
+                        currency = (item.get("currency") or "").strip()
+                        assets_text = f"{currency} {float(item['total_assets']):,.2f}".strip()
                     body.append(
                         f"| {item['fiscal_year']} | {item.get('employee_count') or '—'} | {employee_growth} | "
-                        f"{item.get('total_assets') or '—'} | {asset_growth} | {item.get('size_by_employee') or '—'} | "
+                        f"{assets_text} | {asset_growth} | {item.get('size_by_employee') or '—'} | "
                         f"{item.get('size_by_assets') or '—'} | {item.get('reporting_scope') or '—'} |"
                     )
                 body.append("")
@@ -223,7 +233,20 @@ def export_company_cards(db_path: Path, poly_root: Path, *, stat_date: str = "")
             if evidence:
                 body.extend(["## 数据证据", ""])
                 for item in evidence:
-                    body.append(f"- {item.get('field_name')}｜第 {item.get('source_page')} 页：{item.get('source_excerpt')}")
+                    page = str(item.get("source_page") or "").strip()
+                    label = f"第 {page} 页" if page.isdigit() else (page or "来源")
+                    url = str(item.get("source_url") or "").strip()
+                    link = f"（[来源]({url})）" if url else ""
+                    body.append(f"- {item.get('field_name')}｜{label}：{item.get('source_excerpt')}{link}")
+                body.append("")
+            if claims:
+                body.extend(["## 公开规模声明（未审计）", ""])
+                for item in claims:
+                    url = str(item.get("source_url") or "").strip()
+                    link = f"（[来源]({url})）" if url else ""
+                    observed = str(item.get("observed_at") or "").strip()
+                    when = f"，{observed[:10]}" if observed else ""
+                    body.append(f"- {item.get('field_name')}：{item.get('source_excerpt')}{link}{when}")
                 body.append("")
             body.extend(["## 备注", "", "- 招聘数据来自招聘平台公开职位；财务数据来自年报（需人工复核口径）。", ""])
             path = out_dir / f"{safe_name(company['company_name'])}.md"
@@ -237,9 +260,9 @@ def export_company_cards(db_path: Path, poly_root: Path, *, stat_date: str = "")
 POLY_BASE_YAML = """filters: 'file.hasTag("Poly")'
 
 formulas:
-  employee_growth_text: 'if(employee_growth_yoy, (employee_growth_yoy * 100).toFixed(1) + "%", "—")'
-  asset_growth_text: 'if(asset_growth_yoy, (asset_growth_yoy * 100).toFixed(1) + "%", "—")'
-  assets_yi_text: 'if(total_assets, (total_assets / 100000000).toFixed(2) + " 亿", "—")'
+  employee_growth_text: 'if(employee_growth_yoy == 0, "0.0%", if(employee_growth_yoy, (employee_growth_yoy * 100).toFixed(1) + "%", "—"))'
+  asset_growth_text: 'if(asset_growth_yoy == 0, "0.0%", if(asset_growth_yoy, (asset_growth_yoy * 100).toFixed(1) + "%", "—"))'
+  assets_yi_text: 'if(total_assets, if(currency == "USD", "US$ " + (total_assets / 1000000).toFixed(1) + "M", (total_assets / 100000000).toFixed(2) + " 亿"), "—")'
 
 properties:
   file.name:
@@ -266,6 +289,10 @@ properties:
     displayName: 活跃职位
   hiring_activity_score:
     displayName: 招聘指数
+  currency:
+    displayName: 币种
+  employee_scale:
+    displayName: 规模（宣称）
   ticker:
     displayName: 证券代码
   listing_status:
@@ -303,6 +330,7 @@ views:
       - formula.employee_growth_text
       - formula.assets_yi_text
       - formula.asset_growth_text
+      - employee_scale
       - active_job_count
       - hiring_activity_score
       - ticker
