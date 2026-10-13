@@ -10,6 +10,31 @@
 
 const DEFAULT_TIMEOUT = 45000;
 
+const GUESS_PATHS = [
+  "/investor", "/investors", "/ir", "/tzzgx", "/investor-relations",
+  "/contact", "/contact-us", "/contactus", "/lianxi", "/lxwm",
+  "/about", "/about-us", "/guanyu",
+  "/join", "/jobs", "/careers", "/zhaopin", "/hr", "/talent",
+  "/news", "/media", "/press",
+  "/service", "/kefu", "/support", "/hezuo", "/bd",
+];
+
+const PATH_RANKS = [
+  [/investor|\/ir\/|ir\.|tzzgx|stockholder|shareholder/i, 0],
+  [/contact|lianxi|lxwm|kefu|service|support|feedback|jubao|complain|wangzhan/i, 1],
+  [/about|guanyu|intro/i, 2],
+  [/join|job|career|zhaopin|hr\b|talent|recruit/i, 3],
+  [/news|media|press|event|activity/i, 4],
+];
+
+function pathRank(url, text) {
+  const hay = `${text || ""} ${url}`;
+  for (const [pattern, rank] of PATH_RANKS) {
+    if (pattern.test(hay)) return rank;
+  }
+  return 5;
+}
+
 export function parseArgs(argv) {
   const args = { space: "企业邮箱补采", maxSubs: 3, sites: [], extras: {} };
   for (let index = 0; index < argv.length; index += 1) {
@@ -105,11 +130,16 @@ export async function main(argv) {
     const visited = new Set();
     const visit = async (url, kind) => {
       try {
-        await page.goto(url, { waitUntil: "domcontentloaded", timeout: DEFAULT_TIMEOUT });
-        await page.waitForTimeout(1800);
-        for (let index = 0; index < 2; index += 1) {
+        try {
+          await page.goto(url, { waitUntil: "domcontentloaded", timeout: DEFAULT_TIMEOUT });
+        } catch (firstError) {
+          await page.waitForTimeout(800);
+          await page.goto(url, { waitUntil: "domcontentloaded", timeout: DEFAULT_TIMEOUT });
+        }
+        await page.waitForTimeout(700);
+        for (let index = 0; index < 1; index += 1) {
           await page.mouse.wheel(0, 4000);
-          await page.waitForTimeout(900);
+          await page.waitForTimeout(400);
         }
         const data = await page.evaluate(extractEmailsInPage);
         data.emails.forEach((item) => emails.add(item));
@@ -135,11 +165,19 @@ export async function main(argv) {
       const discovered = await page.evaluate(extractContactLinks, { baseDomain: site.domain });
       candidates = candidates.concat(discovered || []);
     }
-    const priority = (item) =>
-      item.text === "" || /联系|contact|客服|service|投诉|举报|商务|媒体|investor/i.test(`${item.text} ${item.url}`) ? 0 : 1;
+    for (const path of GUESS_PATHS) {
+      try {
+        candidates.push({ url: new URL(path, site.home).href, text: "" });
+      } catch {
+        // 忽略非法 URL
+      }
+    }
     const sorted = candidates
       .filter((item) => item.url && !visited.has(item.url.split("#")[0]))
-      .sort((a, b) => priority(a) - priority(b));
+      .sort((a, b) =>
+        pathRank(a.url, a.text) - pathRank(b.url, b.text) ||
+        (a.text ? 0 : 1) - (b.text ? 0 : 1) ||
+        a.url.length - b.url.length);
     let subs = 0;
     for (const item of sorted) {
       if (subs >= args.maxSubs) break;

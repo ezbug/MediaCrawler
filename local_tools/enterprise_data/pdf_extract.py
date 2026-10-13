@@ -16,17 +16,17 @@ from pathlib import Path
 
 import pymupdf
 
-EMPLOYEE_PATTERNS = (
-    (re.compile(r"在职员工的数量合计\s*([\d,，]+)\s*人?"), 0.95),
-    (re.compile(r"在职员工数量合计\s*([\d,，]+)\s*人?"), 0.95),
-    (re.compile(r"(?:本集团|公司|集团)?员工共\s*([\d,，]+)\s*人"), 0.9),
-    (re.compile(r"员工总数[为是]?\s*([\d,，]+)\s*人"), 0.85),
-    (re.compile(r"在职员工总数[为是]?\s*([\d,，]+)\s*人"), 0.9),
-    (re.compile(r"员工数量[为是]?\s*([\d,，]+)\s*人"), 0.8),
+EMPLOYEE_LABELS = (
+    "在职员工的数量合计", "在职员工数量合计",
+    "在职员工总数", "员工数量合计", "员工总数", "员工共", "在职员工", "员工人数", "员工数量", "雇员",
+    "共有员工",
 )
-EMPLOYEE_EXCLUDE_KEYWORDS = ("母公司", "主要子公司", "劳务外包")
+EMPLOYEE_STRONG_LABELS = ("在职员工的数量合计", "在职员工数量合计")
+EMPLOYEE_EXCLUDE_KEYWORDS = ("母公司", "主要子公司", "劳务外包", "员工持股", "退休", "薪酬")
+EMPLOYEE_WEAK_EXCLUDE_KEYWORDS = ("持股", "认购", "预留", "激励", "离职", "退休", "薪酬", "派遣", "外包", "子公司")
 ASSET_LABELS = ("资产总计", "资产总额")
 UNIT_PATTERNS = (
+    re.compile(r"单位\s*[为是]?\s*[:：]\s*(?:人民币)?\s*(百万元|千元|万元|元)"),
     re.compile(r"单位\s*[:：]\s*(百万元|千元|万元|元)"),
     re.compile(r"人民币(百万元|千元|万元|元)"),
 )
@@ -59,31 +59,62 @@ def find_employee_candidates(pages: list[dict]) -> list[dict]:
     candidates = []
     for page in pages:
         text = page["text"]
+        spans = []
+        for priority, label in enumerate(EMPLOYEE_LABELS):
+            for match in re.finditer(re.escape(label), text):
+                spans.append((match.start(), match.end(), label, priority))
+        spans.sort(key=lambda item: (item[0], item[3], -(item[1] - item[0])))
         claimed: list[tuple[int, int]] = []
-        for pattern, confidence in EMPLOYEE_PATTERNS:
-            for match in pattern.finditer(text):
-                if any(not (match.end() <= start or match.start() >= end) for start, end in claimed):
-                    continue  # 与更高优先级模式重叠
-                context = text[max(0, match.start() - 30) : match.end()]
-                if any(bad in context for bad in EMPLOYEE_EXCLUDE_KEYWORDS):
+        for start, end, label, _priority in spans:
+            if any(not (end <= claimed_start or start >= claimed_end) for claimed_start, claimed_end in claimed):
+                continue  # 与更高优先级模式重叠
+            line_start = text.rfind("\n", 0, start) + 1
+            prefix = text[max(line_start, start - 18) : start]
+            if any(bad in prefix for bad in EMPLOYEE_EXCLUDE_KEYWORDS):
+                continue
+            if label == "员工共":
+                weak_prefix = text[max(line_start, start - 40) : start]
+                if any(bad in weak_prefix for bad in EMPLOYEE_WEAK_EXCLUDE_KEYWORDS):
                     continue
-                number_text = match.group(1)
-                try:
-                    value = int(number_text.replace(",", "").replace("，", "").split(".")[0])
-                except ValueError:
-                    continue
-                claimed.append((match.start(), match.end()))
-                candidates.append({
-                    "page": page["page"],
-                    "value": value,
-                    "keyword": match.group(0).strip()[:24],
-                    "confidence": confidence,
-                    "excerpt": _excerpt(text, match.start(), match.end()),
-                })
+            tail = text[end : end + 60]
+            number = re.search(r"(\d[\d,，]{1,})\s*(万人|千|人|名)?", tail)
+            if not number:
+                continue
+            value_text = number.group(1).replace(",", "").replace("，", "")
+            unit = (number.group(2) or "").strip()
+            after = text[end + number.end() : end + number.end() + 3]
+            if re.match(r"\s*%", after):
+                continue
+            if label == "员工共" and unit not in {"人", "名", "万人", "千"} and not re.match(r"\s*人", after):
+                continue
+            try:
+                value = int(value_text)
+            except ValueError:
+                continue
+            if unit == "万人":
+                value *= 10_000
+            elif unit == "千":
+                value *= 1_000
+            if re.match(r"\s*年", after) and 1900 <= value <= 2099:
+                continue  # 年份误读
+            weak = label not in EMPLOYEE_STRONG_LABELS
+            if weak and unit not in {"人", "名", "万人", "千"}:
+                continue  # 弱标签必须紧跟人数单位
+            if value < 50:
+                continue
+            claimed.append((start, end))
+            confidence = 0.95 if not weak else (0.85 if unit in {"人", "名"} else 0.75)
+            candidates.append({
+                "page": page["page"],
+                "value": value,
+                "keyword": label,
+                "confidence": confidence,
+                "excerpt": _excerpt(text, start, end + number.end() + 3),
+            })
     return candidates
 
 
-def _detect_scope(text: str, position: int, lookback: int = 8000) -> str:
+def _detect_scope(text: str, position: int, lookback: int = 20000) -> str:
     """合并报表标题为“合并资产负债表”；母公司报表标题可能是“资产负债表”或“母公司资产负债表”。"""
     window = text[max(0, position - lookback) : position]
     consolidated = window.rfind("合并资产负债表")
@@ -95,7 +126,7 @@ def _detect_scope(text: str, position: int, lookback: int = 8000) -> str:
     return "unknown"
 
 
-def _detect_unit(text: str, position: int, lookback: int = 8000) -> str | None:
+def _detect_unit(text: str, position: int, lookback: int = 20000) -> str | None:
     window = text[max(0, position - lookback) : position]
     found: list[tuple[int, str]] = []
     for pattern in UNIT_PATTERNS:
@@ -120,24 +151,43 @@ def _convert_to_yuan(value_text: str, unit: str | None) -> str | None:
 
 def find_asset_candidates(pages: list[dict]) -> list[dict]:
     candidates = []
+    carry = ""
     for page in pages:
         text = page["text"]
+        context = carry + text
+        offset = len(carry)
         for label in ASSET_LABELS:
-            for match in re.finditer(re.escape(label), text):
-                number_text = _first_number_after(text, match.end(), window=60)
+            for match in re.finditer(re.escape(label), context):
+                if match.start() < offset:
+                    continue  # 上一页的命中已处理
+                number_text = _first_number_after(context, match.end(), window=80)
                 if not number_text:
                     continue
-                scope = _detect_scope(text, match.start())
-                confidence = 0.9 if scope == "consolidated" else (0.5 if scope == "parent" else 0.4)
+                after = context[match.end() : match.end() + len(number_text) + 4]
+                if "%" in after:
+                    continue  # 内控评价比例等噪声
+                prefix = context[max(0, match.start() - 30) : match.start()]
+                if any(bad in prefix for bad in ("评价范围", "占比", "占公司", "潜在错报", "比例", "占期末")):
+                    continue
+                scope = _detect_scope(context, match.start())
+                confidence = 0.9 if scope == "consolidated" else (0.5 if scope == "parent" else 0.35)
                 candidates.append({
                     "page": page["page"],
                     "label": label,
                     "value_text": number_text.replace("，", ","),
                     "scope": scope,
-                    "unit": _detect_unit(text, match.start()),
+                    "unit": _detect_unit(context, match.start()),
                     "confidence": confidence,
-                    "excerpt": _excerpt(text, match.start(), match.end() + len(number_text)),
+                    "excerpt": _excerpt(context, match.start(), match.end() + len(number_text)),
                 })
+        carry = (carry + text)[-30000:]
+    units = [item["unit"] for item in candidates if item.get("unit")]
+    if units:
+        common = max(set(units), key=units.count)
+        for item in candidates:
+            if not item.get("unit"):
+                item["unit"] = common
+                item["confidence"] = max(0.0, item["confidence"] - 0.05)
     return candidates
 
 
