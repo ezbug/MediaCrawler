@@ -30,8 +30,8 @@ DOMAIN_BRAND = {
 MAILBOX_FUNCTIONS = (
     ("investor", "投资者关系"), ("ir", "投资者关系"), ("finance", "财务"), ("psirt", "安全响应"), ("security", "安全响应"),
     ("service", "客服"), ("contact", "商务 / 通用联系"), ("bd", "商务拓展"), ("market", "市场"),
-    ("events", "市场活动"), ("feedback", "产品反馈"), ("hr", "招聘"), ("complain", "投诉"), ("jubao", "举报"),
-    ("anti-fraud", "反欺诈"), ("privacy", "隐私合规"), ("xiaoeks", "客服"),
+    ("events", "市场活动"), ("feedback", "产品反馈"), ("hr", "招聘"), ("training", "培训"), ("complain", "投诉"), ("jubao", "举报"),
+    ("anti-fraud", "反欺诈"), ("privacy", "隐私合规"), ("xiaoeks", "客服"), ("pr", "公关"),
 )
 
 
@@ -63,10 +63,19 @@ def _frontmatter(fields: dict, tags: list[str]) -> str:
     return "\n".join(lines)
 
 
-def export_email_cards(probe: list[dict], poly_root: Path, *, collected_at: str = "") -> list[Path]:
+def export_email_cards(
+    probe: list[dict],
+    poly_root: Path,
+    *,
+    collected_at: str = "",
+    deliverability: dict | None = None,
+    send_log: list[dict] | None = None,
+) -> list[Path]:
     out_dir = Path(poly_root) / "email"
     out_dir.mkdir(parents=True, exist_ok=True)
     written = []
+    deliverability = deliverability or {}
+    send_log = send_log or []
     for site in probe:
         domain = str(site.get("domain") or "").strip()
         emails = [str(item) for item in (site.get("emails") or [])]
@@ -78,14 +87,29 @@ def export_email_cards(probe: list[dict], poly_root: Path, *, collected_at: str 
         for page in pages:
             for email in page["emails"]:
                 first_page.setdefault(email, page)
+        deliv_entries = list(deliverability.get(domain, []))
+        invalid = {str(entry.get("email") or "").lower() for entry in deliv_entries if entry.get("status") == "invalid"}
+        usable = [email for email in emails if email.lower() not in invalid]
+        known = {email.lower() for email in usable}
+        for entry in deliv_entries:
+            email = str(entry.get("email") or "")
+            if entry.get("status") != "verified" or not email or email.lower() in known or email.lower() in invalid:
+                continue
+            usable.append(email)
+            known.add(email.lower())
+            first_page.setdefault(email, {"kind": "送达性验证", "path": "SMTP RCPT"})
+        domain_log = [
+            record for record in send_log
+            if str(record.get("to") or "").lower().endswith("@" + domain.lower())
+        ]
         body = [
             _frontmatter({
                 "type": "company-email",
                 "company": brand,
                 "domain": domain,
                 "industry": industry,
-                "email_count": len(emails),
-                "emails": emails,
+                "email_count": len(usable),
+                "emails": usable,
                 "collected_at": collected_at or datetime.now().strftime("%Y-%m-%d"),
                 "source": "企业邮箱探针 email-url-probe",
             }, ["Poly", "Poly/email"]),
@@ -94,7 +118,7 @@ def export_email_cards(probe: list[dict], poly_root: Path, *, collected_at: str 
             "",
             "> [!info] 卡片信息",
             f"> 官网：https://{domain}",
-            f"> 邮箱数量：{len(emails)}",
+            f"> 邮箱数量：{len(usable)}（仅可用邮箱；失效记录见下）",
             f"> 采集方式：官网公开页面（首页 + 联系/关于类页面）",
             "",
             "## 邮箱清单",
@@ -102,25 +126,50 @@ def export_email_cards(probe: list[dict], poly_root: Path, *, collected_at: str 
             "| 邮箱 | 职能 | 来源页面 |",
             "| --- | --- | --- |",
         ]
-        if emails:
-            for email in emails:
+        if usable:
+            for email in usable:
                 page = first_page.get(email) or {}
                 kind = page.get("kind") or ("首页" if (page.get("path") or "/") == "/" else "其他页面")
                 body.append(f"| {email} | {mailbox_function(email)} | {kind} `{page.get('path') or '/'}` |")
         else:
-            body.append("| （未在公开页面发现邮箱） | - | - |")
+            body.append("| （未发现可用邮箱） | - | - |")
         body.extend(["", "## 来源页面", ""])
         if pages:
             for page in pages:
                 body.append(f"- `{page.get('url') or page.get('path')}`：{len(page['emails'])} 个邮箱")
         else:
             body.append("- 无可访问的来源页面（页面可能要求登录或为 JS 渲染）")
+        if deliv_entries:
+            status_labels = {"verified": "已验证可用", "invalid": "已失效", "bounced": "退信"}
+            body.extend(["", "## 送达性验证", ""])
+            for entry in deliv_entries:
+                status = status_labels.get(str(entry.get("status")), str(entry.get("status") or "未验证"))
+                details = "，".join(
+                    part for part in (str(entry.get("checked_at") or "").strip(), str(entry.get("evidence") or "").strip()) if part
+                )
+                suffix = f"（{details}）" if details else ""
+                body.append(f"- {entry.get('email')}：{status}{suffix}")
+            body.append("")
+        if domain_log:
+            result_labels = {"sent": "已发送", "bounced": "退信", "pending": "待确认"}
+            body.extend(["", "## 发送记录", ""])
+            for record in sorted(domain_log, key=lambda item: str(item.get("attempted_at") or ""), reverse=True):
+                when = str(record.get("attempted_at") or "").replace("T", " ")[:16]
+                result = result_labels.get(str(record.get("result")), str(record.get("result") or ""))
+                line = f"- {when} 发送至 {record.get('to')}｜主题《{record.get('subject')}》｜状态：{result}"
+                if record.get("greeting"):
+                    line += f"｜称呼：{record['greeting']}"
+                if record.get("result") == "bounced" and record.get("bounce"):
+                    line += f"｜{record['bounce']}"
+                body.append(line)
+            body.append("")
         body.extend([
             "",
             "## 备注",
             "",
             "- 页脚邮箱会出现在全站多个页面；入库按「注册域 + 邮箱」去重。",
             "- 只记录公开商务邮箱，不采集个人邮箱。",
+            "- frontmatter 只列可用邮箱；失效与验证状态、发送记录见上方对应小节。",
             "",
         ])
         path = out_dir / f"{safe_name(brand)}.md"
@@ -393,6 +442,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="导出企业数据到 Obsidian Poly 文件夹")
     parser.add_argument("--vault", required=True, help="Obsidian vault 根目录")
     parser.add_argument("--email-probe", help="email-url-probe JSON 路径")
+    parser.add_argument("--deliverability", help="邮箱可达性 JSON（domain 到条目列表）")
+    parser.add_argument("--send-log", help="发送台账 JSONL 路径")
     parser.add_argument("--db", help="enterprise.sqlite3 路径")
     parser.add_argument("--stat-date", default="")
     args = parser.parse_args(argv)
@@ -402,7 +453,27 @@ def main(argv: list[str] | None = None) -> int:
     email_count = 0
     if args.email_probe:
         probe = json.loads(Path(args.email_probe).read_text(encoding="utf-8"))
-        cards = export_email_cards(probe, poly_root, collected_at=args.stat_date)
+        deliverability: dict[str, list] = {}
+        if args.deliverability:
+            raw = json.loads(Path(args.deliverability).read_text(encoding="utf-8"))
+            domain_map = raw.get("domains") if isinstance(raw, dict) and "domains" in raw else raw
+            if isinstance(domain_map, dict):
+                for domain_name, entries in domain_map.items():
+                    if isinstance(entries, list):
+                        deliverability[str(domain_name)] = entries
+        send_log: list[dict] = []
+        if args.send_log:
+            for line in Path(args.send_log).read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if line:
+                    send_log.append(json.loads(line))
+        cards = export_email_cards(
+            probe,
+            poly_root,
+            collected_at=args.stat_date,
+            deliverability=deliverability,
+            send_log=send_log,
+        )
         email_count = len(cards)
         written.extend(cards)
     company_count = 0

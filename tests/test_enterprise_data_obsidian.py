@@ -44,7 +44,7 @@ def test_export_email_cards_writes_cards_for_all_domains(tmp_path):
     assert "email_count: 2" in xiaoe
     assert 'emails: ["contact@xiaoe-tech.com", "security@xiaoe-tech.com"]' in xiaoe
     haier = (tmp_path / "Poly" / "email" / "海尔.md").read_text(encoding="utf-8")
-    assert "未在公开页面发现邮箱" in haier
+    assert "未发现可用邮箱" in haier
 
 
 def test_export_company_cards_includes_financial_hiring_and_jobs(tmp_path):
@@ -111,3 +111,35 @@ def test_main_end_to_end_with_probe_file(tmp_path, capsys):
     assert result["email_cards"] == 1
     assert (tmp_path / "Poly" / "Poly.base").exists()
     assert (tmp_path / "Poly" / "Poly 索引.md").exists()
+
+
+def test_email_card_excludes_invalid_and_renders_send_log(tmp_path):
+    probe = [{
+        "domain": "example.com",
+        "emails": ["a@example.com", "dead@example.com"],
+        "pages": [{"url": "https://example.com/", "path": "/", "kind": "首页", "emails": ["a@example.com", "dead@example.com"]}],
+    }]
+    deliverability = {"example.com": [
+        {"email": "dead@example.com", "status": "invalid", "checked_at": "2026-10-13", "evidence": "551 rejected"},
+        {"email": "hr@example.com", "status": "verified", "checked_at": "2026-10-13", "evidence": "RCPT 250 Ok"},
+    ]}
+    send_log = [{
+        "attempted_at": "2026-10-13T14:41:00+08:00",
+        "to": "hr@example.com",
+        "subject": "测试主题",
+        "result": "sent",
+        "greeting": "负责培训的老师",
+    }]
+    written = export_email_cards(
+        probe, tmp_path / "Poly", collected_at="2026-10-13",
+        deliverability=deliverability, send_log=send_log,
+    )
+    card = written[0].read_text(encoding="utf-8")
+    frontmatter = card.split("---")[1]
+    assert "dead@example.com" not in frontmatter
+    assert 'emails: ["a@example.com", "hr@example.com"]' in card
+    assert "email_count: 2" in card
+    assert "## 送达性验证" in card
+    assert "已失效" in card
+    assert "## 发送记录" in card
+    assert "已发送" in card
