@@ -292,6 +292,8 @@ def build_notes(view, data_root: Path | str) -> list[dict]:
                 "reply_signal": str(row.get("reply_signal") or ""),
                 "received_reply": received_reply,
                 "reply_author": str(row.get("reply_author") or ""),
+                "reply_class": str(row.get("reply_class") or ""),
+                "reply_class_label": str(row.get("reply_class_label") or ""),
                 "second_wave_reply": second_wave,
                 "score": score,
                 "score_source": score_source,
@@ -359,6 +361,8 @@ def render_note(note: dict) -> str:
     if fm["received_reply"]:
         who = f"{fm['reply_author']}：" if fm.get("reply_author") else ""
         lines.append(f"- 对方回复：{who}{json.dumps(fm['received_reply'], ensure_ascii=False)}")
+        if fm.get("reply_class_label"):
+            lines.append(f"- 回复分类：{fm['reply_class_label']}")
     if fm.get("score") is not None:
         lines.append(f"- 评分：{fm['score']}（{fm.get('score_source') or '未标注来源'}）")
     lines.append(f"- 批次：{fm['batch']}")
@@ -527,6 +531,39 @@ views:
       - property: sent_at
         direction: DESC
   - type: table
+    name: 用户回复待处理
+    filters:
+      and:
+        - 'reply_wave >= 2'
+        - 'reply_class == "prospect"'
+    order:
+      - author
+      - platform_label
+      - quote
+      - received_reply
+      - reply_author
+      - sent_at
+      - locator_url
+    sort:
+      - property: sent_at
+        direction: DESC
+  - type: table
+    name: 友商探针回复
+    filters:
+      and:
+        - 'reply_class == "peer"'
+    order:
+      - author
+      - platform_label
+      - quote
+      - received_reply
+      - reply_author
+      - sent_at
+      - locator_url
+    sort:
+      - property: sent_at
+        direction: DESC
+  - type: table
     name: 4分以上线索
     filters:
       and:
@@ -631,7 +668,9 @@ tags:
 
 ![[雷达总览.base#待回查]]
 
-![[雷达总览.base#二次回复待设计]]
+![[雷达总览.base#用户回复待处理]]
+
+![[雷达总览.base#友商探针回复]]
 
 ![[雷达总览.base#4分以上线索]]
 
@@ -661,7 +700,8 @@ def render_receipt(stats: dict) -> str:
         f"- 重复触达：{stats.get('duplicate_events', 0)}",
         f"- 已发送并回查：{stats.get('verified_count', 0)}",
         f"- 已发送待回查：{stats.get('unverified_count', 0)}",
-        f"- 二次回复待设计：{stats.get('second_wave_count', 0)}",
+        f"- 二次回复待设计：{stats.get('second_wave_count', 0)}"
+        f"（用户回复 {stats.get('second_wave_prospect', 0)} / 友商探针 {stats.get('second_wave_peer', 0)}）",
         f"- 评分 ≥ 4：{stats.get('scored_count', 0)}",
         f"- 写入笔记：{stats.get('notes_written', 0)}",
         f"- 清理过期笔记：{stats.get('notes_removed', 0)}",
@@ -738,6 +778,12 @@ def export_to_vault(
         "verified_count": sum(1 for row in view.targets if _status(row)[0] == "sent_verified"),
         "unverified_count": sum(1 for row in view.targets if _status(row)[0] == "sent_unverified"),
         "second_wave_count": sum(1 for row in view.targets if row.get("second_wave_reply")),
+        "second_wave_prospect": sum(
+            1 for row in view.targets if row.get("second_wave_reply") and row.get("reply_class") == "prospect"
+        ),
+        "second_wave_peer": sum(
+            1 for row in view.targets if row.get("second_wave_reply") and row.get("reply_class") == "peer"
+        ),
         "scored_count": sum(
             1
             for note in notes

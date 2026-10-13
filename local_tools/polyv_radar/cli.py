@@ -203,6 +203,7 @@ def build_parser() -> argparse.ArgumentParser:
     signal_parser.add_argument("--url", required=True)
     signal_parser.add_argument("--author", required=True)
     signal_parser.add_argument("--reply-author", default="", help="实际回复我们的账号名；匹配仍按目标作者")
+    signal_parser.add_argument("--reply-class", default="", choices=("", "prospect", "peer", "artifact", "unknown"), help="回复分类；留空时按回复人自动判断")
     signal_parser.add_argument("--quote", required=True)
     signal_parser.add_argument("--wave", type=int, default=1)
     signal_parser.add_argument("--observed-at", default="")
@@ -441,6 +442,7 @@ def main(argv: list[str] | None = None) -> int:
                 "target_url": args.url,
                 "target_author": args.author,
                 "reply_author": args.reply_author,
+                "reply_class": args.reply_class,
                 "quote": args.quote,
                 "wave": args.wave,
                 "observed_at": args.observed_at,

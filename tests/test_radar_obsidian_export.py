@@ -141,8 +141,10 @@ def test_reply_signal_marks_second_wave(tmp_path: Path) -> None:
     note = _note_for(Path(stats["notes_dir"]), "阿尔法")
     assert "reply_wave: 2" in note
     assert "小鹅通官方" in note
+    assert 'reply_class: "peer"' in note
     assert "对方第二次回复" in note
     assert (Path(stats["vault_dir"]) / "雷达总览.base").read_text(encoding="utf-8").count("二次回复待设计") >= 1
+    assert "友商探针回复" in (Path(stats["vault_dir"]) / "雷达总览.base").read_text(encoding="utf-8")
 
 
 def test_score_enrichment_comes_from_lead_file(tmp_path: Path) -> None:

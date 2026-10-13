@@ -407,12 +407,23 @@ def _proof_cell(row: dict) -> str:
     )
 
 
+#: Reply-provenance badges. A competitor answer to a peer probe must not read
+#: like a lead; an own-account echo is crawler processing output.
+_CLASS_BADGES = {
+    "prospect": '<span class="status">用户回复</span>',
+    "peer": '<span class="badge">友商探针</span>',
+    "artifact": '<span class="signal">处理信息</span>',
+}
+
+
 def _response_cell(row: dict) -> str:
     if row.get("second_wave_reply"):
         value = _first_value(row, "received_reply", "inbound_reply", "response_text")
         author = _first_value(row, "reply_author")
+        reply_class = _first_value(row, "reply_class")
+        badge = _CLASS_BADGES.get(reply_class, "")
         who = f"{_esc(author)}：" if author else ""
-        suffix = f"<br><small>{who}{_esc(_short(value, 120))}</small>" if value else ""
+        suffix = f"<br><small>{badge} {who}{_esc(_short(value, 120))}</small>" if value else badge
         return f'<span class="signal">二次回复待设计</span>{suffix}'
     value = _first_value(row, "received_reply", "inbound_reply", "response_text", "engagement")
     if value:

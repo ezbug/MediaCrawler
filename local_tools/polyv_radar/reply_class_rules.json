@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-10-13",
+  "source": "peer-research/reports/recent-90d/reply-status-20261012.md + peer-plan-20261010-145733.json",
+  "peer_keywords": [
+    "小鹅通",
+    "创客匠人",
+    "爱问云",
+    "伯索",
+    "有赞",
+    "微赞",
+    "微盟",
+    "映目",
+    "诺云",
+    "微吼",
+    "百家云",
+    "云学堂"
+  ],
+  "self_keywords": [
+    "小馨的ZigoAi",
+    "Polyv的小幕",
+    "bugbg",
+    "ZigoAi的小慕",
+    "保利威"
+  ],
+  "notes": "peer_keywords 来自企业级爬虫-友商探针台账（被探针沟通的同行品牌）；self_keywords 为我方账号/同事，命中视为爬虫处理信息而非真实回复。命中：去空格后做包含匹配。"
+}

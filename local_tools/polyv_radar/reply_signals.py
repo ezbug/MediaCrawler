@@ -6,6 +6,8 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .reply_classification import CLASS_LABELS, classify_reply_author
+
 SIGNAL_FILENAME = "reply_signals.jsonl"
 
 
@@ -93,5 +95,9 @@ def merge_reply_signals(rows: list[dict], data_root: Path | str) -> list[dict]:
         row["reply_author"] = (
             latest.get("reply_author") or latest.get("target_author") or latest.get("author") or ""
         )
+        explicit_class = str(latest.get("reply_class") or "").strip()
+        code = explicit_class or classify_reply_author(row["reply_author"])[0]
+        row["reply_class"] = code
+        row["reply_class_label"] = CLASS_LABELS.get(code, code)
         row["reply_observed_at"] = latest.get("observed_at") or ""
     return rows
