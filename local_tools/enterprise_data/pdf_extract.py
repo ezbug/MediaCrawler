@@ -210,7 +210,16 @@ def extract_annual_report(
     asset_candidates = find_asset_candidates(pages)
     employee = max(employee_candidates, key=lambda item: item["confidence"], default=None)
     consolidated = [item for item in asset_candidates if item["scope"] == "consolidated"]
-    asset = max(consolidated or asset_candidates, key=lambda item: item["confidence"], default=None)
+    # 同一口径下取金额最大的命中：资产总计是报表中的最大数字，可排除正文叙述里的
+    # 近似值（例如“资产总额130,705.23亿元”这类行文）。
+    def _asset_key(item: dict):
+        try:
+            amount = float(str(item["value_text"]).replace(",", ""))
+        except (TypeError, ValueError):
+            amount = 0.0
+        return (item["confidence"], amount)
+
+    asset = max(consolidated or asset_candidates, key=_asset_key, default=None)
 
     if employee is None:
         warnings.append("未找到员工人数候选（合计类关键词缺失）")
