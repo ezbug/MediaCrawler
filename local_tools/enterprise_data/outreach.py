@@ -68,6 +68,8 @@ def main(argv=None):
         result = audit_batch([mail], load(events_path), config["companies"], output)
     else:
         mail = load(args.email)
+        if args.submit and not config.get("obsidian_sync"):
+            raise ValueError("submit requires local obsidian_sync configuration")
         batch = audit_batch([mail], load(events_path), config["companies"], output)
         result = batch["checks"][0]
         write_json(output / "send-preflight.json", result)

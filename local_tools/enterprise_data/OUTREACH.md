@@ -48,6 +48,8 @@ IR说明会只匹配IR邮箱，培训邮箱不能借用IR事件；分红和股�
 `history/`、`audit-results.json`、`manual-confirmation-queue.json`、`send-preflight.json`。
 这些都在仓库外。发送确认后追加原发送台账；配置 `obsidian_sync` 的 vault/email_probe/db
 后自动重导出卡片。Gmail UI确认和最终送达分别记录；退信仍走现有可达性流程。
+当前机器的同步配置已写入仓库外 `enterprise/outreach/outreach-runtime.json`，
+真实提交时 `--config` 使用这个本地文件；缺少同步配置时发送入口直接停止。
 
 ## 海尔事实勘误
 
