@@ -132,3 +132,19 @@ def test_previous_block_does_not_self_release_when_evidence_changes(tmp_path):
     result = audit_batch([request], evidence(), [TARGET], tmp_path, DAY)
     assert result["blocked"] == 1
     assert "previously_blocked_requires_user_confirmation" in result["checks"][0]["reasons"]
+
+
+def test_no_hook_email_passes_with_valid_role_and_business_line():
+    request = {"company_id": "haier", "company": "海尔智家", "to": "training@haier.com",
+               "recipient_role": "training", "subject": "关于经销商培训的三点反馈",
+               "business_line": "enterprise_training", "hook": "", "body": "负责培训的老师，您好：\n\n我们在家电行业服务过 A.O.史密斯、宝马、蔚来。"}
+    result = audit_email(request, [], [TARGET], DAY)
+    assert result["status"] == "passed" and result["hook_status"] == "none"
+
+
+def test_no_hook_email_with_wrong_domain_or_business_line_blocks():
+    base = {"company_id": "haier", "company": "海尔智家", "to": "training@haier.com",
+            "recipient_role": "training", "subject": "主题", "business_line": "enterprise_training",
+            "hook": "", "body": "正文"}
+    assert "recipient_function_mismatch" in audit_email({**base, "to": "training@other.com"}, [], [TARGET], DAY)["reasons"]
+    assert "business_line_invalid" in audit_email({**base, "business_line": "unknown"}, [], [TARGET], DAY)["reasons"]
