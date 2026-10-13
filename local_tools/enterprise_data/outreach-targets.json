@@ -1,0 +1,11 @@
+{
+  "companies": [
+    {"id":"haier","name":"海尔智家","aliases":["海尔","海尔智家股份有限公司"],"mail_domains":["haier.com"],"source_domains":["haier.com","haier.net","sse.com.cn","sseinfo.com","hkexnews.hk","cninfo.com.cn","eastmoney.com"],"source_urls":["https://data.eastmoney.com/notices/detail/600690/AN202610081830208680.html"]},
+    {"id":"midea","name":"美的","aliases":["美的集团"],"mail_domains":["midea.com"],"source_domains":["midea.com","midea.com.cn","cninfo.com.cn","szse.cn","hkexnews.hk","eastmoney.com"]},
+    {"id":"neusoft","name":"东软","aliases":["东软集团"],"mail_domains":["neusoft.com"],"source_domains":["neusoft.com","sse.com.cn","cninfo.com.cn","eastmoney.com"]},
+    {"id":"yonyou","name":"用友","aliases":["用友网络"],"mail_domains":["yonyou.com"],"source_domains":["yonyou.com","sse.com.cn","cninfo.com.cn","eastmoney.com"]},
+    {"id":"kingdee","name":"金蝶","aliases":["金蝶国际"],"mail_domains":["kingdee.com"],"source_domains":["kingdee.com","hkexnews.hk","eastmoney.com"]},
+    {"id":"youzan","name":"有赞","aliases":[],"mail_domains":["youzan.com"],"source_domains":["youzan.com","hkexnews.hk","eastmoney.com"]},
+    {"id":"weimob","name":"微盟","aliases":["微盟集团"],"mail_domains":["weimob.com"],"source_domains":["weimob.com","hkexnews.hk","eastmoney.com"]}
+  ]
+}
