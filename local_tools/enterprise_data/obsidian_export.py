@@ -70,12 +70,14 @@ def export_email_cards(
     collected_at: str = "",
     deliverability: dict | None = None,
     send_log: list[dict] | None = None,
+    drafts: dict[str, list[dict]] | None = None,
 ) -> list[Path]:
     out_dir = Path(poly_root) / "email"
     out_dir.mkdir(parents=True, exist_ok=True)
     written = []
     deliverability = deliverability or {}
     send_log = send_log or []
+    drafts = drafts or {}
     for site in probe:
         domain = str(site.get("domain") or "").strip()
         emails = [str(item) for item in (site.get("emails") or [])]
@@ -162,6 +164,29 @@ def export_email_cards(
                 if record.get("result") == "bounced" and record.get("bounce"):
                     line += f"｜{record['bounce']}"
                 body.append(line)
+            body.append("")
+        domain_drafts = drafts.get(domain.lower()) or []
+        if domain_drafts:
+            body.extend(["", "## 待发邮件（五门版 · 未发送）", ""])
+            body.append("> 五门：真实钩子 / 公司与事件匹配 / 业务相关 / 职能对口 / 成稿完整。发送后本节保留，结果见「发送记录」。")
+            for draft in domain_drafts:
+                audit = draft.get("audit") or {}
+                status = "通过" if audit.get("status") == "passed" else "拦截"
+                reasons = "、".join(str(item) for item in (audit.get("reasons") or []))
+                hook = str(draft.get("hook") or "")
+                body.extend(["", f"### {draft.get('subject')}", ""])
+                body.append(f"- 收件箱：{draft.get('to')}")
+                body.append(f"- 称呼：{draft.get('greeting')}")
+                if hook:
+                    body.append(f"- 活动钩子：{hook}")
+                    if draft.get("evidence_url"):
+                        body.append(f"- 证据：[来源原文]({draft['evidence_url']})")
+                else:
+                    body.append("- 活动钩子：无（60 天窗口内未找到可核验活动，未使用未经核实的日期）")
+                body.append(f"- 五门：{status}" + (f"（{reasons}）" if reasons else ""))
+                body.extend(["", "> [!quote]- 邮件全文"])
+                for line in str(draft.get("body") or "").splitlines():
+                    body.append(f"> {line}" if line else ">")
             body.append("")
         body.extend([
             "",
@@ -444,6 +469,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--email-probe", help="email-url-probe JSON 路径")
     parser.add_argument("--deliverability", help="邮箱可达性 JSON（domain 到条目列表）")
     parser.add_argument("--send-log", help="发送台账 JSONL 路径")
+    parser.add_argument("--outreach-review", help="活动评审目录（pending-emails-v2.json / audit-results.json / events.json）")
     parser.add_argument("--db", help="enterprise.sqlite3 路径")
     parser.add_argument("--stat-date", default="")
     args = parser.parse_args(argv)
@@ -467,12 +493,47 @@ def main(argv: list[str] | None = None) -> int:
                 line = line.strip()
                 if line:
                     send_log.append(json.loads(line))
+        drafts_by_domain: dict[str, list[dict]] = {}
+        if args.outreach_review:
+            review_dir = Path(args.outreach_review)
+            emails: list[dict] = []
+            for name in ("pending-emails-v2.json", "pending-emails.json"):
+                candidate = review_dir / name
+                if candidate.exists():
+                    emails = json.loads(candidate.read_text(encoding="utf-8"))
+                    break
+            audits: dict[str, dict] = {}
+            audit_path = review_dir / "audit-results.json"
+            if audit_path.exists():
+                for check in json.loads(audit_path.read_text(encoding="utf-8")).get("checks", []):
+                    audits[str(check.get("company") or "")] = check
+            events: dict[str, dict] = {}
+            events_path = review_dir / "events.json"
+            if events_path.exists():
+                for event in json.loads(events_path.read_text(encoding="utf-8")):
+                    events[str(event.get("event_id") or "")] = event
+            for mail in emails:
+                to = str(mail.get("to") or "")
+                domain_name = to.partition("@")[2].lower()
+                if not domain_name:
+                    continue
+                event = events.get(str(mail.get("event_id") or "")) or {}
+                drafts_by_domain.setdefault(domain_name, []).append({
+                    "to": to,
+                    "subject": mail.get("subject"),
+                    "greeting": str(mail.get("body") or "").split("，您好：")[0],
+                    "hook": mail.get("hook") or "",
+                    "body": mail.get("body") or "",
+                    "audit": audits.get(str(mail.get("company") or "")) or {},
+                    "evidence_url": event.get("source_url") or "",
+                })
         cards = export_email_cards(
             probe,
             poly_root,
             collected_at=args.stat_date,
             deliverability=deliverability,
             send_log=send_log,
+            drafts=drafts_by_domain,
         )
         email_count = len(cards)
         written.extend(cards)

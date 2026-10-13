@@ -143,3 +143,36 @@ def test_email_card_excludes_invalid_and_renders_send_log(tmp_path):
     assert "已失效" in card
     assert "## 发送记录" in card
     assert "已发送" in card
+
+
+def test_email_card_renders_outreach_drafts_and_gates(tmp_path):
+    probe = [{
+        "domain": "example.com",
+        "emails": ["training@example.com"],
+        "pages": [{"url": "https://example.com/", "path": "/", "kind": "首页", "emails": ["training@example.com"]}],
+    }]
+    drafts = {
+        "example.com": [{
+            "to": "training@example.com",
+            "subject": "关于伙伴培训的三点反馈",
+            "greeting": "负责培训的老师",
+            "hook": "看到贵司 10 月 23 日举办训练营，先预祝顺利。",
+            "body": "负责培训的老师，您好：\n\n看到贵司 10 月 23 日举办训练营，先预祝顺利。",
+            "audit": {"status": "passed", "reasons": []},
+            "evidence_url": "https://example.com/event",
+        }],
+    }
+    written = export_email_cards(probe, tmp_path / "Poly", collected_at="2026-10-13", drafts=drafts)
+    card = written[0].read_text(encoding="utf-8")
+    assert "## 待发邮件（五门版 · 未发送）" in card
+    assert "### 关于伙伴培训的三点反馈" in card
+    assert "- 五门：通过" in card
+    assert "[来源原文](https://example.com/event)" in card
+    assert "> [!quote]- 邮件全文" in card
+    assert "> 负责培训的老师，您好：" in card
+
+
+def test_no_drafts_section_without_outreach_data(tmp_path):
+    probe = [{"domain": "example.com", "emails": ["a@example.com"], "pages": []}]
+    card = export_email_cards(probe, tmp_path / "Poly", collected_at="2026-10-13")[0].read_text(encoding="utf-8")
+    assert "待发邮件" not in card

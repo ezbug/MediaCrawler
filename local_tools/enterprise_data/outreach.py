@@ -117,6 +117,7 @@ def main(argv=None):
                     "--vault", sync["vault"], "--email-probe", sync["email_probe"],
                     "--deliverability", str(output.parent / "email-deliverability.json"),
                     "--send-log", str(send_log), "--db", sync["db"],
+                    "--outreach-review", str(output),
                     "--stat-date", today().isoformat(),
                 ], check=True, capture_output=True, text=True)
         result["browser_result"] = response
