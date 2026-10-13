@@ -1,0 +1,81 @@
+{
+  "version": "1.1.0",
+  "mode": "discovery_only",
+  "excluded_authors": ["bugbg", "ZigoAI", "智构", "POLYV", "保利威"],
+  "negative_patterns": ["我们提供", "我们专做", "欢迎咨询", "有需求直接滴滴", "私信我", "加我", "找我了解", "专业提供", "招聘", "招募销售", "求职", "AI作图", "AI编程", "办公助手", "免费领取", "领取资料", "十大平台", "保姆级教程", "源码分享"],
+  "sales_agent": {
+    "profile": "zigo_sales",
+    "name": "ZigoAI销冠成交智能体",
+    "search_terms": ["客户跟进", "销售跟进", "报价", "客户不回", "已读不回", "沉睡客户", "公海", "私域", "企微", "个微", "WhatsApp", "投流", "线索", "销售SOP", "销售 SOP", "AI销售", "AI销冠", "AI外呼", "课程咨询", "留资", "客户唤醒", "销售自动化", "自动跟进"],
+    "signals": {
+      "business_scene": ["投流", "广告线索", "官网留资", "直播留资", "活动留资", "企微", "企业微信", "个微", "私域", "WhatsApp", "微信客户", "微信上", "微信里", "公海", "历史客户", "沉睡客户", "课程咨询", "销售团队", "客户", "销售"],
+      "execution_gap": ["接不过来", "接待不过来", "跟不过来", "跟进不过来", "跟不上", "回复不过来", "太慢", "管不过来", "不回", "没人回", "不看了", "没打开", "挤走其他产品", "沉默", "唤醒", "激活", "盘活", "回扫", "跟进漏", "漏了", "没人跟", "没人接", "没人复盘", "落不下去", "人效太低", "自动跟进", "自动化跟进", "首响", "意向判断", "高意向", "报价后", "咨询转化低"],
+      "purchase_intent": ["求推荐", "有没有工具", "有没有系统", "有没有软件", "用什么工具", "推荐工具", "求系统", "求方案", "找服务商", "询价", "多少钱", "预算", "想上", "怎么选", "想做自动", "求助", "怎么办"]
+    },
+    "queries": ["投流线索 跟不上", "企微私域 沉睡客户", "课程咨询 转化", "直播留资 跟进", "WhatsApp 客户跟进", "销售SOP 自动化", "报价后 客户不回", "公海线索 唤醒", "销售团队 接待不过来", "线索转化 工具"],
+    "practice_scenarios": ["教育培训招生", "企业培训报名", "活动报名", "直播留资", "展会获客", "经销商招募", "外贸询盘", "课程咨询", "官网留资", "新客接待"],
+    "buyer_demand_terms": ["我们公司", "老板让我找", "销售团队", "线索太多", "接待不过来", "跟进不过来", "没人跟", "怎么落地", "怎么验收", "预算", "报价", "供应商"],
+    "purchase_intent_terms": ["求推荐", "怎么选", "多少钱", "有没有工具", "有没有系统", "求方案", "找服务商", "能不能接入", "怎么部署", "怎么试点"],
+    "query_expansions": [
+      {"keyword": "我们公司投流线索太多跟进不过来", "query_kind": "buyer_demand", "scenario": "投流获客", "source_terms": ["投流", "线索转化", "跟进不过来"]},
+      {"keyword": "老板让我找销售自动化工具", "query_kind": "purchase_intent", "scenario": "销售自动化选型", "source_terms": ["销售自动化", "销售SOP", "有没有工具"]},
+      {"keyword": "企业培训报名线索怎么跟进", "query_kind": "practice_scenario", "scenario": "企业培训报名", "source_terms": ["企业培训", "线索", "客户跟进"]},
+      {"keyword": "课程咨询客户不回怎么跟", "query_kind": "buyer_demand", "scenario": "课程咨询转化", "source_terms": ["课程咨询", "客户不回", "跟进"]},
+      {"keyword": "活动报名线索没人接待", "query_kind": "practice_scenario", "scenario": "活动报名", "source_terms": ["活动留资", "没人接", "线索"]},
+      {"keyword": "直播留资销售没人跟", "query_kind": "practice_scenario", "scenario": "直播获客", "source_terms": ["直播留资", "销售", "没人跟"]},
+      {"keyword": "报价后客户不回复怎么办", "query_kind": "buyer_demand", "scenario": "报价跟进", "source_terms": ["报价后", "客户不回"]},
+      {"keyword": "企业微信沉睡客户怎么激活", "query_kind": "buyer_demand", "scenario": "私域唤醒", "source_terms": ["企微", "沉睡客户", "激活"]},
+      {"keyword": "公海线索怎么盘活", "query_kind": "buyer_demand", "scenario": "公海线索运营", "source_terms": ["公海", "盘活", "线索"]},
+      {"keyword": "销售团队首响太慢怎么解决", "query_kind": "buyer_demand", "scenario": "新客接待", "source_terms": ["销售团队", "首响", "太慢"]},
+      {"keyword": "跨境客户WhatsApp怎么跟进", "query_kind": "practice_scenario", "scenario": "跨境销售", "source_terms": ["WhatsApp", "客户跟进"]},
+      {"keyword": "外贸询盘太多跟不上", "query_kind": "practice_scenario", "scenario": "外贸询盘", "source_terms": ["外贸", "线索", "跟不上"]},
+      {"keyword": "经销商招募线索怎么分配", "query_kind": "practice_scenario", "scenario": "经销商招募", "source_terms": ["线索分配", "销售SOP"]},
+      {"keyword": "展会客户回来怎么跟进", "query_kind": "practice_scenario", "scenario": "展会获客", "source_terms": ["客户跟进", "历史客户"]},
+      {"keyword": "客户聊天记录怎么自动复盘", "query_kind": "purchase_intent", "scenario": "销售复盘", "source_terms": ["客户聊天记录", "复盘"]},
+      {"keyword": "销售SOP怎么落地到团队", "query_kind": "purchase_intent", "scenario": "销售流程落地", "source_terms": ["销售SOP", "落不下去"]},
+      {"keyword": "教育机构试听课后怎么转化", "query_kind": "practice_scenario", "scenario": "教育培训招生", "source_terms": ["课程咨询", "咨询转化"]},
+      {"keyword": "官网留资没人跟怎么办", "query_kind": "buyer_demand", "scenario": "官网获客", "source_terms": ["官网留资", "没人跟"]},
+      {"keyword": "销售报价跟进系统怎么选", "query_kind": "purchase_intent", "scenario": "销售系统选型", "source_terms": ["报价", "怎么选", "系统"]}
+    ],
+    "comment_keywords": ["线索太多接不过来", "投流来的客户没人跟", "晚上来的咨询第二天就凉了", "销售回复不过来", "首响太慢", "询价后就没下文", "报价后怎么跟", "客户已读不回", "客户沉默怎么唤醒", "沉睡客户怎么激活", "公海线索怎么盘活", "历史客户怎么回访", "企微客户太多管不过来", "个微私域太散", "跟进全靠销售自己记", "销售SOP落不下去", "怎么判断高意向客户", "什么时候该销售介入", "销售跟进漏了好多", "客户聊天记录没人复盘", "销售人效太低", "想做自动跟进", "AI销售", "AI销冠", "AI外呼", "微信自动回复会不会封", "线索转化怎么提高", "私域成交怎么做", "课程咨询转化低", "直播留资没人接", "WhatsApp客户跟进"],
+    "tags": ["AI销售", "AI销冠", "销售自动化", "销售增长", "私域成交", "私域运营", "企微运营", "企业微信", "微信营销", "客户跟进", "线索转化", "销售管理", "销售SOP", "客户分层", "沉睡客户", "公海线索", "客户唤醒", "投流获客", "广告投放", "直播获客", "线索承接", "高意向客户", "销售漏斗", "CRM", "SCRM", "WhatsApp营销", "跨境获客", "外贸获客", "教育培训招生", "课程转化", "教育招生", "课程销售", "招商加盟", "展会获客", "SaaS销售"],
+    "product_source_id": "zigo_sales_agent_202608",
+    "product_evidence_pages": [4, 5, 6, 8, 9, 11, 16, 21]
+  },
+  "geo": {
+    "profile": "zigo_geo",
+    "name": "Zigo可信GEO",
+    "search_terms": ["GEO", "AI搜索", "AI推荐", "品牌提及", "品牌信源", "生成式搜索", "豆包", "元宝", "文心一言"],
+    "signals": {
+      "business_scene": ["品牌", "我们家", "公司", "店铺", "门店", "旅行社", "商品", "产品", "电商"],
+      "execution_gap": ["不推荐", "不提我们", "搜不到", "没有提及", "总推荐竞品", "推荐竞品", "信息是错", "口碑不准", "排名", "被AI引用", "品牌信源", "提及率", "优化", "想做GEO", "准备做GEO", "打算做GEO"],
+      "purchase_intent": ["怎么做", "怎么办", "有没有工具", "求推荐", "求方案", "找服务商", "有服务商吗", "多少钱", "询价", "预算", "想做", "怎么让", "有用吗"]
+    },
+    "queries": ["豆包 品牌不推荐", "AI搜索 品牌 求推荐", "GEO优化 怎么选", "品牌信源 怎么做", "AI总推荐竞品", "AI回答 品牌信息错误"],
+    "practice_scenarios": ["新品上市", "电商品牌", "连锁品牌", "企业官网", "品牌信源建设", "产品上线", "品牌危机澄清", "内容资产治理"],
+    "buyer_demand_terms": ["我们公司", "老板让我找", "品牌搜不到", "没有被推荐", "总推荐竞品", "信息错误", "想提升提及率", "官网内容不被引用", "需要验收", "预算"],
+    "purchase_intent_terms": ["怎么选", "多少钱", "求推荐", "找服务商", "怎么做", "怎么部署", "怎么验收", "有没有工具", "能不能试点", "报价"],
+    "query_expansions": [
+      {"keyword": "我们公司品牌豆包搜不到", "query_kind": "buyer_demand", "scenario": "品牌在AI搜索中不可见", "source_terms": ["品牌", "豆包", "搜不到"]},
+      {"keyword": "AI搜索总推荐竞品怎么办", "query_kind": "buyer_demand", "scenario": "AI推荐竞品", "source_terms": ["AI搜索", "总推荐竞品", "怎么办"]},
+      {"keyword": "新品上市AI不推荐品牌", "query_kind": "practice_scenario", "scenario": "新品上市", "source_terms": ["品牌", "不推荐", "AI推荐"]},
+      {"keyword": "企业官网内容不被AI引用", "query_kind": "practice_scenario", "scenario": "企业官网内容治理", "source_terms": ["官网", "品牌信源", "AI引用"]},
+      {"keyword": "品牌在AI回答里信息错误", "query_kind": "buyer_demand", "scenario": "品牌信息纠错", "source_terms": ["品牌", "信息是错", "AI回答"]},
+      {"keyword": "电商品牌AI搜索怎么被推荐", "query_kind": "practice_scenario", "scenario": "电商品牌增长", "source_terms": ["电商", "AI搜索", "求推荐"]},
+      {"keyword": "老板让我找GEO服务商", "query_kind": "purchase_intent", "scenario": "GEO服务商选型", "source_terms": ["GEO", "找服务商", "怎么选"]},
+      {"keyword": "品牌信源怎么建设", "query_kind": "practice_scenario", "scenario": "品牌信源建设", "source_terms": ["品牌信源", "怎么做"]},
+      {"keyword": "AI搜索品牌提及率怎么提升", "query_kind": "buyer_demand", "scenario": "品牌提及率提升", "source_terms": ["AI搜索", "提及率", "优化"]},
+      {"keyword": "GEO优化报价多少钱", "query_kind": "purchase_intent", "scenario": "GEO预算与报价", "source_terms": ["GEO优化", "多少钱", "报价"]},
+      {"keyword": "连锁品牌AI推荐不准怎么办", "query_kind": "practice_scenario", "scenario": "连锁品牌管理", "source_terms": ["品牌", "推荐", "不准"]},
+      {"keyword": "企业品牌怎么进入AI回答", "query_kind": "buyer_demand", "scenario": "品牌进入AI回答", "source_terms": ["品牌", "AI回答", "怎么让"]},
+      {"keyword": "品牌没有被豆包提及怎么办", "query_kind": "buyer_demand", "scenario": "品牌提及缺失", "source_terms": ["豆包", "不提我们", "怎么办"]},
+      {"keyword": "AI总把客户导向竞品", "query_kind": "buyer_demand", "scenario": "竞品推荐纠偏", "source_terms": ["总推荐竞品", "竞品"]},
+      {"keyword": "官网资料怎么让AI理解", "query_kind": "practice_scenario", "scenario": "官网资料结构化", "source_terms": ["官网", "AI搜索", "怎么做"]},
+      {"keyword": "GEO项目怎么验收", "query_kind": "purchase_intent", "scenario": "GEO项目交付验收", "source_terms": ["GEO", "怎么验收", "提及率"]}
+    ],
+    "comment_keywords": ["AI搜品牌不推荐我", "豆包不提我们", "元宝不提我们", "文心一言不提我们", "AI总推荐竞品", "怎么让AI推荐品牌", "AI搜索优化怎么做", "品牌在AI里口碑不准", "AI回答里信息是错的", "做GEO有用吗", "想做AI搜索排名", "品牌信源怎么铺", "内容被AI引用", "品类词没有品牌提及", "场景词没有品牌提及"],
+    "tags": ["GEO优化", "AI搜索优化", "生成式搜索", "品牌营销", "内容营销", "品牌增长", "AI推荐", "豆包", "元宝", "文心一言", "品牌提及", "竞品分析", "SEO", "电商增长", "消费品营销", "GEO", "AI搜索", "品牌信源", "新品上市", "连锁品牌", "企业官网", "电商品牌"],
+    "product_source_id": "zigo_geo_20260721",
+    "product_evidence_pages": [6, 8, 9, 11, 14, 22]
+  }
+}

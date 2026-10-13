@@ -6,6 +6,7 @@ import { AuthorFooter } from '@/components/layout/AuthorFooter'
 import { CrawlerConfigPanel } from '@/components/config/CrawlerConfigPanel'
 import { EnvironmentCheck, isEnvChecked } from '@/components/env/EnvironmentCheck'
 import { LicenseDisclaimer, isLicenseAccepted } from '@/components/license/LicenseDisclaimer'
+import { RadarPanel } from '@/components/radar/RadarPanel'
 
 function App() {
   // Initialize by checking localStorage if license has been accepted
@@ -49,6 +50,8 @@ function App() {
         <div className="flex-shrink-0">
           <CrawlerConfigPanel />
         </div>
+
+        <RadarPanel />
 
         {/* Console - Collapsible Terminal */}
         <MainContent />

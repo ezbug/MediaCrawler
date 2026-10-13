@@ -1,3 +1,7 @@
+import { readFileSync } from 'node:fs';
+
+const zigoTaxonomy = JSON.parse(readFileSync(new URL('./zigo_taxonomy.json', import.meta.url), 'utf8'));
+
 export async function waitForResults(page, selector, timeoutMs = 20000, stableRounds = 2) {
   const deadline = Date.now() + timeoutMs;
   let previous = -1;
@@ -14,17 +18,103 @@ export async function waitForResults(page, selector, timeoutMs = 20000, stableRo
   return await page.evaluate((value) => document.querySelectorAll(value).length, selector);
 }
 
-export async function loadUntilStable(page, selector, maxItems, stableRounds = 3) {
+export async function loadUntilStable(page, selector, maxItems, stableRounds = 3, maxRounds = 24, delayMs = 400, scrollContainer = '') {
   let previous = 0;
   let stable = 0;
-  for (let round = 0; round < 24 && stable < stableRounds; round += 1) {
-    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-    await new Promise(resolve => setTimeout(resolve, 400));
+  for (let round = 0; round < maxRounds && stable < stableRounds; round += 1) {
+    await page.evaluate(container => {
+      if (!container) return window.scrollTo(0, document.body.scrollHeight);
+      const scroller = document.querySelector(container);
+      if (!scroller) throw Error('COMMENT_SCROLLER_MISSING');
+      scroller.scrollTo(0, scroller.scrollHeight);
+    }, scrollContainer);
+    await new Promise(resolve => setTimeout(resolve, delayMs));
     const count = await page.evaluate((value) => document.querySelectorAll(value).length, selector);
     if (count >= maxItems) break;
     stable = count === previous ? stable + 1 : 0;
     previous = count;
   }
+}
+
+export async function loadBiliComments(page, maxItems, timeoutMs = 20000) {
+  try {
+    await page.waitForFunction(() => Boolean(document.querySelector('bili-comments')?.shadowRoot), undefined, { timeout: timeoutMs });
+    await page.evaluate(() => document.querySelector('bili-comments').scrollIntoView({ block: 'start' }));
+    await page.waitForFunction(() => document.querySelector('bili-comments')?.shadowRoot?.querySelectorAll('bili-comment-thread-renderer').length > 0, undefined, { timeout: timeoutMs });
+  } catch (error) {
+    if (!/timed out|timeout/i.test(error.message)) throw error;
+    return { status: 'loading_timeout', count: 0 };
+  }
+  let previous = 0;
+  let stable = 0;
+  for (let round = 0; round < 24; round++) {
+    const count = await page.evaluate(() => document.querySelector('bili-comments')?.shadowRoot?.querySelectorAll('bili-comment-thread-renderer').length || 0);
+    if (count >= maxItems) return { status: 'loaded', count };
+    stable = count === previous ? stable + 1 : 0;
+    if (stable >= 3) return { status: 'loaded', count };
+    previous = count;
+    await page.evaluate(() => {
+      const threads = document.querySelector('bili-comments')?.shadowRoot?.querySelectorAll('bili-comment-thread-renderer');
+      threads?.[threads.length - 1]?.scrollIntoView({ block: 'end' });
+    });
+    await page.waitForTimeout(400);
+  }
+  return { status: 'loaded', count: previous };
+}
+
+function isZhihuCommentMetaLine(value) {
+  const line = String(value || '').trim();
+  return !line
+    || line === '作者'
+    || line === '回复'
+    || line === '喜欢'
+    || line === '收起'
+    || line === '展开'
+    || /^(刚刚|刚才|今天|昨天|前天|\d+\s*(秒|分钟|小时|天|周|月|个月|年)前)/.test(line)
+    || /^\d{1,2}[-/.]\d{1,2}\s*[·\-]/.test(line)
+    || /^20\d{2}[-/.]\d{1,2}[-/.]\d{1,2}/.test(line);
+}
+
+export function normalizeZhihuCommentLines(lines, author = '') {
+  const values = Array.isArray(lines) ? lines.map((line) => String(line || '').trim()).filter(Boolean) : [];
+  const authorIndex = values.findIndex((line) => line === String(author || '').trim());
+  const body = values.slice(authorIndex >= 0 ? authorIndex + 1 : 0);
+  const content = [];
+  for (const line of body) {
+    if (isZhihuCommentMetaLine(line)) break;
+    content.push(line);
+  }
+  return content.join(' ').replace(/\s+/g, ' ').trim();
+}
+
+export function xhsDetailReady(state, expected) {
+  const path = String(state?.path || state?.url || '');
+  const idMatch = path.match(/\/(?:explore|search_result)\/([a-zA-Z0-9_-]+)/);
+  const expectedId = String(expected?.id || '');
+  const title = String(state?.title || '').trim();
+  const expectedTitle = String(expected?.title || '').trim();
+  const titleMatches = !title || !expectedTitle || title === expectedTitle || title.includes(expectedTitle) || expectedTitle.includes(title);
+  return Boolean(idMatch && idMatch[1] === expectedId && titleMatches && String(state?.authorHref || '').trim());
+}
+
+export async function gotoWithCommittedPageCheck(page, url, verifyPage, { readinessTimeout = 0 } = {}) {
+  try {
+    await page.goto(url, { waitUntil: 'domcontentloaded' });
+    return 'loaded';
+  } catch (error) {
+    if (error.name !== 'PageNavigationTimeoutError') throw error;
+    const deadline = Date.now() + readinessTimeout;
+    do {
+      if (await verifyPage()) return 'committed_timeout';
+      if (Date.now() >= deadline) throw error;
+      await page.waitForTimeout(Math.min(500, deadline - Date.now()));
+    } while (true);
+  }
+}
+
+export function requiresSearchLogin(bodyText, resultCount = 0) {
+  if (Number(resultCount) > 0) return false;
+  return /登录后即可搜索更多精彩视频|扫码登录/.test(String(bodyText || ""));
 }
 
 const SEARCH_EVENT_TERMS = [
@@ -76,14 +166,39 @@ export function cardTitleFromText(value) {
 }
 
 export function isExpectedXhsNoteUrl(url, expectedId) {
-  const match = String(url || "").match(/\/(?:explore|search_result)\/([a-zA-Z0-9]+)/);
+  const match = String(url || "").match(/\/(?:explore|search_result)\/([a-zA-Z0-9_-]+)/);
   return Boolean(match && match[1] === String(expectedId || ""));
 }
 
-export function searchRelevance(keyword, text) {
+export function isGenericPlatformRedirect(sourceUrl, finalUrl) {
+  try {
+    const source = new URL(sourceUrl);
+    const final = new URL(finalUrl || sourceUrl);
+    const sourcePath = source.pathname.replace(/\/+$/, '') || '/';
+    const finalPath = final.pathname.replace(/\/+$/, '') || '/';
+    const sourceIsSpecific = /^\/(?:explore|video|question|article|p|answer|user\/profile|people)\/[^/]+/i.test(sourcePath);
+    const finalIsGeneric = finalPath === '/' || /^\/(?:explore|search|home)$/i.test(finalPath);
+    return source.origin === final.origin && sourceIsSpecific && finalIsGeneric;
+  } catch (_) {
+    return false;
+  }
+}
+
+export function searchRelevance(keyword, text, profile = process.env.RADAR_PRODUCT_PROFILE || 'polyv') {
   const normalized = normalizedSearchText(text);
   const parts = [...new Set(keywordParts(keyword))];
   const queryHits = parts.filter((part) => normalized.includes(part)).length;
+  if (profile !== 'polyv') {
+    const domain = { zigo_sales: 'sales_agent', zigo_geo: 'geo' }[profile];
+    if (!domain) throw new Error(`Unknown search profile: ${profile}`);
+    const eventMatches = zigoTaxonomy[domain].search_terms.filter(term => normalized.includes(normalizedSearchText(term)));
+    // This gate finds content containers; buyer qualification uses each author's own words later.
+    const salesSceneContainer = domain === 'sales_agent' && /销售|外贸|成交/.test(normalized)
+      && /客户|新人|求助|跟进|报价|谈单|接待|不会|培养|培训|探需|陌拜|话术/.test(normalized)
+      && !/求职|招聘|面试|考证|考试/.test(normalized);
+    const accepted = salesSceneContainer || eventMatches.some(term => term !== '报价') || (eventMatches.includes('报价') && /客户|销售|跟进/.test(normalized));
+    return { accepted, score: eventMatches.length + queryHits, queryHits, eventMatches };
+  }
   const eventMatches = SEARCH_EVENT_TERMS.filter((term) => normalized.includes(normalizedSearchText(term)));
   const sceneMatches = SEARCH_SCENE_TERMS.filter((term) => normalized.includes(normalizedSearchText(term)));
   const intentMatches = SEARCH_INTENT_TERMS.filter((term) => normalized.includes(normalizedSearchText(term)));
@@ -117,11 +232,28 @@ export function searchRelevance(keyword, text) {
   };
 }
 
-export function filterSearchResults(keyword, items) {
+export function activeDeferredContentIds(record, now = Date.now()) {
+  const expires = Date.parse(record?.expires_at);
+  if (!Number.isFinite(expires) || !Number.isFinite(now)
+    || !Array.isArray(record?.content_ids)
+    || record.content_ids.some(id => typeof id !== 'string' || !id)) {
+    throw Error('invalid deferred content exclusions');
+  }
+  return expires > now ? [...new Set(record.content_ids)] : [];
+}
+
+export function selectUnseenResults(items, limit, seenIds = []) {
+  if (!Array.isArray(seenIds) || seenIds.some(id => typeof id !== 'string' || !id)) throw Error('seen IDs must be a nonempty-string array');
+  if (!Number.isInteger(limit) || limit < 0) throw Error('invalid content limit');
+  const seen = new Set(seenIds);
+  return items.filter(item => !seen.has(item.id)).slice(0, limit);
+}
+
+export function filterSearchResults(keyword, items, profile = process.env.RADAR_PRODUCT_PROFILE || 'polyv') {
   return items
     .map((item) => {
       const text = item.searchText || [item.title, item.rawSnippet, item.text].filter(Boolean).join(" ");
-      return { ...item, relevance: searchRelevance(keyword, text) };
+      return { ...item, relevance: searchRelevance(keyword, text, profile) };
     })
     .filter((item) => item.relevance.accepted)
     .sort((left, right) => right.relevance.score - left.relevance.score);
@@ -175,4 +307,23 @@ export function parseDisplayedTime(value, now = new Date()) {
     年: 365 * 24 * 60 * 60 * 1000,
   }[unit];
   return milliseconds ? new Date(base.getTime() - amount * milliseconds) : null;
+}
+
+export function nativePublishedAt(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 1e9 || number > 1e13) return '';
+  const milliseconds = number < 1e11 ? number * 1000 : number;
+  const date = new Date(milliseconds);
+  return Number.isNaN(date.getTime()) ? '' : date.toISOString();
+}
+
+export function extractPublishedTimeText(value) {
+  const lines = String(value || '')
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const absolute = /20\d{2}[-/.]\d{1,2}[-/.]\d{1,2}(?:\s+\d{1,2}:\d{2})?/;
+  const explicit = lines.find((line) => /(?:发表于|发布于|更新于|编辑于)/.test(line) && absolute.test(line));
+  if (explicit) return explicit;
+  return lines.find((line) => absolute.test(line) || /刚刚|刚才|今天|昨天|\d+\s*(秒|分钟|小时|天|周|月|个月|年)前/.test(line)) || '';
 }

@@ -1,0 +1,170 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from local_tools.polyv_radar.dashboard import clean_dashboard_leads, load_dry_run_queue, load_manual_candidates
+from local_tools.polyv_radar.models import LeadEvidence
+
+
+def _lead(**updates) -> LeadEvidence:
+    lead = LeadEvidence(
+        platform="zhihu",
+        content_id="answer-1",
+        comment_id="",
+        url="https://www.zhihu.com/question/1/answer/2",
+        user="aidou",
+        quote="公司年会要搞线上直播，有好的直播平台推荐吗？",
+        category="企业直播",
+        solution="企业直播方向",
+        score=5,
+        company="高新科技",
+        profile_url="https://www.zhihu.com/people/aidou",
+        author_id="aidou-id",
+        identity_confidence="high",
+        dimensions={"business_scene": 2, "platform_intent": 2, "identity": 1},
+        stage="model_reviewed",
+        decision="high_value",
+        intent_class="buyer_request",
+        locator_status="verified",
+    )
+    for key, value in updates.items():
+        setattr(lead, key, value)
+    return lead
+
+
+def test_dashboard_cleaning_keeps_verified_buyer_and_audits_noise() -> None:
+    kept, filtered = clean_dashboard_leads(
+        [_lead(), _lead(content_id="answer-2", user="平台服务商", company="", profile_bio="直播平台解决方案", locator_status="verified")]
+    )
+    assert [lead.content_id for lead in kept] == ["answer-1"]
+    assert filtered[0]["reason"]
+
+
+def test_dashboard_cleaning_does_not_treat_raw_score_as_verified() -> None:
+    kept, filtered = clean_dashboard_leads([_lead(locator_status="pending")])
+    assert kept == []
+    assert "定位" in filtered[0]["reason"]
+
+
+def test_dashboard_reads_file_queue_and_matches_dry_run_result(tmp_path: Path) -> None:
+    dispatch = tmp_path / "dispatch"
+    dispatch.mkdir()
+    queue = {
+        "platform": "zhihu",
+        "url": "https://www.zhihu.com/question/1/answer/2",
+        "author": "aidou",
+        "text": "测试草稿",
+        "content_id": "answer-1",
+        "comment_id": "",
+        "quote": "公司年会要搞线上直播，有好的直播平台推荐吗？",
+    }
+    (dispatch / "run-1-model.jsonl").write_text(json.dumps(queue, ensure_ascii=False) + "\n", encoding="utf-8")
+    result = {**queue, "status": "dry_run", "structured_result": {"draft_verified": True}, "screenshot": "/tmp/preview.png"}
+    (dispatch / "dispatch-1.jsonl").write_text(json.dumps(result, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    rows = load_dry_run_queue(tmp_path, "run-1")
+    assert len(rows) == 1
+    assert rows[0]["source"] == "dispatch_file"
+    assert rows[0]["dry_run_status"] == "dry_run"
+    assert rows[0]["submitted"] is False
+
+
+def test_dashboard_reads_verified_send_from_structured_dispatch_result(tmp_path: Path) -> None:
+    dispatch = tmp_path / "dispatch"
+    dispatch.mkdir()
+    queue = {
+        "platform": "zhihu",
+        "url": "https://www.zhihu.com/question/1/answer/2",
+        "author": "aidou",
+        "text": "测试回复",
+        "content_id": "answer-1",
+        "comment_id": "",
+        "quote": "公司年会要搞线上直播，有好的直播平台推荐吗？",
+    }
+    (dispatch / "run-1-model.jsonl").write_text(json.dumps(queue, ensure_ascii=False) + "\n", encoding="utf-8")
+    result = {
+        **queue,
+        "status": "submitted_verified",
+        "structured_result": {"submitted": True, "verified": True, "target_matched": True},
+    }
+    (dispatch / "dispatch-1.jsonl").write_text(json.dumps(result, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    rows = load_dry_run_queue(tmp_path, "run-1")
+    assert rows[0]["dry_run_status"] == "submitted_verified"
+    assert rows[0]["submitted"] is True
+    assert rows[0]["verified"] is True
+    assert rows[0]["lead_status"] == "submitted_verified"
+
+
+def test_dashboard_archives_unavailable_content_and_exposes_failure_code(tmp_path: Path) -> None:
+    dispatch = tmp_path / "dispatch"
+    dispatch.mkdir()
+    queue = {
+        "candidate_id": "candidate-404",
+        "platform": "xhs",
+        "url": "https://www.xiaohongshu.com/explore/gone",
+        "author": "作者",
+        "text": "测试回复",
+        "content_id": "gone",
+        "comment_id": "comment-1",
+        "quote": "报价",
+    }
+    (dispatch / "run-1-model.jsonl").write_text(json.dumps(queue, ensure_ascii=False) + "\n", encoding="utf-8")
+    result = {
+        **queue,
+        "status": "content_unavailable",
+        "failure_code": "content_unavailable",
+        "reason": "页面不见了",
+    }
+    (dispatch / "dispatch-1.jsonl").write_text(json.dumps(result, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    rows = load_dry_run_queue(tmp_path, "run-1")
+    assert rows[0]["failure_code"] == "content_unavailable"
+    assert rows[0]["content_state"] == "content_unavailable"
+    assert rows[0]["retryable"] is False
+
+
+def test_dashboard_prefers_latest_retry_result_for_same_candidate(tmp_path: Path) -> None:
+    dispatch = tmp_path / "dispatch"
+    dispatch.mkdir()
+    queue = {
+        "candidate_id": "candidate-1",
+        "platform": "zhihu",
+        "url": "https://www.zhihu.com/question/1/answer/2",
+        "author": "aidou",
+        "text": "测试回复",
+        "content_id": "answer-1",
+        "comment_id": "comment-1",
+        "quote": "公司年会要搞线上直播",
+    }
+    (dispatch / "run-1-model.jsonl").write_text(json.dumps(queue, ensure_ascii=False) + "\n", encoding="utf-8")
+    old = {**queue, "status": "failed", "executed_at": "2026-09-22T03:00:00+00:00", "reason": "旧失败"}
+    new = {**queue, "status": "submitted_verified", "submitted": True, "verified": True, "executed_at": "2026-09-22T04:00:00+00:00"}
+    (dispatch / "dispatch-old.jsonl").write_text(json.dumps(old, ensure_ascii=False) + "\n", encoding="utf-8")
+    (dispatch / "dispatch-new.jsonl").write_text(json.dumps(new, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    rows = load_dry_run_queue(tmp_path, "run-1")
+    assert rows[0]["dry_run_status"] == "submitted_verified"
+    assert rows[0]["submitted"] is True
+    assert rows[0].get("send_reason", "") == ""
+
+
+def test_dashboard_reads_manual_candidate_pool(tmp_path: Path) -> None:
+    review = tmp_path / "review"
+    review.mkdir()
+    row = {"candidate_id": "manual-1", "user": "用户", "quote": "公司培训需求"}
+    (review / "run-1-manual-candidates.jsonl").write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")
+    assert load_manual_candidates(tmp_path, "run-1") == [row]
+
+
+def test_dashboard_merges_manual_locator_results(tmp_path: Path) -> None:
+    review = tmp_path / "review"
+    review.mkdir()
+    row = {"candidate_id": "manual-1", "user": "用户", "quote": "公司培训需求"}
+    locator = {"candidate_id": "manual-1", "status": "verified", "locator_method": "native_id", "locator_url": "https://example.com/#comment-1"}
+    (review / "run-1-manual-candidates.jsonl").write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")
+    (review / "run-1-manual-locator.jsonl").write_text(json.dumps(locator, ensure_ascii=False) + "\n", encoding="utf-8")
+    merged = load_manual_candidates(tmp_path, "run-1")
+    assert merged[0]["locator_status"] == "verified"
+    assert merged[0]["locator_url"].endswith("#comment-1")

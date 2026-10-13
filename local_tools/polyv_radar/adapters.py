@@ -5,6 +5,7 @@ import re
 from typing import Any
 
 from .models import CommentRecord, ContentRecord
+from .target_urls import normalize_comment_url
 
 
 PLATFORM_ALIASES = {"bilibili": "bili", "xiaohongshu": "xhs", "douyin": "dy"}
@@ -149,6 +150,12 @@ def normalize_comment(
     text = str(_first(raw, "text", "content", "comment_content", default=nested_content or ""))
     published_at_raw = str(_first(raw, "published_at_raw", "publish_time_text", "time_text", default=""))
     published_value = _first(raw, "create_time", "published_at", "publish_time", "ctime", default="")
+    source_type = str(_first(raw, "source_type", "comment_type", default="comment")) or "comment"
+    content_url = str(_first(
+        raw, "content_url", "content_permalink", "aweme_url", "note_url", "video_url", "article_url",
+        default="",
+    ))
+    raw_comment_url = str(_first(raw, "comment_url", "reply_url", "permalink", default=""))
     return CommentRecord(
         platform=platform,
         comment_id=comment_id,
@@ -166,7 +173,7 @@ def normalize_comment(
         # be presented as platform-native identifiers.
         native_comment_id=str(_first(raw, "native_comment_id", "comment_native_id", "cid", "rpid")),
         native_parent_id=str(_first(raw, "native_parent_id", "root_comment_id", "root", default="")),
-        comment_url=str(_first(raw, "comment_url", "reply_url", "permalink", default="")),
-        source_type=str(_first(raw, "source_type", "comment_type", default="comment")),
+        comment_url=normalize_comment_url(raw_comment_url, content_url, source_type),
+        source_type=source_type,
         published_at_raw=published_at_raw,
     )

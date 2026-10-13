@@ -22,6 +22,9 @@ from typing import Set, Optional
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from ..services import crawler_manager
+from local_tools.polyv_radar.unified_radar import UnifiedRadarReader
+from pathlib import Path
+import os
 
 router = APIRouter(tags=["websocket"])
 
@@ -145,6 +148,30 @@ async def websocket_status(websocket: WebSocket):
             status = crawler_manager.get_status()
             await websocket.send_json(status)
             await asyncio.sleep(1)
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
+
+
+def _unified_reader() -> UnifiedRadarReader:
+    data_root = Path(os.environ.get("POLYV_RADAR_DATA_ROOT", "/Users/sexpistole111/Documents/workplace/polyv-radar-data"))
+    zigo_db = Path(os.environ.get("ZIGO_RADAR_DB", str(data_root / "zigoai" / "radar.sqlite3")))
+    return UnifiedRadarReader(data_root, zigo_db)
+
+
+@router.websocket("/ws/radar")
+async def websocket_radar(websocket: WebSocket):
+    """Push a lightweight revision when either independent database changes."""
+    await websocket.accept()
+    last_revision = ""
+    try:
+        while True:
+            revision = _unified_reader().last_updated()
+            if revision != last_revision:
+                await websocket.send_json({"type": "radar_revision", "revision": revision})
+                last_revision = revision
+            await asyncio.sleep(2)
     except WebSocketDisconnect:
         pass
     except Exception:

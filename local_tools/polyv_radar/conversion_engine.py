@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from .comment_style import category_comment_guidance, comment_reply
+from .follow_up_style import build_follow_up_reply
 from .models import LeadEvidence
 
 
@@ -12,6 +14,7 @@ class ConversionPack:
     video_topic: str
     video_hook: str
     dm_opener: str
+    dm_follow_up: str
     recommended_materials: dict[str, str]
 
     def to_dict(self) -> dict[str, Any]:
@@ -20,6 +23,7 @@ class ConversionPack:
             "video_topic": self.video_topic,
             "video_hook": self.video_hook,
             "dm_opener": self.dm_opener,
+            "dm_follow_up": self.dm_follow_up,
             "recommended_materials": self.recommended_materials,
         }
 
@@ -155,19 +159,34 @@ KNOWLEDGE_BASE = {
 }
 
 
+def _safe_public_reply(lead: LeadEvidence) -> str:
+    """Create a fact-bounded public reply for the automated queue.
+
+    The richer knowledge base remains available for human review, but public
+    replies must not turn unverified capabilities, cases, or metrics into
+    claims about POLYV.
+    """
+    if lead.source_type in {"comment", "reply"}:
+        return comment_reply(lead.quote, lead.category, industry=lead.industry)
+    return comment_reply(
+        lead.quote,
+        lead.category,
+        guidance=category_comment_guidance(lead.category),
+    )
+
+
 def build_conversion_pack(lead: LeadEvidence) -> ConversionPack:
     category = lead.category if lead.category in KNOWLEDGE_BASE else "企业培训"
     kb = KNOWLEDGE_BASE[category]
 
-    # Personalize reply
-    quote_snippet = lead.quote.strip().replace("\n", " ")[:40]
-    reply = f"针对你提到的“{quote_snippet}...”的情况，{kb['reply_template']}"
+    reply = _safe_public_reply(lead)
 
     return ConversionPack(
         reply_text=reply,
         video_topic=kb["video_topic"],
         video_hook=kb["video_hook"],
         dm_opener=kb["dm_opener"],
+        dm_follow_up=build_follow_up_reply(lead.quote, category, domain="polyv"),
         recommended_materials={
             "case": kb["case"],
             "template": kb["template"],

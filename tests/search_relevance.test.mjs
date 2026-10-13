@@ -1,20 +1,149 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { cardTitleFromText, filterSearchResults, isExpectedXhsNoteUrl, parseDisplayedTime, searchRelevance } from '../local_tools/polyv_radar/ego_helpers.mjs';
+import { cardTitleFromText, extractPublishedTimeText, filterSearchResults, isExpectedXhsNoteUrl, isGenericPlatformRedirect, normalizeZhihuCommentLines, parseDisplayedTime, requiresSearchLogin, searchRelevance, xhsDetailReady } from '../local_tools/polyv_radar/ego_helpers.mjs';
+import { gotoWithCommittedPageCheck } from '../local_tools/polyv_radar/ego_helpers.mjs';
+import { nativePublishedAt } from '../local_tools/polyv_radar/ego_helpers.mjs';
+import { loadBiliComments } from '../local_tools/polyv_radar/ego_helpers.mjs';
+import { loadUntilStable } from '../local_tools/polyv_radar/ego_helpers.mjs';
+import { activeDeferredContentIds, selectUnseenResults } from '../local_tools/polyv_radar/ego_helpers.mjs';
+
+test('temporary failures are skipped without mutating successful seen IDs', () => {
+  const seen = ['saved'];
+  const deferred = activeDeferredContentIds({expires_at:'2026-10-08T03:00:00Z',content_ids:['failed']}, Date.parse('2026-10-08T02:00:00Z'));
+  assert.deepEqual(selectUnseenResults([{id:'saved'},{id:'failed'},{id:'new'}], 5, [...seen,...deferred]), [{id:'new'}]);
+  assert.deepEqual(seen, ['saved']);
+});
+
+test('temporary failure exclusions expire and malformed files fail closed', () => {
+  assert.deepEqual(activeDeferredContentIds({expires_at:'2026-10-08T02:00:00Z',content_ids:['failed']}, Date.parse('2026-10-08T02:00:00Z')), []);
+  assert.throws(() => activeDeferredContentIds({expires_at:'invalid',content_ids:[]}), /invalid deferred/);
+  assert.throws(() => activeDeferredContentIds({expires_at:'2026-10-08T03:00:00Z',content_ids:[null]}), /invalid deferred/);
+});
+
+test('scoped comment loading scrolls the note container, not the window', async () => {
+  const originalDocument = globalThis.document;
+  const originalWindow = globalThis.window;
+  let comments = 15;
+  let windowScrolls = 0;
+  let noteScrolls = 0;
+  globalThis.document = {
+    querySelector: selector => selector === '.note-scroller' ? {
+      scrollHeight: 2000,
+      scrollTo: () => { noteScrolls++; comments += 15; },
+    } : null,
+    querySelectorAll: selector => {
+      assert.equal(selector, '.comments-container .comment-item');
+      return {length: comments};
+    },
+    body: {scrollHeight: 2000},
+  };
+  globalThis.window = {scrollTo: () => { windowScrolls++; }};
+  const page = {evaluate: async (fn, arg) => fn(arg)};
+  try {
+    await loadUntilStable(page, '.comments-container .comment-item', 30, 3, 14, 0, '.note-scroller');
+    assert.equal(comments, 30);
+    assert.equal(noteScrolls, 1);
+    assert.equal(windowScrolls, 0);
+  } finally {
+    globalThis.document = originalDocument;
+    globalThis.window = originalWindow;
+  }
+});
+
+test('missing explicit comment scroller fails instead of scrolling another surface', async () => {
+  const originalDocument = globalThis.document;
+  const originalWindow = globalThis.window;
+  globalThis.document = {querySelector: () => null, querySelectorAll: () => [], body: {scrollHeight: 0}};
+  globalThis.window = {scrollTo: () => {}};
+  try {
+    await assert.rejects(loadUntilStable({evaluate: async (fn, arg) => fn(arg)}, '.comment-item', 30, 3, 14, 0, '.note-scroller'), /COMMENT_SCROLLER_MISSING/);
+  } finally {
+    globalThis.document = originalDocument;
+    globalThis.window = originalWindow;
+  }
+});
+
+test('Bili loading uses shadow-root readiness before counting or stopping', async () => {
+  const events = [];
+  const page = {
+    waitForFunction: async fn => { events.push(fn.toString()); },
+    evaluate: async fn => { events.push(fn.toString()); return fn.toString().includes('length || 0') ? 20 : undefined; },
+    waitForTimeout: async () => {},
+  };
+  assert.deepEqual(await loadBiliComments(page, 15), { status: 'loaded', count: 20 });
+  assert.match(events[0], /shadowRoot/);
+  assert.match(events[1], /scrollIntoView/);
+});
+
+test('Bili unhydrated comments are a loading failure, not confirmed empty comments', async () => {
+  const page = { waitForFunction: async () => { throw Error('timed out'); } };
+  assert.deepEqual(await loadBiliComments(page, 15), { status: 'loading_timeout', count: 0 });
+});
+
+test('native publication time accepts epoch seconds or milliseconds, not arbitrary values', () => {
+  assert.equal(nativePublishedAt(1791349703), '2026-10-07T05:08:23.000Z');
+  assert.equal(nativePublishedAt(1791349703000), '2026-10-07T05:08:23.000Z');
+  assert.equal(nativePublishedAt(undefined), '');
+  assert.equal(nativePublishedAt(123), '');
+});
+
+test('navigation timeout only recovers after expected page verification', async () => {
+  const error = Object.assign(new Error('navigation timeout'), {name:'PageNavigationTimeoutError'});
+  const page = {goto:async () => {throw error;}};
+  assert.equal(await gotoWithCommittedPageCheck(page, 'https://example.test', async () => true), 'committed_timeout');
+  await assert.rejects(gotoWithCommittedPageCheck(page, 'https://example.test', async () => false), /navigation timeout/);
+  await assert.rejects(gotoWithCommittedPageCheck({goto:async () => {throw Error('login blocked');}}, 'x', async () => true), /login blocked/);
+});
 
 test('extracts the title from a Douyin search card', () => {
   const title = cardTitleFromText('01:14\n57\n神鹏品牌全国经销商大会圆满召开\n@郑州三邦机电（周晓峰）\n3周前');
   assert.equal(title, '神鹏品牌全国经销商大会圆满召开');
 });
 
+test('committed navigation waits for delayed results without another navigation', async () => {
+  let navigations = 0;
+  let checks = 0;
+  let waits = 0;
+  const page = {
+    goto: async () => { navigations++; throw Object.assign(Error('timeout'), { name: 'PageNavigationTimeoutError' }); },
+    waitForTimeout: async () => { waits++; },
+  };
+  assert.equal(await gotoWithCommittedPageCheck(page, 'x', async () => ++checks === 2, { readinessTimeout: 1000 }), 'committed_timeout');
+  assert.equal(navigations, 1);
+  assert.equal(waits, 1);
+});
+
 test('does not treat Bilibili metadata as a title', () => {
   assert.equal(cardTitleFromText('1257\n0\n01:12'), '');
+});
+
+test('distinguishes a Douyin login gate from an empty search result', () => {
+  assert.equal(requiresSearchLogin('登录后即可搜索更多精彩视频\n扫码登录', 0), true);
+  assert.equal(requiresSearchLogin('登录后即可搜索更多精彩视频', 2), false);
+  assert.equal(requiresSearchLogin('没有找到相关视频', 0), false);
 });
 
 test('rejects an XHS detail redirect to a different note', () => {
   assert.equal(isExpectedXhsNoteUrl('https://www.xiaohongshu.com/explore/68d922490000000013009d19', '635e3e26000000001601bdac'), false);
   assert.equal(isExpectedXhsNoteUrl('https://www.xiaohongshu.com/explore/635e3e26000000001601bdac', '635e3e26000000001601bdac'), true);
+});
+
+test('rejects a specific content URL redirected to a generic platform page', () => {
+  assert.equal(
+    isGenericPlatformRedirect(
+      'https://www.xiaohongshu.com/explore/note-1#comment-comment-1',
+      'https://www.xiaohongshu.com/explore',
+    ),
+    true,
+  );
+  assert.equal(
+    isGenericPlatformRedirect(
+      'https://www.xiaohongshu.com/user/profile/user-1',
+      'https://www.xiaohongshu.com/user/profile/user-1',
+    ),
+    false,
+  );
 });
 
 test('accepts business event results with selection intent', () => {
@@ -76,4 +205,28 @@ test('parses displayed relative comment time instead of crawl time', () => {
   assert.equal(parseDisplayedTime('60天前·北京', now).toISOString(), '2026-07-17T12:00:00.000Z');
   assert.equal(parseDisplayedTime('91天前', now).toISOString(), '2026-06-16T12:00:00.000Z');
   assert.equal(parseDisplayedTime('未知时间', now), null);
+});
+
+test('extracts an explicit page publication or edit date', () => {
+  assert.equal(
+    extractPublishedTimeText('编辑于 2026-04-13 09:38\n企业培训平台选型'),
+    '编辑于 2026-04-13 09:38',
+  );
+});
+
+test('知乎评论文本从动态评论块中保留完整原话', () => {
+  assert.equal(
+    normalizeZhihuCommentLines(['lumina', '公司培训课程被录屏了，想问有什么平台能处理？', '01-26 · 美国', '回复', '喜欢'], 'lumina'),
+    '公司培训课程被录屏了，想问有什么平台能处理？',
+  );
+});
+
+test('小红书详情就绪不要求作者必须变化', () => {
+  assert.equal(
+    xhsDetailReady(
+      { path: '/explore/note-2', title: '新品发布会直播', authorHref: 'https://www.xiaohongshu.com/user/profile/same' },
+      { id: 'note-2', title: '新品发布会直播', previousAuthorHref: 'https://www.xiaohongshu.com/user/profile/same' },
+    ),
+    true,
+  );
 });

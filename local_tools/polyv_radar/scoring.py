@@ -30,21 +30,22 @@ PURCHASE_SCENE_TERMS = (
     "会议", "课程", "投教", "年会", "招商", "企业大学", "Webinar", "研讨会",
 )
 PROJECT_TIMING_TERMS = (
-    "下个月", "本月", "近期", "最近", "正在", "准备", "筹备", "项目", "上线", "落地", "启动", "实施",
-    "大会", "发布会", "年会", "培训",
+    "下个月", "本月", "近期", "最近要", "最近需要", "近期需要", "正在做", "正在筹备", "准备做", "准备上线", "已经立项",
+    "预算已批", "老板让我", "公司年会要", "公司要搞", "企业要办", "即将在", "筹备中", "年底要", "项目启动", "项目实施", "上线前",
+    "异地分支", "全国渠道", "多会场", "线上线下同步", "海外员工", "跨省",
 )
 PLATFORM_INTENT_TERMS = (
     "求推荐", "推荐", "平台", "供应商", "服务商", "选型", "采购", "预算", "报价", "多少钱", "费用",
-    "方案", "用什么", "有没有", "哪家", "怎么选",
+    "方案", "用什么", "有没有", "哪家", "怎么选", "询价", "招标", "比选", "招募", "方案征集",
 )
 DELIVERY_INQUIRY_TERMS = (
     "部署", "私有化", "接口", "SDK", "API", "接入", "并发", "交付", "实施周期", "周期", "能不能支持", "支持多少人", "支持并发",
-    "多少钱", "报价", "费用",
+    "预算", "多少钱", "报价", "费用",
 )
 
 
 CATEGORY_TERMS = {
-    "企业直播": ("企业直播", "发布会直播", "万人直播", "直播卡顿", "直播平台推荐", "线上活动直播", "活动直播", "直播选型", "发布会转线上", "大并发直播选型", "线上研讨会", "线上研讨会推荐", "线上研讨会方案", "Webinar", "低延迟互动直播", "线上峰会策划"),
+    "企业直播": ("企业直播", "发布会直播", "新品发布会", "公司年会", "年会直播", "万人直播", "直播卡顿", "直播平台推荐", "线上活动直播", "活动直播", "直播选型", "发布会转线上", "大并发直播选型", "线上研讨会", "线上研讨会推荐", "线上研讨会方案", "Webinar", "低延迟互动直播", "线上峰会策划", "行业峰会", "行业大会", "医学会议", "学术会议", "线上招商", "招商会", "订货会", "巡展", "路演", "合作伙伴大会", "经销商大会"),
     "私域直播": ("私域直播", "微信直播", "企微直播", "公众号直播", "私域搭建", "私域运营直播", "私域裂变", "私域直播引流", "私域直播SOP", "小程序公众号直播"),
     "视频点播": ("视频点播", "点播系统", "企业点播", "点播平台", "点播播放器", "视频托管", "私有化点播"),
     "企业培训": ("企业培训", "企业内训", "员工培训", "经销商培训", "线上培训", "企业大学", "培训平台", "微课培训", "培训直播", "课程培训", "员工培训痛点", "门店与经销商", "企业内训系统搭建", "企业培训体系", "客户培训数字化", "经销商线上培训", "内训平台选型", "经销商培训难题", "在线教育系统源码"),
@@ -66,11 +67,41 @@ SOLUTIONS = {
     "未分类": "直播与视频平台能力方向",
 }
 
-EXPLICIT_NEED = ("我们公司", "我司", "公司需要", "企业需要", "正在找", "需要一个", "需要做", "想找", "老板让我", "求推荐", "哪家平台", "用什么系统", "怎么选平台")
-PROJECT_TERMS = ("项目", "上线", "准备", "正在做", "筹备", "落地", "启动", "实施", "采购", "老板让我")
-INQUIRY_TERMS = ("多少钱", "价格", "费用", "方案", "平台推荐", "推荐一下", "能不能支持", "怎么选", "有没有做过", "好用吗", "怎么收费", "试用")
-ROLE_TERMS = ("公司", "企业", "老板", "负责人", "总监", "经理", "HR", "人事", "运营", "技术", "采购", "IT")
+EXPLICIT_NEED = ("我们公司", "我司", "公司需要", "企业需要", "正在找", "需要一个", "需要做", "想找", "老板让我", "求推荐", "哪家平台", "用什么系统", "怎么选平台", "征集")
+PROJECT_TERMS = ("项目", "上线", "准备", "正在做", "筹备", "落地", "启动", "实施", "采购", "老板让我", "征集", "年会", "发布会", "大会")
+INQUIRY_TERMS = ("预算", "多少钱", "价格", "费用", "方案", "平台推荐", "推荐一下", "能不能支持", "怎么选", "有没有做过", "好用吗", "怎么收费", "试用", "供应商", "服务商", "选型", "采购", "报价")
+ROLE_TERMS = ("负责人", "总监", "经理", "HR", "人事", "运营", "技术", "采购", "IT")
 AD_TERMS = ("我们提供", "加微信", "私信我", "招商加盟", "招商代理", "招代理", "代理加盟", "源码", "代运营", "同行", "厂家", "欢迎咨询", "出各种", "诚信接单")
+
+BUYER_OWNERSHIP_TERMS = (
+    "我们公司", "我司", "公司需要", "公司要", "公司要搞", "公司年会要", "公司准备", "公司在找", "企业需要", "企业要", "企业要办", "企业在找", "老板让我", "我们要",
+    "我们正在", "我们准备", "我们计划", "正在找", "想找", "需要一个", "需要做", "求推荐",
+    "求平台", "求方案", "征集",
+)
+BUYER_ACTION_TERMS = (
+    "预算", "多少钱", "报价", "费用", "采购", "选型", "供应商", "服务商", "平台", "方案", "系统", "平台推荐",
+    "怎么选", "哪家", "用什么", "能不能支持", "支持多少人", "部署", "私有化", "接口",
+    "SDK", "API", "交付", "实施周期", "并发",
+)
+PROVIDER_CONTENT_TERMS = (
+    "我们提供", "解决方案", "成功案例", "助力企业", "欢迎咨询", "报价清单", "服务商介绍",
+    "一站式服务", "服务案例", "平台盘点", "十大平台", "平台测评", "实测不踩坑",
+)
+GUIDE_CONTENT_TERMS = (
+    "攻略", "指南", "避坑", "解析", "经验总结", "经验分享", "保姆级教程", "教程",
+    "盘点", "测评", "怎么报价", "选型参考", "不踩坑",
+)
+IRRELEVANT_PATTERNS = (
+    ("招聘", "培训费"), ("兼职", "押金"), ("刷单", "培训"), ("招聘", "保证金"),
+)
+
+# A content-level lead is only useful when the post itself asks for a
+# solution, supplier, price, or selection help. Generic educational content
+# must remain context for comment scoring rather than becoming a lead.
+CONTENT_DEMAND_TERMS = (
+    "征集", "求推荐", "求方案", "供应商", "服务商", "采购", "报价", "多少钱",
+    "选型", "平台推荐", "怎么选", "招标", "有没有做过", "需要平台", "需要系统",
+)
 
 # Hard negative terms to filter out non-B2B discussions (entertainment, gaming, personal streaming, medical, casual chat)
 NEGATIVE_TERMS = (
@@ -81,6 +112,119 @@ NEGATIVE_TERMS = (
     "王者荣耀", "kpl", "折叠屏", "手机", "测评", "数码", "打游戏", "动漫", "游戏",
     "离职", "辞职", "工资只有", "打工人", "破防", "领导恶心", "摆烂", "躺平"
 )
+
+TECHNICAL_INTEREST_TERMS = (
+    "怎么实现", "怎么开发", "开发教程", "搭建教程", "设备篇", "源码", "代码实现",
+    "webRTC", "SDK怎么", "API怎么", "接口怎么写", "技术原理", "开发经验",
+)
+
+POLYV_DOMAIN_TERMS = (
+    "直播", "点播", "视频", "培训", "内训", "企培", "企业大学", "员工学习", "经销商培训",
+    "经销商大会", "合作伙伴大会", "新品发布会", "发布会", "年会", "峰会", "学术会议", "医学会议",
+    "招商会", "订货会", "巡展", "路演", "投教", "课程", "微课", "回放", "防录屏", "盗录",
+    "视频加密", "学习平台", "培训平台", "Webinar", "SDK", "API", "WebRTC", "线上活动",
+)
+
+POLYV_MANUAL_CONTEXT_TERMS = tuple(
+    term for term in POLYV_DOMAIN_TERMS if term not in {"课程", "微课", "SDK", "API", "WebRTC"}
+)
+
+PROVIDER_ACCOUNT_TERMS = (
+    "平台", "服务商", "会务", "会展", "视频加密", "视频播放器", "培训平台", "企培", "云直播",
+    "解决方案", "课程API", "课程api", "客户经理", "咨询师", "培训顾问", "小鹅通", "平安知鸟",
+    "先闻道", "EduSoho", "酷学院", "商学园", "LockBox", "小鹅教头", "云课堂", "课程顾问",
+)
+
+MANUAL_REVIEW_SIGNAL_TERMS = (
+    "用户体验", "售后服务", "性价比", "长久持续", "长期使用", "已经选好", "还没选",
+    "正好需要", "有需求", "需求", "预算", "报价", "平台", "方案", "供应商", "服务商",
+    "线下培训", "公开课", "公司请", "我们公司", "我司", "老板", "企业", "公司",
+)
+
+ENTERPRISE_NAME_TERMS = (
+    "公司", "集团", "科技", "教育", "学院", "协会", "中心", "官方", "企业", "有限公司",
+    "股份", "银行", "证券", "医院", "学校", "大学", "研究院", "传媒", "会务",
+)
+
+
+def freshness_bucket(
+    published_at: datetime | None,
+    now: datetime | None = None,
+    recent_days: int = 90,
+    max_age_days: int = 730,
+) -> str:
+    """Return a routing bucket without treating missing time as recent."""
+    if published_at is None:
+        return "unknown"
+    now = now or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    if published_at.tzinfo is None:
+        published_at = published_at.replace(tzinfo=timezone.utc)
+    if published_at > now:
+        return "unknown"
+    age = now - published_at
+    if age <= timedelta(days=max(1, recent_days)):
+        return "current"
+    if age <= timedelta(days=max(1, max_age_days)):
+        return "historical"
+    return "stale"
+
+
+def classify_publisher_role(content: ContentRecord) -> tuple[str, str]:
+    """Classify the source account as a routing hint, never as identity proof."""
+    author = (content.author or "").casefold()
+    source = f"{content.title}\n{content.text}".casefold()
+    if any(term.casefold() in author for term in PROVIDER_ACCOUNT_TERMS):
+        return "likely_provider", "账号名带有平台、服务商或会务类词"
+    if any(term.casefold() in source for term in PROVIDER_CONTENT_TERMS):
+        return "likely_provider", "帖子含服务商、平台推广或内容营销表达"
+    if any(term.casefold() in author for term in ENTERPRISE_NAME_TERMS):
+        return "likely_enterprise", "账号名具有企业/机构命名特征，仅作弱信号"
+    return "unknown", "没有足够的公开来源角色信号"
+
+
+def classify_account_role(name: str) -> tuple[str, str]:
+    lowered = str(name or "").casefold()
+    if any(term.casefold() in lowered for term in PROVIDER_ACCOUNT_TERMS):
+        return "likely_provider", "账号名带有服务商、平台或销售身份特征"
+    if any(term.casefold() in lowered for term in ENTERPRISE_NAME_TERMS):
+        return "likely_enterprise", "账号名具有企业/机构命名特征，仅作弱信号"
+    return "unknown", "没有足够的公开账号角色信号"
+
+
+def classify_intent(content: ContentRecord, comment: CommentRecord | None = None) -> tuple[str, str]:
+    """Classify a source before enrichment and model review.
+
+    A post supplies business context, while a comment must carry its own buyer
+    evidence. Provider and guide posts remain useful containers for comments,
+    but their authors are not leads by default.
+    """
+    content_text = f"{content.title}\n{content.text}".strip()
+    signal_text = comment.text.strip() if comment else content_text
+    lowered = signal_text.casefold()
+    if any(all(part.casefold() in lowered for part in pattern) for pattern in IRRELEVANT_PATTERNS):
+        return "irrelevant", "招聘、兼职或收费骗局模式"
+
+    has_ownership = any(term.casefold() in lowered for term in BUYER_OWNERSHIP_TERMS)
+    has_action = any(term.casefold() in lowered for term in BUYER_ACTION_TERMS)
+    has_provider = any(term.casefold() in lowered for term in PROVIDER_CONTENT_TERMS)
+    has_guide = any(term.casefold() in lowered for term in GUIDE_CONTENT_TERMS)
+
+    if has_ownership and has_action:
+        return "buyer_request", "存在主体归属和项目、选型或交付动作"
+    if has_provider and not has_ownership:
+        return "provider_content", "内容呈现为服务商或产品推广"
+    if has_guide and not has_ownership:
+        return "guide_content", "内容呈现为教程、盘点或经验总结"
+    if has_action and not has_ownership:
+        return "general_discussion", "有业务术语但没有可确认的买方主体"
+    return "general_discussion", "缺少明确买方动作或项目主体"
+
+
+def has_content_demand_signal(content: ContentRecord) -> bool:
+    intent_class, _ = classify_intent(content)
+    return intent_class == "buyer_request"
 
 
 @dataclass
@@ -119,6 +263,7 @@ def score_purchase_evidence(
     external_evidence: Iterable[dict] = (),
     now: datetime | None = None,
     recent_days: int = 90,
+    negative_terms: Iterable[str] = (),
 ) -> PurchaseEvidenceScore:
     now = now or datetime.now(timezone.utc)
     quote = comment.text if comment else content.text
@@ -131,12 +276,22 @@ def score_purchase_evidence(
     profile = profile or {}
     evidence_urls = [str(item.get("source_url", "")) for item in external_evidence if item.get("source_url")]
 
-    if any(term.lower() in lowered for term in (*AD_TERMS, *NEGATIVE_TERMS)):
+    configured_negative_terms = tuple(str(term) for term in negative_terms if term)
+    if any(term.lower() in lowered for term in (*AD_TERMS, *NEGATIVE_TERMS, *configured_negative_terms)):
         return PurchaseEvidenceScore(
             score=0,
             dimensions={key: 0 for key in ("business_scene", "project_timing", "platform_intent", "delivery_inquiry", "identity")},
             event_type=classify_event(content_context) or classify_event(signal_text),
             rejected_reason="广告、同行或非B端内容",
+        )
+
+    intent_class, intent_reason = classify_intent(content, comment)
+    if intent_class in {"provider_content", "guide_content", "irrelevant"}:
+        return PurchaseEvidenceScore(
+            score=0,
+            dimensions={key: 0 for key in ("business_scene", "project_timing", "platform_intent", "delivery_inquiry", "identity")},
+            event_type=classify_event(content_context) or classify_event(signal_text),
+            rejected_reason=f"{intent_reason}，不进入模型复核",
         )
 
     has_scene = any(term.lower() in content_lower or term.lower() in signal_lower for term in PURCHASE_SCENE_TERMS)
@@ -145,7 +300,22 @@ def score_purchase_evidence(
         event_type = classify_event(signal_text)
     business_scene = 2 if has_scene and event_type != "未分类" else (1 if has_scene else 0)
 
-    published_at = comment.published_at if comment else content.published_at
+    if intent_class != "buyer_request":
+        return PurchaseEvidenceScore(
+            score=business_scene,
+            dimensions={
+                "business_scene": business_scene,
+                "project_timing": 0,
+                "platform_intent": 0,
+                "delivery_inquiry": 0,
+                "identity": 0,
+            },
+            event_type=event_type,
+            evidence_sentences=_dimension_evidence(content_context, PURCHASE_SCENE_TERMS),
+            rejected_reason=f"{intent_reason}，不进入模型复核",
+        )
+
+    published_at = (comment.published_at if comment and comment.published_at else None) or content.published_at
     recent = bool(published_at and now - timedelta(days=max(1, recent_days)) <= published_at <= now)
     buyer_context = signal_text if comment else content_context
     buyer_lower = buyer_context.lower()
@@ -153,10 +323,10 @@ def score_purchase_evidence(
     project_timing = 2 if project_hit and recent else (1 if project_hit else 0)
 
     platform_hits = _dimension_evidence(buyer_context, PLATFORM_INTENT_TERMS)
-    platform_intent = 2 if any(term.lower() in buyer_lower for term in ("求推荐", "供应商", "服务商", "选型", "采购", "报价", "多少钱", "哪家")) else (1 if platform_hits else 0)
+    platform_intent = 2 if any(term.lower() in buyer_lower for term in ("求推荐", "平台推荐", "推荐", "供应商", "服务商", "选型", "采购", "预算", "报价", "多少钱", "哪家")) else (1 if platform_hits else 0)
 
     delivery_hits = _dimension_evidence(buyer_context, DELIVERY_INQUIRY_TERMS)
-    delivery_inquiry = 2 if any(term.lower() in buyer_lower for term in ("报价", "多少钱", "部署", "私有化", "接口", "SDK", "API", "交付", "实施周期")) else (1 if delivery_hits else 0)
+    delivery_inquiry = 2 if any(term.lower() in buyer_lower for term in ("预算", "报价", "多少钱", "部署", "私有化", "接口", "SDK", "API", "交付", "实施周期")) else (1 if delivery_hits else 0)
 
     identity_confidence = str(profile.get("identity_confidence", "low"))
     identity = {"high": 2, "medium": 1}.get(identity_confidence, 0)
@@ -224,6 +394,7 @@ def score_text(
     now: datetime | None = None,
     category_hint: str | None = None,
     recent_days: int = 90,
+    negative_terms: Iterable[str] = (),
 ) -> ScoreResult:
     text = text.strip()
     now = now or datetime.now(timezone.utc)
@@ -263,10 +434,11 @@ def score_text(
         reasons.append("广告或同行推广")
         evidence.extend(_evidence(text, AD_TERMS))
 
-    if any(term.lower() in text.lower() for term in NEGATIVE_TERMS):
+    configured_negative_terms = tuple(str(term) for term in negative_terms if term)
+    if any(term.lower() in text.lower() for term in (*NEGATIVE_TERMS, *configured_negative_terms)):
         score -= 8
-        reasons.append("非B端业务场景/消费数码/医疗讨论")
-        evidence.extend(_evidence(text, NEGATIVE_TERMS))
+        reasons.append("非B端业务场景/消费数码/医疗讨论或词库负向场景")
+        evidence.extend(_evidence(text, (*NEGATIVE_TERMS, *configured_negative_terms)))
 
     unique_evidence = list(dict.fromkeys(evidence))
     return ScoreResult(max(0, min(10, score)), category, reasons, unique_evidence)
@@ -278,25 +450,53 @@ def score_lead(
     now: datetime | None = None,
     category_hint: str | None = None,
     recent_days: int = 90,
+    negative_terms: Iterable[str] = (),
+    max_age_days: int = 730,
 ) -> LeadEvidence:
+    now = now or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
     quote = comment.text if comment else content.text
     context = f"{content.title}\n{content.text}".strip()
     signal_text = quote.strip()
     inferred_category = classify_category(context, category_hint)
-    result = score_text(signal_text, comment.published_at if comment else content.published_at, now, inferred_category, recent_days)
-    category_terms = CATEGORY_TERMS.get(inferred_category, ())
-    has_business_scene = any(term.lower() in context.lower() or term.lower() in signal_text.lower() for term in category_terms)
-    has_intent = any(
-        term.lower() in signal_text.lower()
-        for term in (*EXPLICIT_NEED, *PROJECT_TERMS, *INQUIRY_TERMS)
+    purchase = score_purchase_evidence(
+        content,
+        comment,
+        now=now,
+        recent_days=recent_days,
+        negative_terms=negative_terms,
     )
-    if not has_business_scene or not has_intent:
-        result = ScoreResult(
-            score=0,
-            category=result.category,
-            reasons=["过滤：缺少明确的视频业务场景或采购/项目意图"],
-            evidence_sentences=result.evidence_sentences,
-        )
+    result = ScoreResult(
+        score=purchase.score,
+        category=inferred_category,
+        reasons=[f"{name}:{value}" for name, value in purchase.dimensions.items() if value],
+        evidence_sentences=purchase.evidence_sentences,
+    )
+    dimensions = purchase.dimensions
+    intent_class, intent_reason = classify_intent(content, comment)
+    published_at = (comment.published_at if comment and comment.published_at else None) or content.published_at
+    freshness = freshness_bucket(published_at, now, recent_days, max_age_days)
+    source_role, _ = classify_publisher_role(content)
+    candidate_kind = "historical_reactivation" if freshness == "historical" else (
+        "conditional_provider_context" if source_role == "likely_provider" else "current_demand"
+    )
+    if comment:
+        source_type = comment.source_type or "comment"
+        profile_url = comment.author_url or content.creator_url or content.author_url
+        author_id = comment.author_id
+    elif content.platform == "zhihu" and "/answer/" in content.url:
+        source_type = "answer"
+        profile_url = content.creator_url or content.author_url
+        author_id = content.author_id
+    elif content.platform == "zhihu" and "/p/" in content.url:
+        source_type = "post"
+        profile_url = content.creator_url or content.author_url
+        author_id = content.author_id
+    else:
+        source_type = "content"
+        profile_url = content.creator_url or content.author_url
+        author_id = content.author_id
     return LeadEvidence(
         platform=content.platform,
         content_id=content.content_id,
@@ -311,4 +511,24 @@ def score_lead(
         evidence_sentences=result.evidence_sentences,
         outreach="公开答疑，并明确说明POLYV身份",
         content_title=content.title,
+        event_type=classify_event(context),
+        profile_url=profile_url,
+        author_url=profile_url,
+        author_id=author_id,
+        dimensions=dimensions,
+        intent_class=intent_class,
+        intent_reason=intent_reason,
+        source_type=source_type,
+        comment_url=comment.comment_url if comment else "",
+        parent_comment_id=comment.parent_comment_id if comment else "",
+        native_comment_id=comment.native_comment_id if comment else "",
+        published_at=published_at.isoformat() if published_at else (comment.published_at_raw if comment else ""),
+        freshness=freshness,
+        source_role=source_role,
+        candidate_kind=candidate_kind,
+        recommended_action=(
+            "历史复活：先确认现在是否仍有需求，再说明POLYV可以结合场景提供定制方案，邀请私信沟通。"
+            if freshness == "historical"
+            else "进入人工复核：补充主页、公开身份和需求定位证据。"
+        ),
     )

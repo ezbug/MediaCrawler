@@ -8,13 +8,16 @@ const taskspaceId = Number(process.env.POLYV_TASKSPACE_ID);
 const screenshotDir = process.env.POLYV_LOCATOR_SCREENSHOT_DIR || '';
 
 if (!Number.isInteger(taskspaceId) || taskspaceId <= 0) throw new Error('需要有效的 POLYV_TASKSPACE_ID');
-const task = await takeOverTaskSpace(taskspaceId);
+const task = await taskSpace(taskspaceId);
 const page = task.page('p1');
 
 const normalize = (value) => String(value || '').toLowerCase().replace(/[\s\u3000]+/g, ' ').trim();
 const timePattern = /刚刚|刚才|今天|昨天|\d+\s*(秒|分钟|小时|天|周|月|个月|年)前|20\d{2}[-/.]\d{1,2}[-/.]\d{1,2}/;
 const notFoundPattern = /\/404(?:[/?#]|$)|404页面|页面不存在|内容不存在|视频不存在|笔记不存在|问题不存在|当前笔记暂时无法浏览|Not Found/i;
-const blockedPattern = /登录后查看|请先登录|登录\/去登录|captcha|验证后继续|访问受限|安全验证|too many requests|forbidden/i;
+// Login prompts can coexist with publicly rendered comments. Only treat hard
+// access barriers as a blocked page; the comment matcher must inspect visible
+// content before deciding that a page cannot be located.
+const blockedPattern = /captcha|验证后继续|访问受限|安全验证|too many requests|forbidden/i;
 
 function attributes(node) {
   return Object.fromEntries(Array.from(node?.attributes || []).map((attribute) => [attribute.name, attribute.value]));
@@ -50,63 +53,87 @@ function extractStandardComment(node, platform) {
   };
 }
 
-function extractBiliComments() {
-  const host = document.querySelector('bili-comments');
-  const threads = Array.from(host?.shadowRoot?.querySelectorAll('bili-comment-thread-renderer') || []);
-  return threads.map((thread) => {
-    const comment = thread.shadowRoot?.querySelector('#comment');
-    if (!comment?.shadowRoot) return null;
-    const userInfo = comment.shadowRoot.querySelector('bili-comment-user-info');
-    const richText = comment.shadowRoot.querySelector('bili-rich-text');
-    const authorLink = userInfo?.shadowRoot?.querySelector('a[href*="space.bilibili.com"]');
-    const text = richText?.shadowRoot?.querySelector('#contents')?.innerText || richText?.innerText || '';
-    if (!text.trim()) return null;
-    const threadAttrs = attributes(thread);
-    const commentAttrs = attributes(comment);
-    const nativeCommentId = threadAttrs['data-rpid'] || threadAttrs['data-comment-id'] || commentAttrs['data-rpid'] || commentAttrs['data-comment-id'] || '';
-    const nativeParentId = threadAttrs['data-root'] || threadAttrs['data-parent-id'] || commentAttrs['data-root'] || commentAttrs['data-parent-id'] || '';
-    const commentLink = Array.from(comment.shadowRoot.querySelectorAll('a[href]')).find((anchor) => /reply|comment/i.test(anchor.getAttribute('href') || ''));
-    const publishedAtRaw = [...(comment.shadowRoot.innerText || '').split('\n').map((line) => line.trim()).filter(Boolean)].reverse().find((line) => timePattern.test(line)) || '';
-    return {
-      native_comment_id: nativeCommentId,
-      native_parent_id: nativeParentId,
-      parent_comment_id: nativeParentId,
-      comment_url: commentLink?.href || '',
-      source_type: nativeParentId ? 'reply' : 'comment',
-      author: authorLink?.innerText?.trim() || 'B站用户',
-      author_url: authorLink?.href || '',
-      text: text.trim(),
-      published_at_raw: publishedAtRaw,
-    };
-  }).filter(Boolean);
+async function extractBiliComments() {
+  return page.evaluate(() => {
+    const timePattern = /刚刚|刚才|今天|昨天|\d+\s*(秒|分钟|小时|天|周|月|个月|年)前|20\d{2}[-/.]\d{1,2}[-/.]\d{1,2}/;
+    const attributes = (node) => Object.fromEntries(Array.from(node?.attributes || []).map((attribute) => [attribute.name, attribute.value]));
+    const host = document.querySelector('bili-comments');
+    const threads = Array.from(host?.shadowRoot?.querySelectorAll('bili-comment-thread-renderer') || []);
+    return threads.map((thread) => {
+      const comment = thread.shadowRoot?.querySelector('#comment');
+      if (!comment?.shadowRoot) return null;
+      const userInfo = comment.shadowRoot.querySelector('bili-comment-user-info');
+      const richText = comment.shadowRoot.querySelector('bili-rich-text');
+      const authorLink = userInfo?.shadowRoot?.querySelector('a[href*="space.bilibili.com"]');
+      const text = richText?.shadowRoot?.querySelector('#contents')?.innerText || richText?.innerText || '';
+      if (!text.trim()) return null;
+      const threadAttrs = attributes(thread);
+      const commentAttrs = attributes(comment);
+      const nativeCommentId = threadAttrs['data-rpid'] || threadAttrs['data-comment-id'] || commentAttrs['data-rpid'] || commentAttrs['data-comment-id'] || '';
+      const nativeParentId = threadAttrs['data-root'] || threadAttrs['data-parent-id'] || commentAttrs['data-root'] || commentAttrs['data-parent-id'] || '';
+      const commentLink = Array.from(comment.shadowRoot.querySelectorAll('a[href]')).find((anchor) => /reply|comment/i.test(anchor.getAttribute('href') || ''));
+      const publishedAtRaw = [...(comment.shadowRoot.innerText || '').split('\n').map((line) => line.trim()).filter(Boolean)].reverse().find((line) => timePattern.test(line)) || '';
+      return {
+        native_comment_id: nativeCommentId,
+        native_parent_id: nativeParentId,
+        parent_comment_id: nativeParentId,
+        comment_url: commentLink?.href || '',
+        source_type: nativeParentId ? 'reply' : 'comment',
+        author: authorLink?.innerText?.trim() || 'B站用户',
+        author_url: authorLink?.href || '',
+        text: text.trim(),
+        published_at_raw: publishedAtRaw,
+      };
+    }).filter(Boolean);
+  });
 }
 
 async function readPage(platform) {
   return page.evaluate((currentPlatform) => {
     const body = document.body?.innerText || '';
     const title = document.title || '';
+    const isXhs = currentPlatform === 'xhs';
+    const isZhihu = currentPlatform === 'zhihu';
     const comments = currentPlatform === 'bili'
       ? []
       : Array.from(document.querySelectorAll(
           currentPlatform === 'dy'
             ? '[data-e2e="comment-item"]'
-            : currentPlatform === 'xhs'
-              ? '.parent-comment, .comment-item'
-              : '.CommentItemV2, .CommentItem, [class*="CommentItem"]'
-        )).map((node) => {
+            : isXhs
+              ? '.comments-container .comment-item'
+              : isZhihu
+                ? '.Comments-container [data-id], .CommentItemV2, .CommentItem, [class*="CommentItem"]'
+                : '.CommentItemV2, .CommentItem, [class*="CommentItem"]'
+        )).filter((node) => currentPlatform !== 'dy' || !node.parentElement?.closest('[data-e2e="comment-item"]')).map((node) => {
           const lines = (node.innerText || '').split('\n').map((line) => line.trim()).filter(Boolean);
           if (lines.length < 2) return null;
-          const authorLink = node.querySelector('a[href*="/user/"], a[href*="/user/profile/"], a[href*="/people/"]');
+          const authorLink = node.querySelector(
+            isXhs
+              ? '.author .name, a[href*="/user/profile/"]'
+              : 'a[href*="/user/"], a[href*="/user/profile/"], a[href*="/people/"]'
+          );
           const author = authorLink?.innerText?.trim() || lines[0];
+          const contentNode = isXhs
+            ? node.querySelector('.content .note-text, .content')
+            : currentPlatform === 'dy'
+              ? node.querySelector('.FduGc_lz, [data-e2e="comment-text"]')
+              : isZhihu
+                ? node.querySelector('.CommentContent')
+                : null;
           const textLines = lines.slice(1).filter((line) => line !== '...' && line !== '作者' && line !== '分享' && line !== '回复' && !/^\d+$/.test(line) && !/刚刚|刚才|今天|昨天|\d+\s*(秒|分钟|小时|天|周|月|个月|年)前|20\d{2}[-/.]\d{1,2}[-/.]\d{1,2}/.test(line));
-          const text = textLines.join(' ').trim();
+          const text = (contentNode?.innerText || textLines.join(' ')).trim();
           if (!text) return null;
           const attrs = Object.fromEntries(Array.from(node.attributes || []).map((attribute) => [attribute.name, attribute.value]));
-          const nativeCommentId = attrs['data-comment-id'] || attrs['data-cid'] || attrs['data-rpid'] || attrs['data-id'] || '';
-          const nativeParentId = attrs['data-root-id'] || attrs['data-parent-id'] || attrs['data-root'] || '';
+          const nativeCommentId = attrs['data-comment-id'] || attrs['data-cid'] || attrs['data-rpid'] || attrs['data-id'] || (isXhs ? (attrs.id || '').replace(/^comment-/, '') : '');
+          const parentWrapper = isXhs ? node.closest('.parent-comment') : null;
+          const rootNode = parentWrapper?.querySelector(':scope > .comment-item:not(.comment-item-sub)');
+          const rootAttrs = Object.fromEntries(Array.from(rootNode?.attributes || []).map((attribute) => [attribute.name, attribute.value]));
+          const rootId = rootAttrs['data-comment-id'] || rootAttrs['data-cid'] || rootAttrs['data-id'] || (rootAttrs.id || '').replace(/^comment-/, '');
+          const nativeParentId = attrs['data-root-id'] || attrs['data-parent-id'] || attrs['data-root'] || (isXhs && node.classList.contains('comment-item-sub') ? rootId : '');
           const commentLink = node.querySelector('a[href*="comment"], a[href*="reply"], a[href*="#reply"]');
+          const stableCommentUrl = isXhs && nativeCommentId ? `${location.href.split('#')[0]}#comment-${nativeCommentId}` : '';
           const publishedAtRaw = [...lines].reverse().find((line) => /刚刚|刚才|今天|昨天|\d+\s*(秒|分钟|小时|天|周|月|个月|年)前|20\d{2}[-/.]\d{1,2}[-/.]\d{1,2}/.test(line)) || '';
-          return { native_comment_id: nativeCommentId, native_parent_id: nativeParentId, parent_comment_id: nativeParentId, comment_url: commentLink?.href || '', source_type: nativeParentId ? 'reply' : 'comment', author, author_url: authorLink?.href || '', text, published_at_raw: publishedAtRaw };
+          return { native_comment_id: nativeCommentId, native_parent_id: nativeParentId, parent_comment_id: nativeParentId, comment_url: stableCommentUrl || commentLink?.href || '', source_type: nativeParentId ? 'reply' : 'comment', author, author_url: authorLink?.href || '', text, published_at_raw: publishedAtRaw };
         }).filter(Boolean);
     return { title, body: body.slice(0, 30000), hasBody: Boolean(body.trim()), comments };
   }, platform);
@@ -136,7 +163,7 @@ async function collectComments(platform, maxRounds = 10) {
     stable = count === previous ? stable + 1 : 0;
     previous = count;
   }
-  if (platform === 'bili') return extractBiliComments();
+  if (platform === 'bili') return await extractBiliComments();
   return (await readPage(platform)).comments;
 }
 
@@ -168,7 +195,13 @@ function matchComment(comments, candidate) {
   return { status: 'not_found', reason: '页面中未找到对应作者和原话' };
 }
 
+await fs.mkdir(path.dirname(outputPath), { recursive: true });
 const results = [];
+const pageCache = new Map();
+
+async function writePartialResults() {
+  await fs.writeFile(outputPath, JSON.stringify({ results }, null, 2), 'utf-8');
+}
 for (const candidate of input.candidates || []) {
   const result = {
     ...candidate,
@@ -179,16 +212,46 @@ for (const candidate of input.candidates || []) {
     matched_author: '',
     matched_quote: '',
     reason: '',
+    reply_evidence_status: 'not_checked',
+    reply_evidence_reason: '',
     verified_at: new Date().toISOString(),
     screenshot_path: '',
   };
   try {
-    await page.goto(candidate.content_url);
-    await page.waitForLoadState({ timeout: 15000 }).catch(() => {});
-    await page.waitForTimeout(700);
-    result.final_url = await page.url();
-    const initialState = await readPage(candidate.platform);
-    const [pageStatus, pageReason] = classifyPage(initialState, result.final_url);
+    const cacheKey = `${candidate.platform}\n${candidate.content_url}`;
+    let pageState = pageCache.get(cacheKey);
+    if (!pageState) {
+      await page.goto(candidate.content_url, { timeout: 30000 });
+      await page.waitForLoadState({ timeout: 15000 }).catch(() => {});
+      await page.waitForTimeout(700);
+      const finalUrl = await page.url();
+      const initialState = await readPage(candidate.platform);
+      const [pageStatus, pageReason] = classifyPage(initialState, finalUrl);
+      pageState = { finalUrl, initialState, pageStatus, pageReason, comments: [], commentsCollected: false };
+      if (pageStatus === 'ok' && !['post', 'answer', 'content'].includes(candidate.source_type)) {
+        pageState.comments = await collectComments(candidate.platform, 10);
+        pageState.commentsCollected = true;
+      }
+      pageCache.set(cacheKey, pageState);
+    }
+    if (pageState.pageStatus === 'ok' && !pageState.commentsCollected && !['post', 'answer', 'content'].includes(candidate.source_type)) {
+      pageState.comments = await collectComments(candidate.platform, 10);
+      pageState.commentsCollected = true;
+    }
+    result.final_url = pageState.finalUrl;
+    const { initialState, pageStatus, pageReason } = pageState;
+    const expectedReply = normalize(candidate.reply_text);
+    if (expectedReply) {
+      const replyFound = normalize(initialState.body).includes(expectedReply)
+        || pageState.comments.some((comment) => normalize(comment.text) === expectedReply);
+      result.reply_evidence_status = replyFound ? 'text_found' : 'text_not_found';
+      result.reply_evidence_reason = replyFound
+        ? '页面可读内容中找到完整自动回复文本'
+        : '页面可读内容和已加载评论中未找到完整自动回复文本';
+    } else {
+      result.reply_evidence_status = 'no_reply_text';
+      result.reply_evidence_reason = '候选没有可核验的自动回复文本';
+    }
     if (pageStatus !== 'ok') {
       result.status = pageStatus;
       result.reason = pageReason;
@@ -207,8 +270,7 @@ for (const candidate of input.candidates || []) {
         result.reason = '内容页面和原文片段可访问';
       }
     } else {
-      const comments = await collectComments(candidate.platform, 10);
-      const match = matchComment(comments, candidate);
+      const match = matchComment(pageState.comments, candidate);
       result.status = match.status;
       result.locator_method = match.method || '';
       result.matched_author = match.comment?.author || '';
@@ -228,8 +290,8 @@ for (const candidate of input.candidates || []) {
     try { result.final_url = await page.url(); } catch (_) {}
   }
   results.push(result);
+  await writePartialResults();
 }
 
-await fs.mkdir(path.dirname(outputPath), { recursive: true });
-await fs.writeFile(outputPath, JSON.stringify({ results }, null, 2), 'utf-8');
+await writePartialResults();
 console.log(`[CommentLocator] checked ${results.length} candidates in Ego Lite TaskSpace ${taskspaceId}`);

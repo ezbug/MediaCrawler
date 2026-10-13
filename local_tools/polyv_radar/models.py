@@ -76,6 +76,12 @@ class LeadEvidence:
     event_type: str = ""
     company: str = ""
     role: str = ""
+    industry: str = ""
+    gender_guess: str = "unknown"
+    age_band_guess: str = "unknown"
+    trend_alignment: str = "unknown"
+    company_exposed: bool = False
+    company_name: str = ""
     profile_bio: str = ""
     profile_url: str = ""
     author_url: str = ""
@@ -85,6 +91,8 @@ class LeadEvidence:
     stage: str = "legacy"
     decision: str = ""
     rejection_reason: str = ""
+    intent_class: str = "unknown"
+    intent_reason: str = ""
     author_id: str = ""
     source_type: str = "comment"
     comment_url: str = ""
@@ -94,6 +102,11 @@ class LeadEvidence:
     locator_verified_at: str = ""
     locator_reason: str = ""
     native_comment_id: str = ""
+    published_at: str = ""
+    freshness: str = "unknown"
+    source_role: str = "unknown"
+    candidate_kind: str = "current_demand"
+    recommended_action: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -113,6 +126,18 @@ class ProfileSnapshot:
     identity_confidence: str = "low"
     source_urls: list[str] = field(default_factory=list)
     captured_at: str = ""
+    industry: str = ""
+    industry_confidence: str = "unknown"
+    gender_guess: str = "unknown"
+    gender_confidence: str = "unknown"
+    company_exposed: bool = False
+    company_name: str = ""
+    age_band_guess: str = "unknown"
+    age_confidence: str = "unknown"
+    trend_alignment: str = "unknown"
+    trend_confidence: str = "unknown"
+    analysis_evidence: list[str] = field(default_factory=list)
+    analysis_notes: str = ""
 
 
 @dataclass
@@ -154,3 +179,7 @@ class LeadAssessment:
     decision: str = "reject"
     reason: str = ""
     model_status: str = "rule"
+    evidence_hash: str = ""
+    reviewer_version: str = ""
+    reviewer_attempts: int = 0
+    review_latency_seconds: float = 0.0

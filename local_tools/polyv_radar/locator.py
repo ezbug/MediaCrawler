@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Iterable
 from urllib.parse import urlsplit, urlunsplit
 
+from .target_urls import normalize_comment_url
 
 VENDOR_PROFILE_TERMS = (
     "服务商", "供应商", "服务系统", "云直播", "直播服务", "一站式会务", "会展公司", "影像服务",
@@ -15,12 +16,14 @@ VENDOR_PROFILE_TERMS = (
     "欢迎交流", "欢迎咨询", "解决方案提供", "专注企业直播",
 )
 VENDOR_NAME_TERMS = ("云直播", "直播服务", "会展", "影像", "商学园", "酷学院", "考培系统", "直播平台")
+VENDOR_EXCLUSION_REASON = "主页或身份信息显示为服务商、平台方或咨询/会展账号"
 BUYER_SIGNAL_TERMS = (
     "我们公司", "我司", "公司要", "企业要", "公司需要", "企业需要", "正在找", "在找", "求推荐", "求平台",
-    "多少钱", "报价", "采购", "选型", "老板让我", "下个月", "本月", "近期", "准备", "筹备",
+    "预算", "多少钱", "报价", "采购", "选型", "供应商", "服务商", "求方案", "征集", "老板让我", "下个月", "本月", "近期", "准备", "筹备",
     "正在做", "需要", "想找", "用什么", "哪家", "能不能支持",
 )
 EDITORIAL_TERMS = ("攻略", "指南", "避坑", "解析", "案例", "经验分享", "保姆级", "干货")
+GENERIC_AUTHOR_NAMES = ("知乎答主", "知乎用户", "B站创作者", "B站用户", "抖音创作者", "小红书用户")
 
 
 def normalize_locator_text(value: str) -> str:
@@ -105,17 +108,56 @@ def _lead_candidate_key(run_id: str, lead) -> str:
     return _candidate_key({"run_id": run_id, **lead.to_dict()})
 
 
+def _read_locator_results(output_path: Path) -> tuple[list[dict], str]:
+    if not output_path.exists():
+        return [], ""
+    try:
+        payload = json.loads(output_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return [], f"Ego Lite定位结果解析失败: {exc}"
+    results = payload.get("results", [])
+    if not isinstance(results, list):
+        return [], "Ego Lite定位结果格式无效"
+    return [item for item in results if isinstance(item, dict)], ""
+
+
+def _merge_locator_results(
+    rows: list[dict], checked_rows: list[dict], reason: str = ""
+) -> tuple[dict[str, dict], str]:
+    checked = {_candidate_key(item): item for item in checked_rows}
+    fallback_reason = reason or "Ego Lite未返回该候选结果"
+    merged = {
+        _candidate_key(row): checked.get(
+            _candidate_key(row),
+            {
+                **row,
+                "status": "error",
+                "reason": fallback_reason,
+                "verified_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        for row in rows
+    }
+    return merged, reason
+
+
 def run_ego_locator(
     candidates: Iterable[dict],
     repo_root: Path,
     work_dir: Path,
-    taskspace: int = 8,
+    taskspace: int | None = None,
     runner=subprocess.run,
     timeout: int = 240,
 ) -> tuple[dict[str, dict], str]:
     rows = list(candidates)
     if not rows:
         return {}, ""
+    if taskspace is None:
+        if runner is subprocess.run:
+            raise ValueError("定位必须显式提供用户已登录的 Ego Lite TaskSpace")
+        taskspace = 1  # test doubles never open a browser; production CLI is explicit
+    if int(taskspace) <= 0:
+        raise ValueError("定位必须显式提供用户已登录的 Ego Lite TaskSpace")
     work_dir.mkdir(parents=True, exist_ok=True)
     input_path = work_dir / "locator-input.json"
     output_path = work_dir / "locator-output.json"
@@ -125,7 +167,7 @@ def run_ego_locator(
         f"process.env.POLYV_LOCATOR_INPUT = {json.dumps(str(input_path))};\n"
         f"process.env.POLYV_LOCATOR_OUTPUT = {json.dumps(str(output_path))};\n"
         f"process.env.POLYV_TASKSPACE_ID = {json.dumps(str(taskspace))};\n"
-        f"await import({json.dumps(str(script_path))});\n"
+        f"await import({json.dumps(script_path.resolve().as_uri())});\n"
     )
     try:
         result = runner(
@@ -137,48 +179,22 @@ def run_ego_locator(
             timeout=timeout,
             cwd=repo_root,
         )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        log = str(exc)
-        return {
-            _candidate_key(row): {
-                **row,
-                "status": "error",
-                "reason": f"Ego Lite定位失败: {log}",
-                "verified_at": datetime.now(timezone.utc).isoformat(),
-            }
-            for row in rows
-        }, log
-    if result.returncode != 0 or not output_path.exists():
-        log = (result.stderr or result.stdout or "Ego Lite定位没有生成结果").strip()[-1000:]
-        return {
-            _candidate_key(row): {
-                **row,
-                "status": "error",
-                "reason": f"Ego Lite定位失败: {log}",
-                "verified_at": datetime.now(timezone.utc).isoformat(),
-            }
-            for row in rows
-        }, log
-    log = ""
-    try:
-        payload = json.loads(output_path.read_text(encoding="utf-8"))
-        results = payload.get("results", [])
-    except (OSError, json.JSONDecodeError) as exc:
-        log = f"Ego Lite定位结果解析失败: {exc}"
-        results = []
-    checked = {_candidate_key(item): item for item in results if isinstance(item, dict)}
-    return {
-        _candidate_key(row): checked.get(
-            _candidate_key(row),
-            {
-                **row,
-                "status": "error",
-                "reason": "Ego Lite未返回该候选结果",
-                "verified_at": datetime.now(timezone.utc).isoformat(),
-            },
+    except subprocess.TimeoutExpired as exc:
+        checked_rows, parse_log = _read_locator_results(output_path)
+        return _merge_locator_results(
+            rows,
+            checked_rows,
+            parse_log or f"Ego Lite定位超时（已保留已完成结果）: {exc}",
         )
-        for row in rows
-    }, log
+    except OSError as exc:
+        return _merge_locator_results(rows, [], f"Ego Lite定位失败: {exc}")
+    results, parse_log = _read_locator_results(output_path)
+    process_log = (result.stderr or result.stdout or "").strip()[-1000:]
+    if result.returncode != 0:
+        process_log = process_log or "Ego Lite定位进程异常退出"
+        if parse_log:
+            process_log = f"{process_log}; {parse_log}"
+    return _merge_locator_results(rows, results, process_log if result.returncode != 0 else parse_log)
 
 
 def is_deliverable_lead(lead, min_score: int = 4) -> bool:
@@ -200,21 +216,26 @@ def is_deliverable_lead(lead, min_score: int = 4) -> bool:
 
 
 def lead_exclusion_reason(lead) -> str:
+    if normalize_locator_text(lead.user) in {normalize_locator_text(item) for item in GENERIC_AUTHOR_NAMES}:
+        return "作者是平台泛化占位名，无法完成身份核验"
     profile_text = " ".join(
         str(value or "")
         for value in (lead.user, lead.company, lead.role, lead.profile_bio)
     ).casefold()
     if any(term.casefold() in profile_text for term in VENDOR_PROFILE_TERMS):
-        return "主页或身份信息显示为服务商、平台方或咨询/会展账号"
+        return VENDOR_EXCLUSION_REASON
     if any(term.casefold() in str(lead.user or "").casefold() for term in VENDOR_NAME_TERMS):
         return "用户名显示为直播、软件或会展服务账号"
     signal_text = f"{lead.content_title}\n{lead.quote}".casefold()
-    has_buyer_signal = any(term.casefold() in signal_text for term in BUYER_SIGNAL_TERMS)
+    has_buyer_signal = lead.intent_class == "buyer_request" or any(
+        term.casefold() in signal_text for term in BUYER_SIGNAL_TERMS
+    )
     if not has_buyer_signal:
         return "原文缺少第一人称需求或明确采购/项目询问"
+    editorial_terms = (*EDITORIAL_TERMS, "选型", "评测", "推荐")
     if lead.source_type in {"post", "answer", "content"} and any(
-        term.casefold() in signal_text for term in EDITORIAL_TERMS
-    ) and not any(term.casefold() in str(lead.quote or "").casefold() for term in ("我们公司", "我司", "公司要", "公司需要", "企业要", "企业需要")):
+        term.casefold() in signal_text for term in editorial_terms
+    ) and lead.intent_class != "buyer_request":
         return "内容为攻略、指南或案例型发布，缺少第一人称项目需求"
     return ""
 
@@ -248,14 +269,22 @@ def locate_store(
     repo_root: Path,
     run_id: str,
     max_candidates: int = 80,
-    taskspace: int = 8,
+    taskspace: int | None = None,
     runner=subprocess.run,
 ) -> dict[str, int | str]:
     from .storage import RadarStore
 
+    if taskspace is None:
+        if runner is subprocess.run:
+            raise ValueError("locate 必须显式传入 --taskspace；不使用固定会话")
+        taskspace = 1  # test doubles never open a browser; production CLI is explicit
+    if int(taskspace) <= 0:
+        raise ValueError("locate 必须显式传入 --taskspace；不使用固定会话")
+
     store = RadarStore(config.data_root / "radar.sqlite3")
     store.initialize()
-    leads = [lead for lead in store.load_leads(run_id) if lead.score >= config.min_lead_score and lead.decision != "reject"][:max_candidates]
+    all_leads = store.load_leads(run_id)
+    leads = [lead for lead in all_leads if lead.score >= config.min_lead_score and lead.decision != "reject"][:max_candidates]
     candidates = [
         {
             "run_id": run_id,
@@ -287,7 +316,9 @@ def locate_store(
             _lead_candidate_key(run_id, lead),
             {"status": "error", "reason": "Ego Lite未返回该候选结果"},
         )
-        locator_url_value = str(result.get("locator_url") or lead.comment_url or (lead.url if lead.source_type in {"post", "answer", "content"} else ""))
+        source_type = lead.source_type or "comment"
+        locator_candidate = str(result.get("locator_url") or lead.comment_url or "")
+        locator_url_value = normalize_comment_url(locator_candidate, lead.url, source_type) or lead.url
         locator_status = str(result.get("status", "error"))
         verified_at = str(result.get("verified_at", datetime.now(timezone.utc).isoformat()))
         updated_lead = type(lead)(
@@ -307,7 +338,7 @@ def locate_store(
                 "platform": lead.platform,
                 "content_id": lead.content_id,
                 "comment_id": lead.comment_id,
-                "source_type": lead.source_type,
+                "source_type": source_type,
                 "content_url": lead.url,
                 "comment_url": locator_url_value,
                 "locator_method": updated_lead.locator_method,
@@ -322,7 +353,17 @@ def locate_store(
                 "verified_at": verified_at,
             }
         )
-    store.save_leads(run_id, updated)
+    updated_by_key = {
+        (lead.platform, lead.content_id, lead.comment_id): lead
+        for lead in updated
+    }
+    store.save_leads(
+        run_id,
+        [
+            updated_by_key.get((lead.platform, lead.content_id, lead.comment_id), lead)
+            for lead in all_leads
+        ],
+    )
     store.close()
     counts: dict[str, int | str] = {"candidates": len(leads), "verified": 0, "not_found": 0, "blocked": 0, "ambiguous": 0, "error": 0}
     for lead in updated:
