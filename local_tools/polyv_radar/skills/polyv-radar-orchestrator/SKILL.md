@@ -1,11 +1,11 @@
 ---
 name: polyv-radar-orchestrator
-description: 接管和编排POLYV公开需求发现、证据核验、机构需求分级及获授权的公开回复；采用三Worker委派、主代理统一落账和发送。
-version: 0.1.0
-status: installed
+description: 接管和编排POLYV公开需求发现、机构需求分级、企业邮件及获授权的外联；采用三Worker委派、主代理统一落账和发送。
 license: internal
-platforms: [macos]
 metadata:
+  version: 0.1.0
+  status: installed
+  platforms: [macos]
   hermes:
     tags: [polyv, lead-radar, orchestration, evidence, outreach]
     related_skills: [polyv-lead-auto-reply]
@@ -14,6 +14,11 @@ metadata:
 # POLYV 寻客雷达 · 编排主 Skill（v0.1.0）
 
 ## 产品路由
+
+企业宣传邮件任务读取 [邮件工作流五门](references/email-workflow-gates.md)。将公司活动证据、
+钩子填充和发送前判断交给现有三个 Worker 的对应步骤，由主代理在最终发送时执行五门。
+这些判断是现有工作流的一部分，按本次任务触发；不新增审核角色或定时审核任务。
+用户已授权的邮件通过后继续发送，记录同步对应 Obsidian 卡片；未通过的交给用户确认。
 
 用户指定 ZigoAI 时，先读取 [ZigoAI 只读发现](references/zigo-discovery.md)，采用
 `zigo-sales.toml` 或 `zigo-geo.toml`，不使用 POLYV 的词库扩展、评分及发送入口。
