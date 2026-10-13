@@ -25,7 +25,7 @@ def _row(**overrides) -> dict:
         "target_url": "https://zhuanlan.zhihu.com/p/1",
         "target_author": "阿尔法",
         "target_quote": "有没有防录屏的视频分享平台？",
-        "reply_text": "想问问具体咋样的？我之前也有类似问题",
+        "reply_text": "问得好，后来怎么解决的？",
         "source_type": "comment",
         "mode": "live",
         "clicked": True,

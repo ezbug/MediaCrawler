@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
-from .comment_style import comment_reply, reactivation_comment
+from .comment_style import category_comment_guidance, comment_reply, reactivation_comment
 from .config import RadarConfig
 from .manual_candidates import build_manual_candidates
 from .scoring import classify_account_role, classify_category, classify_event, classify_publisher_role, freshness_bucket
@@ -288,14 +288,10 @@ def _draft(row: dict) -> str:
     if row.get("source_type") in {"comment", "reply"}:
         mode = "solve" if row.get("triage_label") != "conditional" else "reaction"
         return comment_reply(quote, category, mode=mode)
-    if row.get("triage_label") == "conditional":
-        return (
-            f"看到你提到“{quote}”。这类{category}通常要先看参与人数、内容形式和后续管理方式；"
-            "如果需求还在推进，POLYV可以按实际场景帮你做方案梳理。"
-        )
-    return (
-        f"看到你提到“{quote}”。这类{category}可以先把参与规模、观看对象、内容形态和交付方式列清，"
-        "再比较平台方案；POLYV可以结合具体场景帮你梳理，方便的话可以私信沟通。"
+    return comment_reply(
+        quote,
+        category,
+        guidance=category_comment_guidance(category),
     )
 
 
