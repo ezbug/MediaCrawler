@@ -77,15 +77,30 @@ def main(argv=None):
             print(json.dumps(result, ensure_ascii=False, indent=2))
             return 2
         history_path = output / "send-attempts.jsonl"
-        if history_path.exists() and any(json.loads(line)["email_hash"] == digest(mail) for line in history_path.read_text().splitlines()):
+        prior = []
+        if history_path.exists():
+            for line in history_path.read_text().splitlines():
+                if line.strip():
+                    prior.append(json.loads(line))
+        mail_hash = digest(mail)
+        if any(item.get("email_hash") == mail_hash and item.get("status") == "send_outcome_unknown" for item in prior):
             raise ValueError("prior_send_attempt_requires_manual_review")
         canonical = json.dumps(mail, ensure_ascii=False, sort_keys=True)
         # Canonical mail is also the mail passed to JS; hashes cover all editable fields.
         write_json(output / "send-packet.json", {"mail": json.loads(canonical), "audit": result, "canonical_email": canonical})
-        if args.submit:
+        try:
+            response = ego("ego_gmail_gate.mjs", "send", [str((output / "send-packet.json").resolve()), args.taskspace, args.submit], timeout=120)
+        except Exception as exc:  # noqa: BLE001 - 记录失败原因后原样抛出
+            message = str(exc)
+            pre_send_markers = (
+                "compose_button_not_found", "recipient_field_not_found", "compose_verification_failed",
+                "gmail_page_required", "body_editor_missing", "unique_compose_dialog_required",
+                "send_button_not_found", "audit_",
+            )
+            status = "attempt_failed" if any(marker in message for marker in pre_send_markers) else "send_outcome_unknown"
             with history_path.open("a", encoding="utf-8") as stream:
-                stream.write(json.dumps({"email_hash": digest(mail), "status": "attempt_started", "date": today().isoformat()}) + "\n")
-        response = ego("ego_gmail_gate.mjs", "send", [str((output / "send-packet.json").resolve()), args.taskspace, args.submit], timeout=120)
+                stream.write(json.dumps({"email_hash": mail_hash, "status": status, "date": today().isoformat(), "error": message[:300]}, ensure_ascii=False) + "\n")
+            raise
         write_json(output / "gmail-result.json", {"email_id": result["email_id"], "response": response})
         if args.submit:
             from datetime import datetime

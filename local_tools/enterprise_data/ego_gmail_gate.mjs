@@ -10,21 +10,59 @@ export function validatePacket(packet, today = new Intl.DateTimeFormat('en-CA', 
   return mail;
 }
 
-export async function send(payloadPath, spaceId, submit = false) {
-  const packet = JSON.parse(await fs.readFile(payloadPath, 'utf8'));
-  const mail = validatePacket(packet);
-  const { audit } = packet;
-  const task = await taskSpace(spaceId);
-  const page = task.page('p1');
+const PRE_SEND_ERRORS = [
+  'gmail_page_required',
+  'compose_button_not_found',
+  'recipient_field_not_found',
+  'compose_verification_failed',
+  'body_editor_missing',
+  'unique_compose_dialog_required',
+  'send_button_not_found',
+];
+
+async function fillAndDispatch(page, mail, audit, submit) {
   if (!(await page.url()).startsWith('https://mail.google.com/')) throw new Error('gmail_page_required');
-  const existing = await page.evaluate(() => document.querySelectorAll('input[name=subjectbox]').length);
-  if (existing) throw new Error('existing_compose_requires_user_attention');
-  await page.click('loc=role:button[name="写邮件"]');
+  const hasCompose = await page.evaluate(() => document.querySelectorAll('input[name=subjectbox]').length > 0);
+  if (!hasCompose) {
+    const composeOpened = await page.evaluate(() => {
+      const button = [...document.querySelectorAll("div[role=button],button")].find(
+        (el) => /写邮件|Compose|撰写/.test(el.getAttribute("aria-label") || el.innerText || ""),
+      );
+      if (!button) return false;
+      button.click();
+      return true;
+    });
+    if (!composeOpened) throw new Error('compose_button_not_found');
+  }
   await page.waitForSelector('input[name=subjectbox]', { timeout: 10000 });
+  // Gmail 的收件人输入框被 chip 容器包着，尺寸为 0，但打开撰写后默认已聚焦；
+  // 因此用键盘直接输入而不是 fill()。
+  const readRecipients = () => page.evaluate(() => {
+    const scope = document.querySelector('input[name=subjectbox]')?.closest('[role=dialog]');
+    if (!scope) return [];
+    return [...new Set([...scope.querySelectorAll('[email],[data-hovercard-id]')]
+      .map((el) => el.getAttribute('email') || el.getAttribute('data-hovercard-id'))
+      .filter(Boolean))];
+  });
+  let recipients = await readRecipients();
+  if (!(recipients.length === 1 && recipients[0].toLowerCase() === mail.to.toLowerCase())) {
+    const focusedTo = await page.evaluate(() => {
+      const scope = document.querySelector('input[name=subjectbox]')?.closest('[role=dialog]');
+      const field = scope?.querySelector('input[aria-label*="收件人"],input[aria-label*="To"]');
+      if (!field) return false;
+      field.focus();
+      return document.activeElement === field;
+    });
+    if (!focusedTo) {
+      throw new Error('recipient_field_not_found');
+    }
+    await page.keyboard.insertText(mail.to);
+    await page.waitForTimeout(900);
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(1200);
+    recipients = await readRecipients();
+  }
   await page.fill('input[name=subjectbox]', mail.subject);
-  const to = 'input[aria-label*="收件人"],input[name="to"],input[peoplekit-id]';
-  await page.fill(to, mail.to);
-  await page.press(to, 'Enter');
   const filled = await page.evaluate(mail => {
     const subject = document.querySelector('input[name=subjectbox]');
     const scope = subject.closest('[role=dialog]');
@@ -39,14 +77,48 @@ export async function send(payloadPath, spaceId, submit = false) {
     visible.textContent = mail.body;
     editor.replaceChildren(hidden, visible);
     editor.dispatchEvent(new InputEvent('input', { bubbles: true }));
-    const recipients = [...scope.querySelectorAll('[email],[data-hovercard-id]')].map(e => e.getAttribute('email') || e.getAttribute('data-hovercard-id'));
-    return { body: visible.textContent, subject: subject.value, recipients };
+    return { body: visible.textContent, subject: subject.value };
   }, mail);
-  if (filled.body !== mail.body || filled.subject !== mail.subject || filled.recipients.length !== 1 || filled.recipients[0] !== mail.to) {
+  if (filled.body !== mail.body || filled.subject !== mail.subject || recipients.length !== 1 || recipients[0].toLowerCase() !== mail.to.toLowerCase()) {
     throw new Error('compose_verification_failed');
   }
   if (!submit) return { status: 'draft_verified', submitted: false, email_id: audit.email_id };
-  await page.click('loc=role:button[name*="发送"]');
+  const dispatched = await page.evaluate(() => {
+    const scope = document.querySelector("input[name=subjectbox]")?.closest("[role=dialog]");
+    if (!scope) return false;
+    const button = [...scope.querySelectorAll("div[role=button],button")].find(
+      (el) => /发送|Send/.test(el.getAttribute("aria-label") || el.innerText || ""),
+    );
+    if (!button) return false;
+    button.click();
+    return true;
+  });
+  if (!dispatched) throw new Error('send_button_not_found');
   await page.waitForFunction(() => /邮件已发送|Message sent/.test(document.body.innerText), undefined, { timeout: 15000 });
   return { status: 'sent_ui_confirmed', submitted: true, email_id: audit.email_id };
+}
+
+export async function send(payloadPath, spaceId, submit = false) {
+  const packet = JSON.parse(await fs.readFile(payloadPath, 'utf8'));
+  const mail = validatePacket(packet);
+  const { audit } = packet;
+  const task = await taskSpace(spaceId);
+  const page = task.page('p1');
+  let lastError = null;
+  // 只对“点击发送之前”的失败重试：先关掉残留撰写窗口并回到收件箱，再重来一次。
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await fillAndDispatch(page, mail, audit, submit);
+    } catch (error) {
+      const message = String((error && error.message) || error);
+      const isPreSend = PRE_SEND_ERRORS.some((marker) => message.includes(marker));
+      if (!isPreSend) throw error;
+      lastError = error;
+      await page.keyboard.press('Escape').catch(() => {});
+      await page.waitForTimeout(900);
+      await page.goto('https://mail.google.com/mail/u/0/#inbox').catch(() => {});
+      await page.waitForTimeout(2600);
+    }
+  }
+  throw lastError;
 }
