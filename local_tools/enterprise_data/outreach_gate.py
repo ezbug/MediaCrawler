@@ -37,7 +37,10 @@ CARD_MARKERS = ("活动时间", "会议时间", "举办时间", "活动日期")
 VALID_BUSINESS = {"enterprise_live", "enterprise_training", "private_live", "sdk", "ir_live"}
 ROLE_PREFIXES = {"training": "training", "hr": "training", "ir": "ir",
                  "finance": "ir", "events": "marketing", "pr": "marketing",
-                 "market": "marketing", "marketing": "marketing"}
+                 "market": "marketing", "marketing": "marketing",
+                 "sales": "business", "bd": "business", "business": "business",
+                 "info": "business", "contact": "business", "hq": "business"}
+VALID_ROLES = {"training", "marketing", "ir", "business"}
 DATE_RE = re.compile(r"(?<![\d:])(?:(20\d{2})\s*[年/-]\s*)?(0?[1-9]|1[0-2])\s*[月/-]\s*(0?[1-9]|[12]\d|3[01])\s*日?(?![\d:])")
 MARKERS = re.compile(r"测试邮件|邮件测试|测试标记|测试版|\bTEST\b|\bTODO\b|\bTBD\b|Dry[- ]?Run|本稿|发送前|待确认|待填|\{[^\n]*?\}|\[(?:公司名|姓名|日期|收件人)\]|<[^>]*(?:COMPANY|DATE|姓名|公司|日期)[^>]*>", re.I)
 
@@ -213,7 +216,9 @@ def audit_email(mail: dict, events: list[dict], targets: list[dict], as_of: date
     if not target or mail.get("company") != target["name"]:
         reasons.append("company_unknown_or_mismatch")
     prefix, _, domain = str(mail.get("to", "")).lower().partition("@")
-    role = ROLE_PREFIXES.get(prefix)
+    # 人工注释过的邮箱（例如官网公开的商务/渠道邮箱）以注释职能为准；未注释的邮箱仍按前缀推断。
+    annotated = ((target or {}).get("mailboxes") or {}).get(str(mail.get("to") or "").lower()) or {}
+    role = annotated.get("role") or ROLE_PREFIXES.get(prefix)
     if event and has_hook:
         if event["company_id"] != mail.get("company_id"):
             reasons.append("company_event_mismatch")

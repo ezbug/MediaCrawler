@@ -101,6 +101,7 @@ def export_email_cards(
     deliverability: dict | None = None,
     send_log: list[dict] | None = None,
     drafts: dict[str, list[dict]] | None = None,
+    annotations: dict[str, dict] | None = None,
 ) -> list[Path]:
     out_dir = Path(poly_root) / "email"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -108,12 +109,17 @@ def export_email_cards(
     deliverability = deliverability or {}
     send_log = send_log or []
     drafts = drafts or {}
+    annotations = annotations or {}
     for site in probe:
         domain = str(site.get("domain") or "").strip()
         emails = [str(item) for item in (site.get("emails") or [])]
         if not domain:
             continue
-        brand, industry = DOMAIN_BRAND.get(domain, (domain, ""))
+        annotation = annotations.get(domain) or {}
+        default_brand, default_industry = DOMAIN_BRAND.get(domain, (domain, ""))
+        brand = str(annotation.get("name") or default_brand)
+        industry = str(annotation.get("industry") or default_industry)
+        email_types = annotation.get("email_types") or {}
         pages = [page for page in (site.get("pages") or []) if page.get("emails")]
         first_page = {}
         for page in pages:
@@ -162,7 +168,8 @@ def export_email_cards(
             for email in usable:
                 page = first_page.get(email) or {}
                 kind = page.get("kind") or ("首页" if (page.get("path") or "/") == "/" else "其他页面")
-                body.append(f"| {email} | {mailbox_function(email)} | {kind} `{page.get('path') or '/'}` |")
+                function = email_types.get(email) or mailbox_function(email)
+                body.append(f"| {email} | {function} | {kind} `{page.get('path') or '/'}` |")
         else:
             body.append("| （未发现可用邮箱） | - | - |")
         body.extend(["", "## 来源页面", ""])
@@ -217,6 +224,20 @@ def export_email_cards(
                 body.extend(["", "> [!quote]- 邮件全文"])
                 for line in str(draft.get("body") or "").splitlines():
                     body.append(f"> {line}" if line else ">")
+            body.append("")
+        if annotation:
+            body.extend(["", "## 人工注释", ""])
+            if annotation.get("phone"):
+                body.append(f"- 官网电话：{annotation['phone']}")
+            if annotation.get("note"):
+                body.append(f"- 备注：{annotation['note']}")
+            if email_types:
+                pairs = "；".join(f"{email}（{label}）" for email, label in email_types.items())
+                body.append(f"- 邮箱用途标注：{pairs}")
+            for excluded in annotation.get("excluded") or []:
+                body.append(f"- 已排除：{excluded}")
+            if annotation.get("source"):
+                body.append(f"- 备注来源：{annotation['source']}")
             body.append("")
         body.extend([
             "",
@@ -500,11 +521,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--deliverability", help="邮箱可达性 JSON（domain 到条目列表）")
     parser.add_argument("--send-log", help="发送台账 JSONL 路径")
     parser.add_argument("--outreach-review", help="活动评审目录（pending-emails-v2.json / audit-results.json / events.json）")
+    parser.add_argument("--annotations", help="人工注释 JSON（domain → name/phone/note/email_types/excluded）")
     parser.add_argument("--db", help="enterprise.sqlite3 路径")
     parser.add_argument("--stat-date", default="")
     args = parser.parse_args(argv)
 
     poly_root = Path(args.vault) / "Poly"
+    annotations: dict[str, dict] = {}
+    if args.annotations:
+        raw_annotations = json.loads(Path(args.annotations).read_text(encoding="utf-8"))
+        annotations = raw_annotations.get("domains") if isinstance(raw_annotations, dict) and "domains" in raw_annotations else raw_annotations
     written: list[Path] = []
     email_count = 0
     if args.email_probe:
@@ -564,6 +590,7 @@ def main(argv: list[str] | None = None) -> int:
             deliverability=deliverability,
             send_log=send_log,
             drafts=drafts_by_domain,
+            annotations=annotations,
         )
         email_count = len(cards)
         written.extend(cards)

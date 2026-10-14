@@ -133,6 +133,7 @@ def main(argv=None):
                     "--deliverability", str(output.parent / "email-deliverability.json"),
                     "--send-log", str(send_log), "--db", sync["db"],
                     "--outreach-review", str(output),
+                    *(["--annotations", sync["annotations"]] if sync.get("annotations") else []),
                     "--stat-date", today().isoformat(),
                 ], check=True, capture_output=True, text=True)
         result["browser_result"] = response
