@@ -95,7 +95,7 @@ def main(argv=None):
             pre_send_markers = (
                 "compose_button_not_found", "recipient_field_not_found", "compose_verification_failed",
                 "gmail_page_required", "body_editor_missing", "unique_compose_dialog_required",
-                "send_button_not_found", "audit_",
+                "send_button_not_found", "audit_", "subjectbox",
             )
             status = "attempt_failed" if any(marker in message for marker in pre_send_markers) else "send_outcome_unknown"
             with history_path.open("a", encoding="utf-8") as stream:
